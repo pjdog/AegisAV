@@ -1,0 +1,65 @@
+# Risk threshold configuration for AegisAV
+# These thresholds determine when warnings and aborts are triggered
+
+battery:
+  # Battery percentage thresholds
+  warning_percent: 30      # Issue warning below this level
+  critical_percent: 20     # Force return to dock
+  abort_percent: 15        # Emergency land immediately
+  
+  # Reserve requirements
+  reserve_margin_percent: 10  # Additional margin for safety
+
+wind:
+  # Wind speed thresholds (m/s)
+  warning_ms: 8           # Issue warning above this
+  abort_ms: 12            # Abort mission above this
+  gust_factor: 1.5        # Multiply for gust tolerance
+
+weather:
+  # Visibility thresholds (meters)
+  min_visibility_m: 1000
+  
+  # Precipitation
+  no_fly_conditions:
+    - "heavy_rain"
+    - "snow"
+    - "hail"
+    - "thunderstorm"
+
+connectivity:
+  # Heartbeat monitoring
+  heartbeat_timeout_s: 5      # Warn if no heartbeat
+  abort_timeout_s: 30         # Abort if connection lost
+  
+  # Server connection
+  server_timeout_s: 10        # Warn if server unreachable
+  server_abort_s: 60          # Fallback to safe behavior
+
+vehicle:
+  # Health monitoring
+  required_healthy_sensors:
+    - "gps"
+    - "imu"
+    - "barometer"
+  
+  # GPS quality
+  min_satellites: 6
+  max_hdop: 2.0
+
+geofence:
+  # Maximum distance from home (meters)
+  max_distance_m: 5000
+  
+  # Altitude limits (meters AGL)
+  max_altitude_m: 120
+  min_altitude_m: 5
+
+operational:
+  # Time-based constraints
+  max_flight_duration_min: 45
+  min_remaining_time_min: 5
+  
+  # Mission constraints
+  max_waypoint_error_m: 10
+  position_hold_timeout_s: 30

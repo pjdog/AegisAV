@@ -1,0 +1,83 @@
+# Mission configuration for AegisAV
+# Defines inspection assets, dock locations, and mission parameters
+
+mission:
+  name: "infrastructure-patrol"
+  type: "inspection"
+  
+  # Mission timing
+  default_cadence_minutes: 30
+  anomaly_cadence_minutes: 10  # Faster revisits after anomaly
+  
+home:
+  latitude: 47.397742
+  longitude: 8.545594
+  altitude_m: 488.0  # MSL
+
+dock:
+  position:
+    latitude: 47.397742
+    longitude: 8.545594
+    altitude_m: 488.0
+  
+  # Approach parameters
+  approach_altitude_m: 10
+  approach_speed_ms: 2.0
+  landing_speed_ms: 0.5
+  
+  # Dock capabilities
+  has_charging: true
+  charge_time_minutes: 60
+  
+assets:
+  - id: "asset-001"
+    name: "Solar Panel Array A"
+    type: "solar_panel"
+    position:
+      latitude: 47.398000
+      longitude: 8.546000
+      altitude_m: 490.0
+    inspection:
+      altitude_agl_m: 15
+      orbit_radius_m: 20
+      dwell_time_s: 30
+    priority: 1
+    
+  - id: "asset-002"
+    name: "Wind Turbine B"
+    type: "wind_turbine"
+    position:
+      latitude: 47.397500
+      longitude: 8.544000
+      altitude_m: 510.0
+    inspection:
+      altitude_agl_m: 50
+      orbit_radius_m: 30
+      dwell_time_s: 45
+    priority: 2
+    
+  - id: "asset-003"
+    name: "Substation C"
+    type: "substation"
+    position:
+      latitude: 47.396800
+      longitude: 8.545800
+      altitude_m: 485.0
+    inspection:
+      altitude_agl_m: 20
+      orbit_radius_m: 25
+      dwell_time_s: 60
+    priority: 1
+
+inspection:
+  # Default inspection parameters
+  default_altitude_agl_m: 20
+  default_speed_ms: 5.0
+  
+  # Anomaly detection (simulated)
+  anomaly_detection_enabled: true
+  anomaly_probability: 0.1  # For simulation
+  
+  # Photo capture
+  capture_interval_s: 2
+  capture_on_anomaly: true

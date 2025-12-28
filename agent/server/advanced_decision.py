@@ -5,6 +5,7 @@ Implements sophisticated decision-making capabilities for truly autonomous aeria
 This module provides hierarchical planning, adaptive learning, and explainable AI reasoning.
 """
 
+import asyncio
 import logging
 from abc import ABC, abstractmethod
 from collections import deque
@@ -126,14 +127,16 @@ class PredictiveModel(ABC):
     """Base class for predictive models."""
 
     @abstractmethod
-    async def predict(self, context: DecisionContext, world: WorldSnapshot) -> PredictionResult:
+    async def predict(
+        self, context: DecisionContext, world: WorldSnapshot
+    ) -> PredictionResult:
         """Make prediction based on current context."""
-        pass
+        raise NotImplementedError
 
     @abstractmethod
     async def update_model(self, experience: LearningExperience) -> None:
         """Update model based on new experience."""
-        pass
+        raise NotImplementedError
 
 
 class BatteryPredictor(PredictiveModel):
@@ -143,7 +146,7 @@ class BatteryPredictor(PredictiveModel):
         self.consumption_history = deque(maxlen=100)
         self.weather_factors = {}
 
-    async def predict(self, context: DecisionContext, world: WorldSnapshot) -> PredictionResult:
+    async def predict(self, _context: DecisionContext, world: WorldSnapshot) -> PredictionResult:
         """Predict battery consumption for upcoming actions."""
         current_consumption = self._calculate_current_consumption(world)
 
@@ -154,9 +157,6 @@ class BatteryPredictor(PredictiveModel):
         else:
             predicted_consumption = current_consumption * 1.2  # Conservative estimate
 
-        remaining_time = (
-            world.vehicle.battery.remaining_percent / 100.0
-        ) * self._estimate_max_flight_time()
         confidence = self._calculate_prediction_confidence()
 
         return PredictionResult(
@@ -225,7 +225,7 @@ class WeatherPredictor(PredictiveModel):
         self.weather_history = deque(maxlen=50)
         self.wind_patterns = {}
 
-    async def predict(self, context: DecisionContext, world: WorldSnapshot) -> PredictionResult:
+    async def predict(self, _context: DecisionContext, world: WorldSnapshot) -> PredictionResult:
         """Predict weather changes."""
         current_weather = getattr(world.environment, "wind_speed_ms", 0)
 
@@ -239,8 +239,6 @@ class WeatherPredictor(PredictiveModel):
         # Predict conditions in 30 minutes
         predicted_wind = max(0, current_weather + trend * 6)
 
-        # Assess flight safety
-        safety_factor = self._calculate_safety_factor(predicted_wind)
         confidence = 0.7 if abs(trend) < 2 else 0.4
 
         return PredictionResult(
@@ -304,7 +302,7 @@ class GoalHierarchy:
 
         return plan[: self.max_depth]
 
-    def _plan_inspection_mission(self, world: WorldSnapshot, goal: Goal) -> list[Goal]:
+    def _plan_inspection_mission(self, _world: WorldSnapshot, goal: Goal) -> list[Goal]:
         """Plan detailed inspection mission."""
         sub_goals = []
 
@@ -350,7 +348,9 @@ class GoalHierarchy:
 
         return sub_goals
 
-    def _plan_battery_return(self, world: WorldSnapshot, goal: Goal) -> list[Goal]:
+    def _plan_battery_return(
+        self, _world: WorldSnapshot, _goal: Goal
+    ) -> list[Goal]:
         """Plan efficient battery return."""
         sub_goals = []
 
@@ -383,7 +383,7 @@ class GoalHierarchy:
 
         return sub_goals
 
-    def _plan_abort_sequence(self, world: WorldSnapshot, goal: Goal) -> list[Goal]:
+    def _plan_abort_sequence(self, _world: WorldSnapshot, _goal: Goal) -> list[Goal]:
         """Plan safe abort sequence."""
         sub_goals = []
 
@@ -651,7 +651,9 @@ class AdvancedDecisionEngine:
         }
         return weights.get(cognitive_level, 0.3)
 
-    async def _make_reactive_decision(self, world: WorldSnapshot, context: DecisionContext) -> Goal:
+    async def _make_reactive_decision(
+        self, world: WorldSnapshot, _context: DecisionContext
+    ) -> Goal:
         """Make immediate reactive decision."""
         # Prioritize safety above all else
         emergency = self._calculate_emergency_level(world)
@@ -677,7 +679,7 @@ class AdvancedDecisionEngine:
     async def _make_deliberative_decision(
         self,
         world: WorldSnapshot,
-        context: DecisionContext,
+        _context: DecisionContext,
         battery_prediction: PredictionResult,
         weather_prediction: PredictionResult,
     ) -> Goal:
@@ -715,25 +717,24 @@ class AdvancedDecisionEngine:
                 reason=f"Safety risk too high (score: {score:.2f}): {battery_risk}",
                 priority=100,
             )
-        elif world.vehicle.battery.remaining_percent < 30:
+        if world.vehicle.battery.remaining_percent < 30:
             return Goal(
                 goal_type=GoalType.RETURN_LOW_BATTERY,
                 reason=f"Efficient return needed (score: {score:.2f}): {battery_risk}",
                 priority=80,
             )
-        else:
-            return Goal(
-                goal_type=GoalType.WAIT,
-                reason=f"Continue monitoring (score: {score:.2f}): {battery_risk}",
-                priority=50,
-            )
+        return Goal(
+            goal_type=GoalType.WAIT,
+            reason=f"Continue monitoring (score: {score:.2f}): {battery_risk}",
+            priority=50,
+        )
 
     async def _make_reflective_decision(
         self,
         world: WorldSnapshot,
         context: DecisionContext,
-        battery_prediction: PredictionResult,
-        weather_prediction: PredictionResult,
+        _battery_prediction: PredictionResult,
+        _weather_prediction: PredictionResult,
     ) -> Goal:
         """Make reflective decision with meta-cognition."""
 
@@ -769,16 +770,14 @@ class AdvancedDecisionEngine:
 
     async def _make_predictive_decision(
         self,
-        world: WorldSnapshot,
-        context: DecisionContext,
+        _world: WorldSnapshot,
+        _context: DecisionContext,
         battery_prediction: PredictionResult,
         weather_prediction: PredictionResult,
     ) -> Goal:
         """Make predictive decision with anticipatory planning."""
 
         # Use predictions to optimize future decisions
-        predictive_horizon = timedelta(minutes=30)
-
         # Anticipate future conditions
         future_battery_risk = (
             battery_prediction.predicted_value < 25.0 if battery_prediction else False
@@ -789,31 +788,39 @@ class AdvancedDecisionEngine:
 
         # Proactive decision making
         if future_battery_risk and future_weather_risk:
-            # Preemptive action
+            reason = (
+                "Predictive action: Battery "
+                f"({battery_prediction.predicted_value:.1f}%) and weather "
+                f"({weather_prediction.predicted_value:.1f} m/s) risks anticipated"
+            )
             return Goal(
                 goal_type=GoalType.RETURN_LOW_BATTERY,
-                reason=f"Predictive action: Battery ({battery_prediction.predicted_value:.1f}%) and weather ({weather_prediction.predicted_value:.1f} m/s) risks anticipated",
+                reason=reason,
                 priority=90,
             )
-        elif future_battery_risk:
+        if future_battery_risk:
             return Goal(
                 goal_type=GoalType.RETURN_LOW_BATTERY,
-                reason=f"Predictive battery management: {battery_prediction.predicted_value:.1f}% predicted",
+                reason=(
+                    "Predictive battery management: "
+                    f"{battery_prediction.predicted_value:.1f}% predicted"
+                ),
                 priority=70,
             )
-        elif future_weather_risk:
+        if future_weather_risk:
             return Goal(
                 goal_type=GoalType.RETURN_WEATHER,
-                reason=f"Predictive weather avoidance: {weather_prediction.predicted_value:.1f} m/s predicted",
+                reason=(
+                    "Predictive weather avoidance: "
+                    f"{weather_prediction.predicted_value:.1f} m/s predicted"
+                ),
                 priority=80,
             )
-        else:
-            # Optimize for predicted conditions
-            return Goal(
-                goal_type=GoalType.INSPECT_ASSET,
-                reason="Predictive optimization: Favorable conditions predicted",
-                priority=60,
-            )
+        return Goal(
+            goal_type=GoalType.INSPECT_ASSET,
+            reason="Predictive optimization: Favorable conditions predicted",
+            priority=60,
+        )
 
     def _evaluate_safety(self, world: WorldSnapshot) -> float:
         """Evaluate safety of current situation."""
@@ -914,6 +921,7 @@ class AdvancedDecisionEngine:
 # Example usage and integration
 async def create_advanced_decision_engine() -> AdvancedDecisionEngine:
     """Factory function to create advanced decision engine."""
+    await asyncio.sleep(0)
     return AdvancedDecisionEngine()
 
 

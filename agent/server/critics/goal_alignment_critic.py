@@ -310,7 +310,7 @@ class GoalAlignmentCritic(BaseCritic):
         return concerns, alternatives, risk_score
 
     def _determine_verdict(
-        self, concerns: list[str], max_risk_score: float, decision: Decision
+        self, concerns: list[str], max_risk_score: float, _decision: Decision
     ) -> tuple[CriticVerdict, str, float]:
         """
         Determine final verdict based on goal alignment concerns.

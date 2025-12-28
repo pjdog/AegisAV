@@ -128,7 +128,7 @@ class SafetyCritic(BaseCritic):
         )
 
     def _check_battery(
-        self, decision: Decision, world: WorldSnapshot, risk: RiskAssessment
+        self, decision: Decision, world: WorldSnapshot, _risk: RiskAssessment
     ) -> tuple[list[str], list[str], float]:
         """
         Check battery safety.
@@ -175,7 +175,7 @@ class SafetyCritic(BaseCritic):
         return concerns, alternatives, risk_score
 
     def _check_gps(
-        self, world: WorldSnapshot, risk: RiskAssessment
+        self, world: WorldSnapshot, _risk: RiskAssessment
     ) -> tuple[list[str], list[str], float]:
         """
         Check GPS quality.
@@ -211,7 +211,7 @@ class SafetyCritic(BaseCritic):
         return concerns, alternatives, risk_score
 
     def _check_weather(
-        self, decision: Decision, world: WorldSnapshot, risk: RiskAssessment
+        self, decision: Decision, world: WorldSnapshot, _risk: RiskAssessment
     ) -> tuple[list[str], list[str], float]:
         """
         Check weather safety.
@@ -264,7 +264,7 @@ class SafetyCritic(BaseCritic):
         return concerns, alternatives, risk_score
 
     def _check_vehicle_health(
-        self, world: WorldSnapshot, risk: RiskAssessment
+        self, world: WorldSnapshot, _risk: RiskAssessment
     ) -> tuple[list[str], list[str], float]:
         """
         Check vehicle health status.
@@ -291,7 +291,11 @@ class SafetyCritic(BaseCritic):
         return concerns, alternatives, risk_score
 
     def _determine_verdict(
-        self, concerns: list[str], max_risk_score: float, decision: Decision, risk: RiskAssessment
+        self,
+        concerns: list[str],
+        max_risk_score: float,
+        decision: Decision,
+        _risk: RiskAssessment,
     ) -> tuple[CriticVerdict, str, float]:
         """
         Determine final verdict based on concerns and risk.

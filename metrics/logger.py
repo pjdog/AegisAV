@@ -43,6 +43,12 @@ class DecisionLogEntry:
     goal_type: str
     target_asset: str | None
 
+    # Phase 2: Critic context
+    critic_approved: bool = True
+    critic_concerns: list = None
+    escalation_level: str | None = None
+    escalation_reason: str | None = None
+
     def to_dict(self) -> dict:
         """Convert to dictionary."""
         return asdict(self)
@@ -115,6 +121,7 @@ class DecisionLogger:
         risk: Any,
         world: Any,
         goal: Any | None,
+        escalation: Any | None = None,
     ) -> None:
         """
         Log a decision with full context.
@@ -124,10 +131,17 @@ class DecisionLogger:
             risk: The RiskAssessment object
             world: The WorldSnapshot object
             goal: The Goal object
+            escalation: The EscalationDecision object (Phase 2)
         """
         if not self._run_file:
             # Auto-start if not started
             self.start_run()
+
+        # Extract critic concerns if escalation exists
+        critic_concerns = []
+        if escalation:
+            for response in escalation.critic_responses:
+                critic_concerns.extend(response.concerns)
 
         entry = DecisionLogEntry(
             timestamp=datetime.now().isoformat(),
@@ -151,6 +165,11 @@ class DecisionLogger:
             armed=world.vehicle.armed,
             goal_type=goal.goal_type.value if goal else "unknown",
             target_asset=goal.target_asset.asset_id if goal and goal.target_asset else None,
+            # Phase 2: Critic info
+            critic_approved=escalation.approved if escalation else True,
+            critic_concerns=critic_concerns if critic_concerns else None,
+            escalation_level=escalation.escalation_level.value if escalation else None,
+            escalation_reason=escalation.reason if escalation else None,
         )
 
         self._entries.append(entry)

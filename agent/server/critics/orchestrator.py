@@ -154,7 +154,7 @@ class CriticOrchestrator:
         return valid_responses
 
     async def _apply_advisory_model(
-        self, decision: Decision, risk: RiskAssessment, responses: list[CriticResponse]
+        self, _decision: Decision, _risk: RiskAssessment, responses: list[CriticResponse]
     ) -> tuple[bool, EscalationDecision | None]:
         """
         Advisory mode: Always approve, just log concerns.
@@ -175,7 +175,7 @@ class CriticOrchestrator:
         return True, None
 
     async def _apply_blocking_model(
-        self, decision: Decision, risk: RiskAssessment, responses: list[CriticResponse]
+        self, _decision: Decision, _risk: RiskAssessment, responses: list[CriticResponse]
     ) -> tuple[bool, EscalationDecision | None]:
         """
         Blocking mode: Reject if ANY critic rejects.
@@ -287,7 +287,7 @@ class CriticOrchestrator:
         decision: Decision,
         world: WorldSnapshot,
         risk: RiskAssessment,
-        initial_responses: list[CriticResponse],
+        _initial_responses: list[CriticResponse],
     ) -> tuple[bool, EscalationDecision | None]:
         """
         Perform hierarchical review with full LLM evaluation.

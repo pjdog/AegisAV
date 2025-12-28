@@ -23,9 +23,11 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
 from agent.api_models import ActionType, DecisionResponse, HealthResponse, VehicleStateRequest
+from agent.server.critics import AuthorityModel, CriticOrchestrator
 from agent.server.dashboard import add_dashboard_routes
 from agent.server.decision import Decision
 from agent.server.goal_selector import Goal, GoalSelector, GoalType
+from agent.server.monitoring import OutcomeTracker
 from agent.server.risk_evaluator import RiskAssessment, RiskEvaluator, RiskThresholds
 from agent.server.world_model import DockStatus, WorldModel
 from autonomy.vehicle_state import (
@@ -69,6 +71,10 @@ class ServerState:
         self.log_dir = Path(__file__).resolve().parents[2] / "logs"
         self.decision_logger = DecisionLogger(self.log_dir)
         self.current_run_id: str | None = None
+
+        # Phase 2: Multi-agent critics
+        self.critic_orchestrator = CriticOrchestrator(authority_model=AuthorityModel.ESCALATION)
+        self.outcome_tracker = OutcomeTracker(log_dir=self.log_dir / "outcomes")
 
     def load_config(self, config_path: Path) -> None:
         """Load configuration from YAML file."""
@@ -232,6 +238,44 @@ async def health_check() -> HealthResponse:
     )
 
 
+@app.post("/feedback")
+async def receive_feedback(feedback: DecisionFeedback) -> dict:
+    """
+    Receive feedback from client about decision execution outcomes.
+
+    This endpoint allows the client to report back on how decisions played out,
+    enabling the outcome tracker to close the feedback loop for learning.
+
+    Args:
+        feedback: Decision execution feedback from client
+
+    Returns:
+        Confirmation of feedback receipt
+    """
+    logger.info(
+        "feedback_received",
+        decision_id=feedback.decision_id,
+        status=feedback.status.value,
+        battery_consumed=feedback.battery_consumed,
+    )
+
+    # Update outcome tracker with execution results
+    outcome = await server_state.outcome_tracker.process_feedback(feedback)
+
+    if outcome:
+        return {
+            "status": "feedback_received",
+            "decision_id": feedback.decision_id,
+            "outcome_status": outcome.execution_status.value,
+        }
+    else:
+        logger.warning("feedback_for_unknown_decision", decision_id=feedback.decision_id)
+        return {
+            "status": "feedback_received_but_unknown_decision",
+            "decision_id": feedback.decision_id,
+        }
+
+
 @app.post("/state", response_model=DecisionResponse)
 async def receive_state(state: VehicleStateRequest) -> DecisionResponse:
     """
@@ -264,11 +308,31 @@ async def receive_state(state: VehicleStateRequest) -> DecisionResponse:
     # Make decision
     decision, goal = await _make_decision(snapshot, risk)
 
+    # Phase 2: Validate decision with multi-agent critics
+    approved, escalation = await server_state.critic_orchestrator.validate_decision(
+        decision, snapshot, risk
+    )
+
+    # If decision was blocked, override with abort
+    if not approved:
+        logger.warning(
+            "decision_blocked_by_critics",
+            decision_id=decision.decision_id,
+            original_action=decision.action.value,
+            reason=escalation.reason if escalation else "Unknown",
+        )
+        decision = Decision.abort(
+            reason=f"Decision blocked by critics: {escalation.reason if escalation else 'Safety concerns'}"
+        )
+
+    # Create outcome tracking for this decision
+    outcome = server_state.outcome_tracker.create_outcome(decision)
+
     # Track decision
     server_state.last_decision = decision
     server_state.decisions_made += 1
 
-    server_state.decision_logger.log_decision(decision, risk, snapshot, goal)
+    server_state.decision_logger.log_decision(decision, risk, snapshot, goal, escalation)
 
     # Log decision
     logger.info(

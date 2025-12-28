@@ -59,7 +59,7 @@ class EfficiencyCritic(BaseCritic):
         return CriticType.EFFICIENCY
 
     async def evaluate_fast(
-        self, decision: Decision, world: WorldSnapshot, risk: RiskAssessment
+        self, decision: Decision, world: WorldSnapshot, _risk: RiskAssessment
     ) -> CriticResponse:
         """
         Fast classical efficiency evaluation.
@@ -226,20 +226,18 @@ class EfficiencyCritic(BaseCritic):
             return concerns, alternatives, risk_score
 
         # Check if moving to far asset when closer ones need inspection
-        if decision.action.value == "GOTO":
-            target_pos = decision.target_position
+        if decision.action.value == "goto":
+            target_pos = decision.parameters.get("target_position")
             if target_pos:
                 # Find pending assets and check if there are closer ones
                 pending_assets = world.get_pending_assets()
                 if len(pending_assets) > 1:
                     # Calculate distance to target
-                    from autonomy.vehicle_state import calculate_distance
-
-                    target_distance = calculate_distance(world.vehicle.position, target_pos)
+                    target_distance = world.vehicle.position.distance_to(target_pos)
 
                     # Check if there's a closer asset
                     closest_distance = min(
-                        calculate_distance(world.vehicle.position, asset.position)
+                        world.vehicle.position.distance_to(asset.position)
                         for asset in pending_assets
                     )
 
@@ -313,7 +311,7 @@ class EfficiencyCritic(BaseCritic):
         return concerns, alternatives, risk_score
 
     def _determine_verdict(
-        self, concerns: list[str], max_risk_score: float, decision: Decision
+        self, concerns: list[str], max_risk_score: float, _decision: Decision
     ) -> tuple[CriticVerdict, str, float]:
         """
         Determine final verdict based on efficiency concerns.

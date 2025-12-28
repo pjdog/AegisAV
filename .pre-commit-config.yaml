@@ -3,7 +3,8 @@ repos:
     rev: v4.6.0
     hooks:
       - id: check-added-large-files
-        args: ["--maxkb=2048"]
+        args: ["--maxkb=1024"]
+        exclude: ^uv\.lock$
       - id: check-merge-conflict
       - id: check-yaml
       - id: check-toml

@@ -142,13 +142,9 @@ ignore = [
 # AegisAV-specific rule configurations
 [tool.ruff.lint.per-file-ignores]
 "agent/server/decision.py" = ["RUF009"]  # Allow complex expressions in decision logic
-"agent/server/advanced_decision.py" = ["ARG002", "F841", "RUF029"]  # Experimental engine
-"agent/server/critics/**" = ["ARG002", "PLC0415"]  # Critics use optional imports and shared args
 "agent/server/world_model.py" = ["RUF005"]  # Allow complex loops in world modeling
 "autonomy/mavlink_interface.py" = ["RUF012"]  # Allow try/except in MAVLink comms
-"check_pydantic_ai.py" = ["T201"]  # Dev-only diagnostics
-"scripts/**" = ["ARG001", "ARG002", "PLC0415", "S"]  # Script entrypoints use dynamic imports/subprocess
-"tests/**" = ["ARG001", "ARG002", "PLC0415", "RUF029", "S"]  # Allow test-specific patterns
+"tests/" = ["S"]  # Allow all security rules in tests
 
 [tool.ruff.lint.flake8-copyright]
 # Copyright notice requirements
@@ -182,21 +178,6 @@ disable = [
     "no-name-in-module",
     "logging-fstring-interpolation",
     "broad-exception-caught",
-    "import-outside-toplevel",
-    "too-many-branches",
-    "too-many-return-statements",
-    "too-many-arguments",
-    "too-many-instance-attributes",
-    "consider-using-in",
-    "no-else-return",
-    "unused-argument",
-    "line-too-long",
-    "invalid-name",
-    "too-many-locals",
-    "unused-variable",
-    "unnecessary-pass",
-    "redefined-outer-name",
-    "consider-using-dict-items",
 ]
 
 # MyPy configuration

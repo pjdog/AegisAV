@@ -130,8 +130,8 @@ class GoalSelector:
         self.advanced_engine: AdvancedDecisionEngine | None = None
         self.performance_history = deque(maxlen=100)
         self.adaptive_thresholds = {
-            "battery_return": battery_return_threshold,
-            "anomaly_revisit": anomaly_revisit_interval_minutes,
+            "battery_return": self.config.battery_return_threshold,
+            "anomaly_revisit": self.config.anomaly_revisit_interval_minutes,
             "weather_limit": 12.0,  # m/s
         }
 
@@ -139,7 +139,7 @@ class GoalSelector:
         """Initialize advanced decision engine if enabled."""
         if self.use_advanced_engine:
             module = importlib.import_module("agent.server.advanced_decision")
-            create_engine = getattr(module, "create_advanced_decision_engine")
+            create_engine = module.create_advanced_decision_engine
             self.advanced_engine = await create_engine()
             logger.info("Advanced decision engine initialized")
 

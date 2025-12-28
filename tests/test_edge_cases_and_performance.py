@@ -12,6 +12,7 @@ import pytest
 
 from agent.api_models import ActionType
 from agent.server.critics import AuthorityModel, CriticOrchestrator
+from agent.server.critics.safety_critic import SafetyCritic
 from agent.server.decision import Decision
 from agent.server.models.critic_models import CriticVerdict
 from agent.server.models.outcome_models import DecisionFeedback, ExecutionStatus
@@ -88,7 +89,7 @@ async def test_invalid_decision_parameters():
 
     # Should not crash, should handle gracefully
     try:
-        approved, escalation = await orchestrator.validate_decision(decision, world, risk)
+        _approved, _escalation = await orchestrator.validate_decision(decision, world, risk)
         # As long as it doesn't crash, test passes
         assert True
     except Exception as e:
@@ -141,7 +142,7 @@ async def test_none_values_in_world_snapshot():
 
     # Should handle gracefully
     try:
-        approved, escalation = await orchestrator.validate_decision(decision, world, risk)
+        _approved, _escalation = await orchestrator.validate_decision(decision, world, risk)
         assert True
     except Exception as e:
         pytest.fail(f"Should handle None values gracefully: {e}")
@@ -214,14 +215,13 @@ async def test_critic_evaluation_performance():
 
     # Measure execution time
     start_time = time.perf_counter()
-    approved, escalation = await orchestrator.validate_decision(decision, world, risk)
+    _approved, _escalation = await orchestrator.validate_decision(decision, world, risk)
     end_time = time.perf_counter()
 
     elapsed_ms = (end_time - start_time) * 1000
 
     # Should complete in under 200ms for classical evaluation
     assert elapsed_ms < 200, f"Critic evaluation took {elapsed_ms:.2f}ms (target: <200ms)"
-    print(f"✓ Critic evaluation completed in {elapsed_ms:.2f}ms")
 
 
 @pytest.mark.asyncio
@@ -282,9 +282,6 @@ async def test_concurrent_decision_throughput():
 
     assert len(results) == num_decisions
     assert avg_time_ms < 100, f"Average time per decision: {avg_time_ms:.2f}ms (target: <100ms)"
-    print(
-        f"✓ Processed {num_decisions} decisions in {total_time_ms:.2f}ms (avg: {avg_time_ms:.2f}ms per decision)"
-    )
 
 
 @pytest.mark.asyncio
@@ -319,7 +316,6 @@ async def test_outcome_tracker_performance():
 
     # Should handle 100 outcomes quickly
     assert total_time_ms < 1000, f"Outcome tracking took {total_time_ms:.2f}ms (target: <1000ms)"
-    print(f"✓ Tracked {num_outcomes} outcomes in {total_time_ms:.2f}ms")
 
 
 # ============================================================================
@@ -432,7 +428,7 @@ async def test_empty_assets_list():
     decision = Decision(action=ActionType.RETURN, parameters={}, confidence=0.9)
 
     # Should handle gracefully
-    approved, escalation = await orchestrator.validate_decision(decision, world, risk)
+    approved, _escalation = await orchestrator.validate_decision(decision, world, risk)
     assert approved is True  # Returning with no assets should be fine
 
 
@@ -477,8 +473,6 @@ async def test_outcome_tracker_pending_cleanup():
 @pytest.mark.asyncio
 async def test_critic_graceful_degradation():
     """Test that if one critic fails, system continues with remaining critics."""
-    from agent.server.critics.safety_critic import SafetyCritic
-
     # We'll test that the orchestrator handles this internally
     # For now, just verify critics don't crash with unusual inputs
     safety_critic = SafetyCritic()

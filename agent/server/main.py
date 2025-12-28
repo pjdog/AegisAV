@@ -27,6 +27,7 @@ from agent.server.critics import AuthorityModel, CriticOrchestrator
 from agent.server.dashboard import add_dashboard_routes
 from agent.server.decision import Decision
 from agent.server.goal_selector import Goal, GoalSelector, GoalType
+from agent.server.models import DecisionFeedback
 from agent.server.monitoring import OutcomeTracker
 from agent.server.risk_evaluator import RiskAssessment, RiskEvaluator, RiskThresholds
 from agent.server.world_model import DockStatus, WorldModel

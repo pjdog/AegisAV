@@ -10,9 +10,30 @@ import asyncio
 import logging
 import os
 import signal
-import subprocess
 import sys
+from datetime import datetime
 from pathlib import Path
+
+from agent.client.main import main as client_main
+from agent.server.goal_selector import GoalSelector
+from agent.server.main import main as server_main
+from agent.server.risk_evaluator import RiskEvaluator
+from agent.server.world_model import (
+    Asset,
+    AssetType,
+    DockStatus,
+    WorldModel,
+)
+from autonomy.vehicle_state import (
+    Attitude,
+    BatteryState,
+    FlightMode,
+    GPSState,
+    Position,
+    VehicleHealth,
+    VehicleState,
+    Velocity,
+)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -21,22 +42,19 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-def start_server(config_path: str) -> subprocess.Popen:
+async def start_server() -> asyncio.subprocess.Process:
     """Start the agent server in a subprocess."""
     logger.info("Starting agent server...")
-
-    return subprocess.Popen(
-        [
-            sys.executable,
-            "-m",
-            "agent.server.main",
-        ],
+    return await asyncio.create_subprocess_exec(
+        sys.executable,
+        "-m",
+        "agent.server.main",
         env={**os.environ, "PYTHONPATH": str(Path(__file__).parent.parent)},
         cwd=str(Path(__file__).parent.parent),
     )
 
 
-def start_client(config_path: str, connection: str) -> subprocess.Popen:
+async def start_client(config_path: str, connection: str) -> asyncio.subprocess.Process:
     """Start the agent client in a subprocess."""
     logger.info("Starting agent client...")
 
@@ -51,8 +69,8 @@ def start_client(config_path: str, connection: str) -> subprocess.Popen:
     if connection:
         cmd.extend(["--connection", connection])
 
-    return subprocess.Popen(
-        cmd,
+    return await asyncio.create_subprocess_exec(
+        *cmd,
         env={**os.environ, "PYTHONPATH": str(Path(__file__).parent.parent)},
         cwd=str(Path(__file__).parent.parent),
     )
@@ -65,27 +83,6 @@ async def run_demo(scenario: str) -> None:
     This is a basic demo that simulates agent behavior
     without requiring ArduPilot SITL.
     """
-    from datetime import datetime
-
-    from agent.server.goal_selector import GoalSelector
-    from agent.server.risk_evaluator import RiskEvaluator
-    from agent.server.world_model import (
-        Asset,
-        AssetType,
-        DockStatus,
-        WorldModel,
-    )
-    from autonomy.vehicle_state import (
-        Attitude,
-        BatteryState,
-        FlightMode,
-        GPSState,
-        Position,
-        VehicleHealth,
-        VehicleState,
-        Velocity,
-    )
-
     logger.info(f"Running demo scenario: {scenario}")
 
     # Initialize components
@@ -147,7 +144,7 @@ async def run_demo(scenario: str) -> None:
         snapshot = world_model.get_snapshot()
         if snapshot:
             risk = risk_evaluator.evaluate(snapshot)
-            goal = goal_selector.select_goal(snapshot)
+            goal = await goal_selector.select_goal(snapshot)
 
             logger.info(f"Cycle {i + 1}:")
             logger.info(f"  Battery: {battery_percent:.1f}%")
@@ -165,6 +162,27 @@ async def run_demo(scenario: str) -> None:
         await asyncio.sleep(1)
 
     logger.info("Demo complete!")
+
+
+async def run_full(config_path: str, connection: str) -> None:
+    """Run both server and client processes."""
+    server_proc = await start_server()
+    await asyncio.sleep(2)
+    client_proc = await start_client(config_path, connection)
+
+    stop_event = asyncio.Event()
+    loop = asyncio.get_running_loop()
+
+    for sig in (signal.SIGINT, signal.SIGTERM):
+        loop.add_signal_handler(sig, stop_event.set)
+
+    try:
+        await stop_event.wait()
+    finally:
+        client_proc.terminate()
+        server_proc.terminate()
+        await client_proc.wait()
+        await server_proc.wait()
 
 
 def main() -> None:
@@ -200,14 +218,10 @@ def main() -> None:
 
     if args.command == "server":
         # Run server directly
-        from agent.server.main import main as server_main
-
         server_main()
 
     elif args.command == "client":
         # Run client directly
-        from agent.client.main import main as client_main
-
         sys.argv = ["", "--config", args.config]
         if args.connection:
             sys.argv.extend(["--connection", args.connection])
@@ -217,31 +231,7 @@ def main() -> None:
         asyncio.run(run_demo(args.scenario))
 
     elif args.command == "full":
-        # Run both server and client
-        server_proc = start_server(args.config)
-
-        # Wait for server to start
-        import time
-
-        time.sleep(2)
-
-        client_proc = start_client(args.config, args.connection)
-
-        # Wait for interrupt
-        def handle_signal(signum, frame):
-            logger.info("Shutting down...")
-            client_proc.terminate()
-            server_proc.terminate()
-            sys.exit(0)
-
-        signal.signal(signal.SIGINT, handle_signal)
-        signal.signal(signal.SIGTERM, handle_signal)
-
-        # Wait for processes
-        try:
-            client_proc.wait()
-        finally:
-            server_proc.terminate()
+        asyncio.run(run_full(args.config, args.connection))
 
     else:
         parser.print_help()

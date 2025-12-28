@@ -48,6 +48,7 @@ class BaseCritic(ABC):
         self.critic_type = self._get_critic_type()
         self.evaluations_performed = 0
         self.llm_evaluations = 0
+        self.logger = logger  # Add instance logger for subclasses
 
         logger.info(
             f"Initialized {self.critic_type.value} critic "

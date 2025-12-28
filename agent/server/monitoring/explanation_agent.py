@@ -136,7 +136,7 @@ class ExplanationAgent:
         )
 
     def _identify_factors(
-        self, decision: Decision, world: WorldSnapshot, risk: RiskAssessment
+        self, _decision: Decision, world: WorldSnapshot, risk: RiskAssessment
     ) -> list[FactorContribution]:
         """
         Identify key factors that influenced the decision.
@@ -155,44 +155,48 @@ class ExplanationAgent:
         else:
             weight = 0.3
 
+        # Normalize battery to 0-1 range (0% = 0.0, 100% = 1.0)
+        normalized_battery = battery_pct / 100.0
         factors.append(
             FactorContribution(
                 factor_name="battery_level",
                 value=battery_pct,
                 weight=weight,
-                impact_direction="positive" if battery_pct > 50 else "negative",
-                explanation=f"Battery at {battery_pct:.1f}% influenced decision weight by {weight:.1f}",
+                contribution=weight * normalized_battery,
+                unit="percent",
             )
         )
 
-        # Risk factor
+        # Risk factor (already 0-1)
         risk_weight = risk.overall_score
         factors.append(
             FactorContribution(
                 factor_name="overall_risk",
                 value=risk.overall_score,
                 weight=risk_weight,
-                impact_direction="negative" if risk_weight > 0.5 else "neutral",
-                explanation=f"Risk score of {risk.overall_score:.2f} influenced safety constraints",
+                contribution=risk_weight * risk.overall_score,
+                unit="score",
             )
         )
 
         # Mission progress factor
         progress_pct = world.mission.progress_percent
+        mission_weight = 0.4 + (progress_pct / 100) * 0.4
+        normalized_progress = progress_pct / 100.0
         factors.append(
             FactorContribution(
                 factor_name="mission_progress",
                 value=progress_pct,
-                weight=0.4 + (progress_pct / 100) * 0.4,  # Higher weight as mission progresses
-                impact_direction="positive",
-                explanation=f"Mission {progress_pct:.0f}% complete influenced goal prioritization",
+                weight=mission_weight,
+                contribution=mission_weight * normalized_progress,
+                unit="percent",
             )
         )
 
         return factors
 
     async def _generate_counterfactuals(
-        self, decision: Decision, world: WorldSnapshot, risk: RiskAssessment
+        self, _decision: Decision, world: WorldSnapshot, risk: RiskAssessment
     ) -> list[CounterfactualScenario]:
         """
         Generate counterfactual "what if" scenarios.

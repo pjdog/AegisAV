@@ -102,7 +102,7 @@ async def test_advanced_decision_fallback(mock_world_snapshot):
 
     # We break the agent by giving it a model that raises an error
     class ErrorModel(TestModel):
-        async def request(self, *args, **kwargs):
+        async def request(self, *_args, **_kwargs):
             raise Exception("Agent injection failure")
 
     with engine.agent.override(model=ErrorModel()):

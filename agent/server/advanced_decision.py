@@ -7,6 +7,7 @@ This module provides hierarchical planning, adaptive learning, and explainable A
 
 import asyncio
 import logging
+import os
 from abc import ABC, abstractmethod
 from collections import deque
 from dataclasses import dataclass, field
@@ -17,6 +18,7 @@ from typing import Any
 import numpy as np
 from pydantic import BaseModel, Field
 from pydantic_ai import Agent, RunContext
+from pydantic_ai.models.test import TestModel
 
 from agent.server.goal_selector import Goal, GoalType
 from agent.server.world_model import Asset, WorldSnapshot
@@ -100,36 +102,50 @@ class MissionDecision(BaseModel):
     target_asset_id: str | None = None
 
 
-# Define the Mission Planner agent
-mission_planner = Agent(
-    "openai:gpt-4o",  # Default model
-    output_type=MissionDecision,
-    system_prompt=(
-        "You are the AegisAV Mission Planner, the high-level intelligence for an autonomous drone. "
-        "Your task is to analyze the current world state and select the most appropriate mission goal. "
-        "Prioritize safety (battery, health, weather) above all else. "
-        "If multiple assets need inspection, prioritize based on priority level and scheduled time. "
-        "Provide clear, concise reasoning for your decisions."
-    ),
-)
+def _create_mission_planner() -> Agent[WorldSnapshot, MissionDecision]:
+    """Factory function to create the mission planner agent.
 
+    Uses OpenAI model in production (when OPENAI_API_KEY is set),
+    or TestModel for testing when no API key is available.
+    """
+    # Use TestModel when no API key is available (testing scenario)
+    if os.environ.get("OPENAI_API_KEY"):
+        model: str | TestModel = "openai:gpt-4o"
+    else:
+        logger.warning(
+            "OPENAI_API_KEY not set - using TestModel for mission_planner. "
+            "Set OPENAI_API_KEY for production use."
+        )
+        model = TestModel()
 
-@mission_planner.tool
-def get_asset_details(ctx: RunContext[WorldSnapshot], asset_id: str) -> Asset | None:
-    """Get detailed information about a specific asset."""
-    for asset in ctx.deps.assets:
-        if asset.asset_id == asset_id:
-            return asset
-    return None
+    agent = Agent(
+        model,
+        output_type=MissionDecision,
+        system_prompt=(
+            "You are the AegisAV Mission Planner, the high-level intelligence for an autonomous drone. "
+            "Your task is to analyze the current world state and select the most appropriate mission goal. "
+            "Prioritize safety (battery, health, weather) above all else. "
+            "If multiple assets need inspection, prioritize based on priority level and scheduled time. "
+            "Provide clear, concise reasoning for your decisions."
+        ),
+    )
+
+    @agent.tool
+    def get_asset_details(ctx: RunContext[WorldSnapshot], asset_id: str) -> Asset | None:
+        """Get detailed information about a specific asset."""
+        for asset in ctx.deps.assets:
+            if asset.asset_id == asset_id:
+                return asset
+        return None
+
+    return agent
 
 
 class PredictiveModel(ABC):
     """Base class for predictive models."""
 
     @abstractmethod
-    async def predict(
-        self, context: DecisionContext, world: WorldSnapshot
-    ) -> PredictionResult:
+    async def predict(self, context: DecisionContext, world: WorldSnapshot) -> PredictionResult:
         """Make prediction based on current context."""
         raise NotImplementedError
 
@@ -348,9 +364,7 @@ class GoalHierarchy:
 
         return sub_goals
 
-    def _plan_battery_return(
-        self, _world: WorldSnapshot, _goal: Goal
-    ) -> list[Goal]:
+    def _plan_battery_return(self, _world: WorldSnapshot, _goal: Goal) -> list[Goal]:
         """Plan efficient battery return."""
         sub_goals = []
 
@@ -486,8 +500,8 @@ class AdvancedDecisionEngine:
             "confidence_decay": 0.95,  # How confidence decays
         }
 
-        # Initialize PydanticAI agent
-        self.agent = mission_planner
+        # Initialize PydanticAI agent (deferred creation to avoid import-time API errors)
+        self.agent = _create_mission_planner()
 
     async def make_advanced_decision(
         self, world: WorldSnapshot, learning_experiences: list[LearningExperience] | None = None
@@ -876,12 +890,27 @@ class AdvancedDecisionEngine:
         """Find similar past situations."""
         similar_situations = []
 
+        # Extract current world features for comparison
+        current_features = self._extract_world_features(world)
+
         # Simple similarity matching based on key parameters
         for experience in self.experience_buffer:
-            if self._situation_similarity(experience.contextual_features, world) > 0.7:
+            if self._situation_similarity(experience.contextual_features, current_features) > 0.7:
                 similar_situations.append(experience.contextual_features)
 
         return similar_situations[-5:]  # Return 5 most similar
+
+    def _extract_world_features(self, world: WorldSnapshot) -> dict[str, Any]:
+        """Extract comparable features from a WorldSnapshot as a dict."""
+        features: dict[str, Any] = {
+            "battery_percent": world.vehicle.battery.remaining_percent,
+        }
+        if world.vehicle.gps:
+            features["gps_fix"] = world.vehicle.gps.has_fix
+            features["gps_hdop"] = world.vehicle.gps.hdop
+        if world.vehicle.health:
+            features["is_healthy"] = world.vehicle.health.is_healthy
+        return features
 
     def _situation_similarity(self, features1: dict[str, Any], features2: dict[str, Any]) -> float:
         """Calculate similarity between two situations."""

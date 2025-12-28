@@ -321,12 +321,13 @@ async def receive_state(state: VehicleStateRequest) -> DecisionResponse:
             original_action=decision.action.value,
             reason=escalation.reason if escalation else "Unknown",
         )
-        decision = Decision.abort(
-            reason=f"Decision blocked by critics: {escalation.reason if escalation else 'Safety concerns'}"
+        reason = (
+            f"Decision blocked by critics: {escalation.reason if escalation else 'Safety concerns'}"
         )
+        decision = Decision.abort(reason=reason)
 
     # Create outcome tracking for this decision
-    outcome = server_state.outcome_tracker.create_outcome(decision)
+    server_state.outcome_tracker.create_outcome(decision)
 
     # Track decision
     server_state.last_decision = decision

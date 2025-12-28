@@ -309,6 +309,171 @@ class GoalAlignmentCritic(BaseCritic):
 
         return concerns, alternatives, risk_score
 
+    async def evaluate_llm(
+        self, decision: Decision, world: WorldSnapshot, risk: RiskAssessment
+    ) -> CriticResponse:
+        """
+        LLM-based goal alignment evaluation for complex strategic scenarios.
+
+        Uses language model to provide nuanced strategic analysis when:
+        - Multiple competing mission objectives exist
+        - Priority trade-offs are complex
+        - Anomaly handling requires judgment
+        - Strategic consistency is unclear
+
+        Returns:
+            CriticResponse with detailed LLM reasoning
+        """
+        from pydantic_ai import Agent
+        from pydantic_ai.models.openai import OpenAIModel
+
+        # Prepare context for LLM
+        pending_assets = world.get_pending_assets()
+        anomaly_assets = world.get_anomaly_assets()
+
+        context = {
+            "decision": {
+                "action": decision.action.value,
+                "parameters": decision.parameters,
+                "confidence": decision.confidence,
+                "reasoning": decision.reasoning,
+            },
+            "mission": {
+                "assets_total": world.mission.assets_total,
+                "assets_inspected": world.mission.assets_inspected,
+                "progress_percent": world.mission.progress_percent,
+                "pending_count": len(pending_assets),
+                "anomaly_count": len(anomaly_assets),
+            },
+            "pending_assets": [
+                {
+                    "asset_id": a.asset_id,
+                    "priority": a.priority,
+                    "has_anomaly": a.has_anomaly,
+                    "anomaly_severity": a.anomaly_severity if a.has_anomaly else None,
+                }
+                for a in pending_assets[:5]  # Top 5 pending assets
+            ],
+            "anomalies": [
+                {
+                    "asset_id": a.asset_id,
+                    "severity": a.anomaly_severity,
+                    "resolved": a.anomaly_resolved,
+                }
+                for a in anomaly_assets
+                if a.anomaly_severity and a.anomaly_severity >= 5
+            ],
+            "vehicle": {
+                "battery_percent": world.vehicle.battery.remaining_percent,
+            },
+            "risk": {
+                "overall_level": risk.overall_level.value,
+                "overall_score": risk.overall_score,
+            },
+        }
+
+        # Create LLM agent
+        model = OpenAIModel(self.llm_model)
+        agent = Agent(
+            model,
+            system_prompt="""You are a Goal Alignment Critic for autonomous drone operations.
+
+Your role is to evaluate whether decisions align with mission objectives including:
+- Mission completion and progress toward goals
+- Asset priority respect (priority 1-10, higher = more important)
+- Anomaly detection follow-up and resolution
+- Strategic consistency and logical flow of actions
+
+Analyze the provided decision context and provide:
+1. Goal alignment verdict: APPROVE, APPROVE_WITH_CONCERNS, REJECT, or ESCALATE
+2. Specific alignment concerns (if any)
+3. Alternative actions that better serve mission objectives (if decision is misaligned)
+4. Detailed reasoning explaining your strategic assessment
+
+Focus on mission success and optimal prioritization.
+Consider long-term strategic implications, not just immediate actions.
+Identify goal conflicts that rule-based systems might miss.""",
+        )
+
+        # Get LLM evaluation
+        try:
+            result = await agent.run(
+                f"""Evaluate this drone decision for goal alignment:
+
+Decision: {context["decision"]["action"]}
+Parameters: {context["decision"]["parameters"]}
+Agent Reasoning: {context["decision"]["reasoning"]}
+
+Mission Status:
+- Progress: {context["mission"]["progress_percent"]:.0f}% ({context["mission"]["assets_inspected"]}/{context["mission"]["assets_total"]} assets)
+- Pending Assets: {context["mission"]["pending_count"]}
+- Active Anomalies: {context["mission"]["anomaly_count"]}
+- Battery: {context["vehicle"]["battery_percent"]:.1f}%
+
+Pending Assets (Priority Ordered):
+{chr(10).join([f"  - {a['asset_id']}: Priority {a['priority']}/10" + (f", Anomaly Severity {a['anomaly_severity']}" if a["has_anomaly"] else "") for a in context["pending_assets"]])}
+
+Unresolved Anomalies:
+{chr(10).join([f"  - {a['asset_id']}: Severity {a['severity']}/10" for a in context["anomalies"]]) if context["anomalies"] else "  None"}
+
+Risk Assessment: {context["risk"]["overall_level"]} (score: {context["risk"]["overall_score"]:.2f})
+
+Evaluate the goal alignment of this decision. Consider:
+1. Does this decision advance mission objectives effectively?
+2. Are asset priorities being respected?
+3. Should anomalies be prioritized?
+4. Is there a better strategic alternative?
+
+Provide your goal alignment verdict and reasoning."""
+            )
+
+            llm_response = result.data
+
+            # Parse LLM response and map to verdict
+            response_lower = llm_response.lower()
+
+            if "reject" in response_lower:
+                verdict = CriticVerdict.REJECT
+                confidence = 0.80
+            elif "escalate" in response_lower:
+                verdict = CriticVerdict.ESCALATE
+                confidence = 0.75
+            elif "concerns" in response_lower or "concern" in response_lower:
+                verdict = CriticVerdict.APPROVE_WITH_CONCERNS
+                confidence = 0.70
+            else:
+                verdict = CriticVerdict.APPROVE
+                confidence = 0.75
+
+            # Extract concerns from response
+            concerns = []
+            if "priority" in response_lower or "priorities" in response_lower:
+                concerns.append("LLM flagged asset priority concerns")
+            if "anomaly" in response_lower or "anomalies" in response_lower:
+                concerns.append("LLM flagged anomaly follow-up concerns")
+            if "mission" in response_lower and (
+                "incomplete" in response_lower or "objective" in response_lower
+            ):
+                concerns.append("LLM flagged mission objective concerns")
+            if "strategic" in response_lower or "inconsistent" in response_lower:
+                concerns.append("LLM flagged strategic consistency concerns")
+
+            return CriticResponse(
+                critic_type=self.critic_type,
+                verdict=verdict,
+                confidence=confidence,
+                concerns=concerns,
+                alternatives=[],
+                reasoning=f"LLM Goal Alignment Analysis: {llm_response[:500]}",
+                risk_score=risk.overall_score,
+                used_llm=True,
+            )
+
+        except Exception as e:
+            # Fallback to fast evaluation if LLM fails
+            self.logger.error(f"LLM evaluation failed: {e}, falling back to classical")
+            return await self.evaluate_fast(decision, world, risk)
+
     def _determine_verdict(
         self, concerns: list[str], max_risk_score: float, _decision: Decision
     ) -> tuple[CriticVerdict, str, float]:

@@ -4,18 +4,17 @@ Integration tests for decision pipeline with critics.
 Tests the full flow from state ingestion → decision → critic validation → outcome tracking.
 """
 
-import pytest
 from datetime import datetime
-from unittest.mock import AsyncMock, Mock, patch
+
+import pytest
 
 from agent.api_models import ActionType
 from agent.server.critics import AuthorityModel, CriticOrchestrator
 from agent.server.decision import Decision
-from agent.server.goal_selector import Goal, GoalType
-from agent.server.models.critic_models import CriticVerdict, EscalationLevel
+from agent.server.models.critic_models import EscalationLevel
 from agent.server.models.outcome_models import DecisionFeedback, ExecutionStatus
 from agent.server.monitoring import OutcomeTracker
-from agent.server.risk_evaluator import RiskAssessment, RiskLevel, RiskFactor
+from agent.server.risk_evaluator import RiskAssessment, RiskFactor, RiskLevel
 from agent.server.world_model import (
     Asset,
     AssetType,
@@ -35,7 +34,6 @@ from autonomy.vehicle_state import (
     Velocity,
 )
 
-
 # ============================================================================
 # Fixtures
 # ============================================================================
@@ -46,10 +44,14 @@ def good_vehicle_state():
     """Create a vehicle in good condition."""
     return VehicleState(
         timestamp=datetime.now(),
-        position=Position(latitude=37.7749, longitude=-122.4194, altitude_msl=50.0, altitude_agl=50.0),
+        position=Position(
+            latitude=37.7749, longitude=-122.4194, altitude_msl=50.0, altitude_agl=50.0
+        ),
         velocity=Velocity(north=0.0, east=0.0, down=0.0),
         attitude=Attitude(roll=0.0, pitch=0.0, yaw=0.0),
-        battery=BatteryState(voltage=16.8, current=5.0, remaining_percent=75.0, time_remaining_s=1800),
+        battery=BatteryState(
+            voltage=16.8, current=5.0, remaining_percent=75.0, time_remaining_s=1800
+        ),
         gps=GPSState(satellites_visible=12, hdop=0.8, fix_type=3),
         mode=FlightMode.GUIDED,
         armed=True,
@@ -62,10 +64,14 @@ def low_battery_vehicle_state():
     """Create a vehicle with critically low battery."""
     return VehicleState(
         timestamp=datetime.now(),
-        position=Position(latitude=37.7749, longitude=-122.4194, altitude_msl=50.0, altitude_agl=50.0),
+        position=Position(
+            latitude=37.7749, longitude=-122.4194, altitude_msl=50.0, altitude_agl=50.0
+        ),
         velocity=Velocity(north=0.0, east=0.0, down=0.0),
         attitude=Attitude(roll=0.0, pitch=0.0, yaw=0.0),
-        battery=BatteryState(voltage=14.0, current=5.0, remaining_percent=12.0, time_remaining_s=120),
+        battery=BatteryState(
+            voltage=14.0, current=5.0, remaining_percent=12.0, time_remaining_s=120
+        ),
         gps=GPSState(satellites_visible=12, hdop=0.8, fix_type=3),
         mode=FlightMode.GUIDED,
         armed=True,
@@ -90,7 +96,9 @@ def good_world_snapshot(good_vehicle_state):
             Asset(
                 asset_id="asset_1",
                 name="Test Asset",
-                position=Position(latitude=37.7750, longitude=-122.4195, altitude_msl=0, altitude_agl=0),
+                position=Position(
+                    latitude=37.7750, longitude=-122.4195, altitude_msl=0, altitude_agl=0
+                ),
                 asset_type=AssetType.BUILDING,
                 priority=1,  # High priority
             )
@@ -103,7 +111,9 @@ def good_world_snapshot(good_vehicle_state):
             assets_inspected=0,
         ),
         dock=DockState(
-            position=Position(latitude=37.7749, longitude=-122.4194, altitude_msl=0, altitude_agl=0),
+            position=Position(
+                latitude=37.7749, longitude=-122.4194, altitude_msl=0, altitude_agl=0
+            ),
             status=DockStatus.AVAILABLE,
         ),
     )
@@ -199,9 +209,13 @@ async def test_decision_blocked_by_low_battery(low_battery_vehicle_state, high_r
         environment=EnvironmentState(timestamp=datetime.now()),
         assets=[],
         anomalies=[],
-        mission=MissionState(mission_id="test", mission_name="Test", assets_total=0, assets_inspected=0),
+        mission=MissionState(
+            mission_id="test", mission_name="Test", assets_total=0, assets_inspected=0
+        ),
         dock=DockState(
-            position=Position(latitude=37.7749, longitude=-122.4194, altitude_msl=0, altitude_agl=0),
+            position=Position(
+                latitude=37.7749, longitude=-122.4194, altitude_msl=0, altitude_agl=0
+            ),
             status=DockStatus.AVAILABLE,
         ),
     )
@@ -224,7 +238,11 @@ async def test_decision_blocked_by_low_battery(low_battery_vehicle_state, high_r
     if not approved:
         assert escalation.approved is False
         assert len(escalation.reason) > 0
-        assert any("battery" in concern.lower() for resp in escalation.critic_responses for concern in resp.concerns)
+        assert any(
+            "battery" in concern.lower()
+            for resp in escalation.critic_responses
+            for concern in resp.concerns
+        )
 
 
 @pytest.mark.asyncio
@@ -238,8 +256,12 @@ async def test_hierarchical_review_triggered(good_world_snapshot):
         overall_level=RiskLevel.CRITICAL,
         overall_score=0.95,
         factors={
-            "battery": RiskFactor(name="battery", value=0.95, threshold=0.5, critical=0.8, description="Critical"),
-            "weather": RiskFactor(name="weather", value=0.9, threshold=0.5, critical=0.8, description="Severe weather"),
+            "battery": RiskFactor(
+                name="battery", value=0.95, threshold=0.5, critical=0.8, description="Critical"
+            ),
+            "weather": RiskFactor(
+                name="weather", value=0.9, threshold=0.5, critical=0.8, description="Severe weather"
+            ),
         },
         abort_recommended=True,
         abort_reason="Multiple critical factors",
@@ -252,7 +274,9 @@ async def test_hierarchical_review_triggered(good_world_snapshot):
     )
 
     # Validate - should trigger hierarchical review
-    approved, escalation = await orchestrator.validate_decision(decision, good_world_snapshot, critical_risk)
+    approved, escalation = await orchestrator.validate_decision(
+        decision, good_world_snapshot, critical_risk
+    )
 
     assert escalation is not None
     assert escalation.escalation_level in [EscalationLevel.HIERARCHICAL, EscalationLevel.BLOCKING]
@@ -348,7 +372,11 @@ async def test_advisory_mode_always_approves():
     high_risk = RiskAssessment(
         overall_level=RiskLevel.HIGH,
         overall_score=0.8,
-        factors={"battery": RiskFactor(name="battery", value=0.8, threshold=0.5, critical=0.8, description="High")},
+        factors={
+            "battery": RiskFactor(
+                name="battery", value=0.8, threshold=0.5, critical=0.8, description="High"
+            )
+        },
     )
 
     world = WorldSnapshot(
@@ -367,7 +395,9 @@ async def test_advisory_mode_always_approves():
         environment=EnvironmentState(timestamp=datetime.now()),
         assets=[],
         anomalies=[],
-        mission=MissionState(mission_id="test", mission_name="Test", assets_total=0, assets_inspected=0),
+        mission=MissionState(
+            mission_id="test", mission_name="Test", assets_total=0, assets_inspected=0
+        ),
         dock=DockState(
             position=Position(latitude=37.0, longitude=-122.0, altitude_msl=0, altitude_agl=0),
             status=DockStatus.AVAILABLE,
@@ -420,7 +450,9 @@ async def test_concurrent_decision_validation():
         environment=EnvironmentState(timestamp=datetime.now()),
         assets=[],
         anomalies=[],
-        mission=MissionState(mission_id="test", mission_name="Test", assets_total=5, assets_inspected=0),
+        mission=MissionState(
+            mission_id="test", mission_name="Test", assets_total=5, assets_inspected=0
+        ),
         dock=DockState(
             position=Position(latitude=37.0, longitude=-122.0, altitude_msl=0, altitude_agl=0),
             status=DockStatus.AVAILABLE,
@@ -430,7 +462,11 @@ async def test_concurrent_decision_validation():
     low_risk = RiskAssessment(
         overall_level=RiskLevel.LOW,
         overall_score=0.2,
-        factors={"battery": RiskFactor(name="battery", value=0.1, threshold=0.5, critical=0.8, description="OK")},
+        factors={
+            "battery": RiskFactor(
+                name="battery", value=0.1, threshold=0.5, critical=0.8, description="OK"
+            )
+        },
     )
 
     # Validate all decisions concurrently

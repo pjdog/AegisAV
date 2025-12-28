@@ -47,7 +47,7 @@ class SimOrchestrator:
         """Set GPS horizontal accuracy (meters)."""
         self.set_param("SIM_GPS_ACC", horizontal_acc)
 
-    def set_battery(self, voltage: float | None = None, pct: float | None = None):
+    def set_battery(self, voltage: float | None = None, _pct: float | None = None):
         """Set battery state (if supported by SITL backend)."""
         if voltage is not None:
             self.set_param("SIM_BATT_VOLTAGE", voltage)

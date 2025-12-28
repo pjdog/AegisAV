@@ -8,8 +8,10 @@ hierarchical decision making with predictive capabilities and adaptive learning.
 
 from __future__ import annotations
 
+import importlib
 import logging
 from collections import deque
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from enum import Enum
 from typing import TYPE_CHECKING
@@ -75,6 +77,17 @@ class Goal(BaseModel):
         )
 
 
+@dataclass(frozen=True)
+class GoalSelectorConfig:
+    """Configuration values for goal selection."""
+
+    battery_return_threshold: float = 30.0
+    battery_critical_threshold: float = 20.0
+    anomaly_revisit_interval_minutes: float = 10.0
+    normal_cadence_minutes: float = 30.0
+    use_advanced_engine: bool = True
+
+
 class GoalSelector:
     """
     Selects the next goal based on world state.
@@ -105,19 +118,13 @@ class GoalSelector:
             # Process inspection or other goal
     """
 
-    def __init__(
-        self,
-        battery_return_threshold: float = 30.0,
-        battery_critical_threshold: float = 20.0,
-        anomaly_revisit_interval_minutes: float = 10.0,
-        normal_cadence_minutes: float = 30.0,
-        use_advanced_engine: bool = True,
-    ):
-        self.battery_return_threshold = battery_return_threshold
-        self.battery_critical_threshold = battery_critical_threshold
-        self.anomaly_revisit_interval = timedelta(minutes=anomaly_revisit_interval_minutes)
-        self.normal_cadence = timedelta(minutes=normal_cadence_minutes)
-        self.use_advanced_engine = use_advanced_engine
+    def __init__(self, config: GoalSelectorConfig | None = None):
+        self.config = config or GoalSelectorConfig()
+        self.anomaly_revisit_interval = timedelta(
+            minutes=self.config.anomaly_revisit_interval_minutes
+        )
+        self.normal_cadence = timedelta(minutes=self.config.normal_cadence_minutes)
+        self.use_advanced_engine = self.config.use_advanced_engine
 
         # Initialize advanced components
         self.advanced_engine: AdvancedDecisionEngine | None = None
@@ -131,11 +138,9 @@ class GoalSelector:
     async def initialize(self) -> None:
         """Initialize advanced decision engine if enabled."""
         if self.use_advanced_engine:
-            from agent.server.advanced_decision import (  # noqa: PLC0415
-                create_advanced_decision_engine,
-            )
-
-            self.advanced_engine = await create_advanced_decision_engine()
+            module = importlib.import_module("agent.server.advanced_decision")
+            create_engine = getattr(module, "create_advanced_decision_engine")
+            self.advanced_engine = await create_engine()
             logger.info("Advanced decision engine initialized")
 
     async def select_goal(self, world: WorldSnapshot) -> Goal:
@@ -258,7 +263,7 @@ class GoalSelector:
         battery_percent = world.vehicle.battery.remaining_percent
 
         # Critical - must return immediately
-        if battery_percent < self.battery_critical_threshold:
+        if battery_percent < self.config.battery_critical_threshold:
             return Goal(
                 goal_type=GoalType.RETURN_LOW_BATTERY,
                 priority=5,
@@ -267,7 +272,7 @@ class GoalSelector:
             )
 
         # Low - should return unless very close to completing task
-        if battery_percent < self.battery_return_threshold:
+        if battery_percent < self.config.battery_return_threshold:
             # Could add logic to check if we can complete current task
             return Goal(
                 goal_type=GoalType.RETURN_LOW_BATTERY,

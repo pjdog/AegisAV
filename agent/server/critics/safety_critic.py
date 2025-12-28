@@ -290,6 +290,147 @@ class SafetyCritic(BaseCritic):
 
         return concerns, alternatives, risk_score
 
+    async def evaluate_llm(
+        self, decision: Decision, world: WorldSnapshot, risk: RiskAssessment
+    ) -> CriticResponse:
+        """
+        LLM-based safety evaluation for complex scenarios.
+
+        Uses language model to provide nuanced safety analysis when:
+        - Risk is borderline (0.5-0.7 range)
+        - Multiple conflicting factors
+        - Unusual scenarios not covered by rules
+
+        Returns:
+            CriticResponse with detailed LLM reasoning
+        """
+        from pydantic_ai import Agent
+        from pydantic_ai.models.openai import OpenAIModel
+
+        # Prepare context for LLM
+        context = {
+            "decision": {
+                "action": decision.action.value,
+                "parameters": decision.parameters,
+                "confidence": decision.confidence,
+                "reasoning": decision.reasoning,
+            },
+            "vehicle": {
+                "battery_percent": world.vehicle.battery.remaining_percent,
+                "gps_satellites": world.vehicle.gps.satellites_visible if world.vehicle.gps else 0,
+                "gps_hdop": world.vehicle.gps.hdop if world.vehicle.gps else 99.9,
+                "mode": world.vehicle.mode.value,
+                "armed": world.vehicle.armed,
+                "in_air": world.vehicle.in_air,
+            },
+            "environment": {
+                "wind_speed_ms": world.environment.wind_speed_ms,
+                "visibility_m": world.environment.visibility_m,
+                "temperature_c": world.environment.temperature_c,
+            },
+            "mission": {
+                "assets_total": world.mission.assets_total,
+                "assets_inspected": world.mission.assets_inspected,
+                "progress_percent": world.mission.progress_percent,
+            },
+            "risk": {
+                "overall_level": risk.overall_level.value,
+                "overall_score": risk.overall_score,
+                "abort_recommended": risk.abort_recommended,
+            },
+        }
+
+        # Create LLM agent
+        model = OpenAIModel(self.llm_model)
+        agent = Agent(
+            model,
+            system_prompt="""You are a Safety Critic for autonomous drone operations.
+
+Your role is to evaluate decisions for safety concerns including:
+- Battery sufficiency for mission completion and return
+- GPS quality for autonomous navigation
+- Weather conditions (wind, visibility)
+- Vehicle health and readiness
+
+Analyze the provided decision context and provide:
+1. Safety verdict: APPROVE, APPROVE_WITH_CONCERNS, REJECT, or ESCALATE
+2. Specific concerns (if any)
+3. Alternative actions (if decision is unsafe)
+4. Detailed reasoning explaining your safety assessment
+
+Be conservative - drone safety is paramount. If uncertain, ESCALATE for human review.
+Consider cascade failures and edge cases that rule-based systems might miss.""",
+        )
+
+        # Get LLM evaluation
+        try:
+            result = await agent.run(
+                f"""Evaluate this drone decision for safety:
+
+Decision: {context["decision"]["action"]}
+Parameters: {context["decision"]["parameters"]}
+Agent Reasoning: {context["decision"]["reasoning"]}
+
+Vehicle State:
+- Battery: {context["vehicle"]["battery_percent"]:.1f}%
+- GPS: {context["vehicle"]["gps_satellites"]} satellites, HDOP {context["vehicle"]["gps_hdop"]:.2f}
+- Mode: {context["vehicle"]["mode"]}, Armed: {context["vehicle"]["armed"]}, In Air: {context["vehicle"]["in_air"]}
+
+Environment:
+- Wind: {context["environment"]["wind_speed_ms"]:.1f} m/s
+- Visibility: {context["environment"]["visibility_m"]:.0f} m
+
+Mission Progress: {context["mission"]["progress_percent"]:.0f}% ({context["mission"]["assets_inspected"]}/{context["mission"]["assets_total"]} assets)
+
+Risk Assessment: {context["risk"]["overall_level"]} (score: {context["risk"]["overall_score"]:.2f})
+Abort Recommended: {context["risk"]["abort_recommended"]}
+
+Provide your safety verdict and reasoning."""
+            )
+
+            llm_response = result.data
+
+            # Parse LLM response and map to verdict
+            response_lower = llm_response.lower()
+
+            if "reject" in response_lower:
+                verdict = CriticVerdict.REJECT
+                confidence = 0.85
+            elif "escalate" in response_lower:
+                verdict = CriticVerdict.ESCALATE
+                confidence = 0.80
+            elif "concerns" in response_lower or "concern" in response_lower:
+                verdict = CriticVerdict.APPROVE_WITH_CONCERNS
+                confidence = 0.75
+            else:
+                verdict = CriticVerdict.APPROVE
+                confidence = 0.80
+
+            # Extract concerns from response
+            concerns = []
+            if "battery" in response_lower:
+                concerns.append("LLM flagged battery concerns")
+            if "gps" in response_lower or "navigation" in response_lower:
+                concerns.append("LLM flagged GPS/navigation concerns")
+            if "wind" in response_lower or "weather" in response_lower:
+                concerns.append("LLM flagged weather concerns")
+
+            return CriticResponse(
+                critic_type=self.critic_type,
+                verdict=verdict,
+                confidence=confidence,
+                concerns=concerns,
+                alternatives=[],
+                reasoning=f"LLM Safety Analysis: {llm_response[:500]}",
+                risk_score=risk.overall_score,
+                used_llm=True,
+            )
+
+        except Exception as e:
+            # Fallback to fast evaluation if LLM fails
+            self.logger.error(f"LLM evaluation failed: {e}, falling back to classical")
+            return await self.evaluate_fast(decision, world, risk)
+
     def _determine_verdict(
         self,
         concerns: list[str],

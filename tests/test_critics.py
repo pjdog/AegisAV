@@ -438,8 +438,7 @@ async def test_orchestrator_escalation_mode_high_risk(
     # May be approved or blocked depending on critic responses
 
 
-@pytest.mark.asyncio
-async def test_orchestrator_gets_stats():
+def test_orchestrator_gets_stats():
     """Test that orchestrator returns statistics."""
     orchestrator = CriticOrchestrator()
 

@@ -310,6 +310,154 @@ class EfficiencyCritic(BaseCritic):
 
         return concerns, alternatives, risk_score
 
+    async def evaluate_llm(
+        self, decision: Decision, world: WorldSnapshot, risk: RiskAssessment
+    ) -> CriticResponse:
+        """
+        LLM-based efficiency evaluation for complex resource optimization scenarios.
+
+        Uses language model to provide nuanced efficiency analysis when:
+        - Multiple resource trade-offs exist
+        - Mission progress vs battery optimization
+        - Path efficiency with complex constraints
+        - Unusual resource allocation scenarios
+
+        Returns:
+            CriticResponse with detailed LLM reasoning
+        """
+        from pydantic_ai import Agent
+        from pydantic_ai.models.openai import OpenAIModel
+
+        # Prepare context for LLM
+        context = {
+            "decision": {
+                "action": decision.action.value,
+                "parameters": decision.parameters,
+                "confidence": decision.confidence,
+                "reasoning": decision.reasoning,
+            },
+            "vehicle": {
+                "battery_percent": world.vehicle.battery.remaining_percent,
+                "position": {
+                    "latitude": world.vehicle.position.latitude,
+                    "longitude": world.vehicle.position.longitude,
+                    "altitude_msl": world.vehicle.position.altitude_msl,
+                },
+            },
+            "mission": {
+                "assets_total": world.mission.assets_total,
+                "assets_inspected": world.mission.assets_inspected,
+                "progress_percent": world.mission.progress_percent,
+                "pending_assets": len(world.get_pending_assets()),
+            },
+            "risk": {
+                "overall_level": risk.overall_level.value,
+                "overall_score": risk.overall_score,
+            },
+            "distance_to_dock": world.distance_to_dock(),
+        }
+
+        # Create LLM agent
+        model = OpenAIModel(self.llm_model)
+        agent = Agent(
+            model,
+            system_prompt="""You are an Efficiency Critic for autonomous drone operations.
+
+Your role is to evaluate decisions for resource efficiency including:
+- Battery consumption vs mission value
+- Mission progress rate and completion
+- Path optimization and flight efficiency
+- Resource allocation and time utilization
+
+Analyze the provided decision context and provide:
+1. Efficiency verdict: APPROVE, APPROVE_WITH_CONCERNS, REJECT, or ESCALATE
+2. Specific efficiency concerns (if any)
+3. Alternative resource-optimal actions (if decision is inefficient)
+4. Detailed reasoning explaining your efficiency assessment
+
+Focus on maximizing mission value per unit of battery consumed.
+Consider trade-offs between mission completion and resource conservation.
+Identify opportunities for optimization that classical algorithms might miss.""",
+        )
+
+        # Get LLM evaluation
+        try:
+            result = await agent.run(
+                f"""Evaluate this drone decision for resource efficiency:
+
+Decision: {context["decision"]["action"]}
+Parameters: {context["decision"]["parameters"]}
+Agent Reasoning: {context["decision"]["reasoning"]}
+
+Resource State:
+- Battery: {context["vehicle"]["battery_percent"]:.1f}%
+- Distance to Dock: {context["distance_to_dock"]:.0f}m
+
+Mission Progress:
+- Completion: {context["mission"]["progress_percent"]:.0f}%
+- Assets: {context["mission"]["assets_inspected"]}/{context["mission"]["assets_total"]} inspected
+- Pending Assets: {context["mission"]["pending_assets"]}
+
+Risk Assessment: {context["risk"]["overall_level"]} (score: {context["risk"]["overall_score"]:.2f})
+
+Evaluate the resource efficiency of this decision. Consider:
+1. Is this the best use of remaining battery?
+2. Are there more efficient alternatives?
+3. Will this help complete the mission efficiently?
+4. Are resources being wasted?
+
+Provide your efficiency verdict and reasoning."""
+            )
+
+            llm_response = result.data
+
+            # Parse LLM response and map to verdict
+            response_lower = llm_response.lower()
+
+            if "reject" in response_lower:
+                verdict = CriticVerdict.REJECT
+                confidence = 0.80
+            elif "escalate" in response_lower:
+                verdict = CriticVerdict.ESCALATE
+                confidence = 0.75
+            elif "concerns" in response_lower or "concern" in response_lower:
+                verdict = CriticVerdict.APPROVE_WITH_CONCERNS
+                confidence = 0.70
+            else:
+                verdict = CriticVerdict.APPROVE
+                confidence = 0.75
+
+            # Extract concerns from response
+            concerns = []
+            if "battery" in response_lower and (
+                "waste" in response_lower or "inefficient" in response_lower
+            ):
+                concerns.append("LLM flagged battery efficiency concerns")
+            if "mission" in response_lower and (
+                "progress" in response_lower or "incomplete" in response_lower
+            ):
+                concerns.append("LLM flagged mission progress concerns")
+            if "path" in response_lower or "route" in response_lower:
+                concerns.append("LLM flagged path optimization concerns")
+            if "wait" in response_lower and "inefficient" in response_lower:
+                concerns.append("LLM flagged resource allocation concerns")
+
+            return CriticResponse(
+                critic_type=self.critic_type,
+                verdict=verdict,
+                confidence=confidence,
+                concerns=concerns,
+                alternatives=[],
+                reasoning=f"LLM Efficiency Analysis: {llm_response[:500]}",
+                risk_score=risk.overall_score,
+                used_llm=True,
+            )
+
+        except Exception as e:
+            # Fallback to fast evaluation if LLM fails
+            self.logger.error(f"LLM evaluation failed: {e}, falling back to classical")
+            return await self.evaluate_fast(decision, world, risk)
+
     def _determine_verdict(
         self, concerns: list[str], max_risk_score: float, _decision: Decision
     ) -> tuple[CriticVerdict, str, float]:

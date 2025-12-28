@@ -146,90 +146,92 @@ class ActionExecutor:
 
     async def _execute_action(self, action: str, parameters: dict) -> PrimitiveResult:
         """Execute a specific action type."""
+        handlers = {
+            "none": self._handle_wait,
+            "wait": self._handle_wait,
+            "abort": self._handle_abort,
+            "takeoff": self._handle_takeoff,
+            "goto": self._handle_goto,
+            "inspect": self._handle_inspect,
+            "dock": self._handle_dock,
+            "rtl": self._handle_rtl,
+            "land": self._handle_land,
+        }
+        handler = handlers.get(action)
+        if not handler:
+            logger.warning("Unknown action type: %s", action)
+            return PrimitiveResult.FAILED
+        return await handler(parameters)
 
-        if action == "none" or action == "wait":
-            # No action needed
-            duration = parameters.get("duration_s", 0)
-            if duration > 0:
-                await asyncio.sleep(duration)
+    async def _handle_wait(self, parameters: dict) -> PrimitiveResult:
+        duration = parameters.get("duration_s", 0)
+        if duration > 0:
+            await asyncio.sleep(duration)
+        return PrimitiveResult.SUCCESS
+
+    async def _handle_abort(self, _parameters: dict) -> PrimitiveResult:
+        if await self.mavlink.return_to_launch():
             return PrimitiveResult.SUCCESS
+        return PrimitiveResult.FAILED
 
-        elif action == "abort":
-            # Emergency abort - immediate RTL
-            if await self.mavlink.return_to_launch():
-                return PrimitiveResult.SUCCESS
+    async def _handle_takeoff(self, parameters: dict) -> PrimitiveResult:
+        altitude = parameters.get("altitude_m", 10.0)
+        return await self.primitives.arm_and_takeoff(altitude)
+
+    async def _handle_goto(self, parameters: dict) -> PrimitiveResult:
+        pos = parameters.get("position", {})
+        if not pos:
             return PrimitiveResult.FAILED
 
-        elif action == "takeoff":
-            altitude = parameters.get("altitude_m", 10.0)
-            return await self.primitives.arm_and_takeoff(altitude)
+        target = Position(
+            latitude=pos["latitude"],
+            longitude=pos["longitude"],
+            altitude_msl=pos.get("altitude_msl", 0),
+        )
+        speed = parameters.get("speed_ms")
+        return await self.primitives.goto(target, speed)
 
-        elif action == "goto":
-            pos = parameters.get("position", {})
-            if not pos:
-                return PrimitiveResult.FAILED
-
-            target = Position(
-                latitude=pos["latitude"],
-                longitude=pos["longitude"],
-                altitude_msl=pos.get("altitude_msl", 0),
-            )
-            speed = parameters.get("speed_ms")
-            return await self.primitives.goto(target, speed)
-
-        elif action == "inspect":
-            # Inspect = goto + orbit
-            pos = parameters.get("position", {})
-            if not pos:
-                return PrimitiveResult.FAILED
-
-            target = Position(
-                latitude=pos["latitude"],
-                longitude=pos["longitude"],
-                altitude_msl=pos.get("altitude_msl", 0),
-            )
-
-            # First, go to the inspection point
-            result = await self.primitives.goto(target)
-            if result != PrimitiveResult.SUCCESS:
-                return result
-
-            # Then orbit if specified
-            orbit_radius = parameters.get("orbit_radius_m", 0)
-            dwell_time = parameters.get("dwell_time_s", 30)
-
-            if orbit_radius > 0:
-                return await self.primitives.orbit(
-                    center=target,
-                    radius=orbit_radius,
-                    altitude_agl=20,  # Could be from parameters
-                    orbits=1,
-                )
-            else:
-                # Just hover for dwell time
-                await asyncio.sleep(dwell_time)
-                return PrimitiveResult.SUCCESS
-
-        elif action == "dock":
-            # Get dock position from world model or parameters
-            dock_pos = parameters.get("dock_position")
-            if dock_pos:
-                target = Position(
-                    latitude=dock_pos["latitude"],
-                    longitude=dock_pos["longitude"],
-                    altitude_msl=dock_pos.get("altitude_msl", 0),
-                )
-                return await self.primitives.dock(target)
-            else:
-                # Fall back to RTL
-                return await self.primitives.return_to_launch()
-
-        elif action == "rtl":
-            return await self.primitives.return_to_launch()
-
-        elif action == "land":
-            return await self.primitives.land()
-
-        else:
-            logger.warning(f"Unknown action type: {action}")
+    async def _handle_inspect(self, parameters: dict) -> PrimitiveResult:
+        pos = parameters.get("position", {})
+        if not pos:
             return PrimitiveResult.FAILED
+
+        target = Position(
+            latitude=pos["latitude"],
+            longitude=pos["longitude"],
+            altitude_msl=pos.get("altitude_msl", 0),
+        )
+
+        result = await self.primitives.goto(target)
+        if result != PrimitiveResult.SUCCESS:
+            return result
+
+        orbit_radius = parameters.get("orbit_radius_m", 0)
+        dwell_time = parameters.get("dwell_time_s", 30)
+
+        if orbit_radius > 0:
+            return await self.primitives.orbit(
+                center=target,
+                radius=orbit_radius,
+                altitude_agl=20,
+                orbits=1,
+            )
+        await asyncio.sleep(dwell_time)
+        return PrimitiveResult.SUCCESS
+
+    async def _handle_dock(self, parameters: dict) -> PrimitiveResult:
+        dock_pos = parameters.get("dock_position")
+        if dock_pos:
+            target = Position(
+                latitude=dock_pos["latitude"],
+                longitude=dock_pos["longitude"],
+                altitude_msl=dock_pos.get("altitude_msl", 0),
+            )
+            return await self.primitives.dock(target)
+        return await self.primitives.return_to_launch()
+
+    async def _handle_rtl(self, _parameters: dict) -> PrimitiveResult:
+        return await self.primitives.return_to_launch()
+
+    async def _handle_land(self, _parameters: dict) -> PrimitiveResult:
+        return await self.primitives.land()

@@ -1,0 +1,292 @@
+"""
+Explanation Agent
+
+Generates detailed audit trails and explanations for decisions using LLM.
+Provides counterfactual analysis and factor contributions.
+"""
+
+import logging
+from datetime import datetime
+
+from pydantic_ai import Agent
+from pydantic_ai.models.openai import OpenAIModel
+
+from agent.server.decision import Decision
+from agent.server.models.audit_models import (
+    AuditTrail,
+    CounterfactualScenario,
+    FactorContribution,
+    ReasoningStep,
+)
+from agent.server.models.critic_models import EscalationDecision
+from agent.server.risk_evaluator import RiskAssessment
+from agent.server.world_model import WorldSnapshot
+
+logger = logging.getLogger(__name__)
+
+
+class ExplanationAgent:
+    """
+    Generates detailed explanations and audit trails for decisions.
+
+    Responsibilities:
+    - Create comprehensive audit trails
+    - Generate counterfactual scenarios ("what if" analysis)
+    - Explain factor contributions
+    - Provide natural language explanations
+    """
+
+    def __init__(self, llm_model: str = "gpt-4o-mini"):
+        """
+        Initialize explanation agent.
+
+        Args:
+            llm_model: LLM model to use for explanations
+        """
+        self.llm_model = llm_model
+        self.logger = logger
+
+    async def generate_audit_trail(
+        self,
+        decision: Decision,
+        world: WorldSnapshot,
+        risk: RiskAssessment,
+        escalation: EscalationDecision | None = None,
+    ) -> AuditTrail:
+        """
+        Generate a comprehensive audit trail for a decision.
+
+        Args:
+            decision: The decision that was made
+            world: World state at time of decision
+            risk: Risk assessment
+            escalation: Escalation decision (if any)
+
+        Returns:
+            Complete AuditTrail with reasoning steps and explanations
+        """
+        # Build reasoning steps
+        reasoning_steps = [
+            ReasoningStep(
+                step_number=1,
+                description="World State Analysis",
+                inputs={
+                    "battery_percent": world.vehicle.battery.remaining_percent,
+                    "mission_progress": world.mission.progress_percent,
+                    "wind_speed_ms": world.environment.wind_speed_ms,
+                },
+                outputs={"state_summary": "Analyzed current operational state"},
+                confidence=0.95,
+            ),
+            ReasoningStep(
+                step_number=2,
+                description="Risk Evaluation",
+                inputs={
+                    "risk_level": risk.overall_level.value,
+                    "risk_score": risk.overall_score,
+                },
+                outputs={"risk_assessment": f"Risk level: {risk.overall_level.value}"},
+                confidence=0.90,
+            ),
+            ReasoningStep(
+                step_number=3,
+                description="Decision Selection",
+                inputs={
+                    "action": decision.action.value,
+                    "parameters": decision.parameters,
+                },
+                outputs={"decision": f"Selected action: {decision.action.value}"},
+                confidence=decision.confidence,
+            ),
+        ]
+
+        # Add critic review step if escalation occurred
+        if escalation:
+            reasoning_steps.append(
+                ReasoningStep(
+                    step_number=4,
+                    description="Multi-Agent Critic Review",
+                    inputs={
+                        "escalation_level": escalation.escalation_level.value,
+                        "num_critics": len(escalation.critic_responses),
+                    },
+                    outputs={
+                        "approved": escalation.approved,
+                        "reason": escalation.reason,
+                    },
+                    confidence=escalation.consensus_score,
+                )
+            )
+
+        # Identify key factors
+        factor_contributions = self._identify_factors(decision, world, risk)
+
+        # Generate counterfactuals
+        counterfactuals = await self._generate_counterfactuals(decision, world, risk)
+
+        return AuditTrail(
+            decision_id=decision.decision_id,
+            timestamp=datetime.now(),
+            decision_type=decision.action.value,
+            reasoning_steps=reasoning_steps,
+            factor_contributions=factor_contributions,
+            counterfactuals=counterfactuals,
+            final_confidence=decision.confidence,
+            explanation=decision.reasoning,
+        )
+
+    def _identify_factors(
+        self, decision: Decision, world: WorldSnapshot, risk: RiskAssessment
+    ) -> list[FactorContribution]:
+        """
+        Identify key factors that influenced the decision.
+
+        Returns:
+            List of FactorContribution objects
+        """
+        factors = []
+
+        # Battery factor
+        battery_pct = world.vehicle.battery.remaining_percent
+        if battery_pct < 30:
+            weight = 0.9
+        elif battery_pct < 50:
+            weight = 0.6
+        else:
+            weight = 0.3
+
+        factors.append(
+            FactorContribution(
+                factor_name="battery_level",
+                value=battery_pct,
+                weight=weight,
+                impact_direction="positive" if battery_pct > 50 else "negative",
+                explanation=f"Battery at {battery_pct:.1f}% influenced decision weight by {weight:.1f}",
+            )
+        )
+
+        # Risk factor
+        risk_weight = risk.overall_score
+        factors.append(
+            FactorContribution(
+                factor_name="overall_risk",
+                value=risk.overall_score,
+                weight=risk_weight,
+                impact_direction="negative" if risk_weight > 0.5 else "neutral",
+                explanation=f"Risk score of {risk.overall_score:.2f} influenced safety constraints",
+            )
+        )
+
+        # Mission progress factor
+        progress_pct = world.mission.progress_percent
+        factors.append(
+            FactorContribution(
+                factor_name="mission_progress",
+                value=progress_pct,
+                weight=0.4 + (progress_pct / 100) * 0.4,  # Higher weight as mission progresses
+                impact_direction="positive",
+                explanation=f"Mission {progress_pct:.0f}% complete influenced goal prioritization",
+            )
+        )
+
+        return factors
+
+    async def _generate_counterfactuals(
+        self, decision: Decision, world: WorldSnapshot, risk: RiskAssessment
+    ) -> list[CounterfactualScenario]:
+        """
+        Generate counterfactual "what if" scenarios.
+
+        Returns:
+            List of CounterfactualScenario objects
+        """
+        counterfactuals = []
+
+        # Counterfactual: What if battery was higher?
+        if world.vehicle.battery.remaining_percent < 50:
+            counterfactuals.append(
+                CounterfactualScenario(
+                    scenario_description="What if battery was at 80%?",
+                    changed_factors={"battery_percent": 80.0},
+                    predicted_outcome="Mission could continue with more aggressive inspection strategy",
+                    confidence=0.75,
+                )
+            )
+
+        # Counterfactual: What if risk was lower?
+        if risk.overall_score > 0.5:
+            counterfactuals.append(
+                CounterfactualScenario(
+                    scenario_description="What if risk score was 0.2?",
+                    changed_factors={"risk_score": 0.2},
+                    predicted_outcome="Decision would likely proceed with higher confidence",
+                    confidence=0.80,
+                )
+            )
+
+        # Counterfactual: What if mission was complete?
+        if world.mission.progress_percent < 100:
+            counterfactuals.append(
+                CounterfactualScenario(
+                    scenario_description="What if all assets were inspected?",
+                    changed_factors={"mission_progress": 100.0},
+                    predicted_outcome="Decision would prioritize return to dock over continuing inspection",
+                    confidence=0.90,
+                )
+            )
+
+        return counterfactuals
+
+    async def explain_decision_llm(
+        self, decision: Decision, world: WorldSnapshot, risk: RiskAssessment
+    ) -> str:
+        """
+        Generate natural language explanation using LLM.
+
+        Args:
+            decision: Decision to explain
+            world: World state
+            risk: Risk assessment
+
+        Returns:
+            Natural language explanation string
+        """
+        model = OpenAIModel(self.llm_model)
+        agent = Agent(
+            model,
+            system_prompt="""You are an explainability AI for autonomous drone operations.
+
+Your role is to provide clear, concise explanations of decisions made by the drone agent.
+
+Explain:
+- What decision was made and why
+- Key factors that influenced the decision
+- Trade-offs and alternatives considered
+- Potential risks and mitigations
+
+Use simple language suitable for operators who may not be AI experts.
+Focus on actionable insights and safety-critical information.""",
+        )
+
+        try:
+            result = await agent.run(
+                f"""Explain this drone decision in 2-3 sentences:
+
+Decision: {decision.action.value}
+Parameters: {decision.parameters}
+Reasoning: {decision.reasoning}
+
+Context:
+- Battery: {world.vehicle.battery.remaining_percent:.1f}%
+- Mission Progress: {world.mission.progress_percent:.0f}%
+- Risk Level: {risk.overall_level.value} (score: {risk.overall_score:.2f})
+- Wind: {world.environment.wind_speed_ms:.1f} m/s
+
+Provide a clear, concise explanation suitable for a human operator."""
+            )
+
+            return result.data
+
+        except Exception as e:
+            self.logger.error(f"LLM explanation failed: {e}")
+            return decision.reasoning  # Fallback to original reasoning

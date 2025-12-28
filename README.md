@@ -1,70 +1,125 @@
-# AegisAV: Agentic Supervisory Autonomy
+<![CDATA[<div align="center">
+
+# ⚔️ AegisAV
+
+### *Agentic Supervisory Autonomy for Next-Gen Aerial Intelligence*
+
+[![Python 3.12+](https://img.shields.io/badge/Python-3.12+-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
+[![PydanticAI](https://img.shields.io/badge/Engine-PydanticAI-00ff9d?style=for-the-badge&logo=pydantic&logoColor=white)](https://ai.pydantic.dev/)
+[![Logfire](https://img.shields.io/badge/Observability-Logfire-FF6B35?style=for-the-badge)](https://pydantic.dev/logfire)
+[![Docker Ready](https://img.shields.io/badge/Docker-Ready-2496ED?style=for-the-badge&logo=docker&logoColor=white)](https://www.docker.com/)
+[![SITL Compatible](https://img.shields.io/badge/Simulation-ArduPilot%20SITL-FFB800?style=for-the-badge)](https://ardupilot.org/dev/docs/sitl-simulator-software-in-the-loop.html)
+[![License MIT](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)](LICENSE)
+
+<br/>
 
 **Empowering Autonomous Infrastructure & Aerial Monitoring with Explainable AI**
 
-`AegisAV` is a state-of-the-art autonomy framework that layers **LLM-powered agentic decision-making** over classical flight control. It demonstrates a "Supervisor" architecture where a high-level brain manages mission objectives, risk-aware planning, and situational awareness while delegating stabilization to proven autopilots (ArduPilot/PX4).
+[🚀 Quick Start](#-quick-start-dockerized) • [📖 Architecture](#-core-architecture) • [🎨 Dashboard](#-the-aegis-onyx-experience) • [🛠️ Development](#%EF%B8%8F-developer-setup-local)
 
-![Aegis Onyx Dashboard Concept](https://img.shields.io/badge/UI-Aegis%20Onyx-00f2ff?style=for-the-badge)
-![Engine-PydanticAI](https://img.shields.io/badge/Engine-PydanticAI-00ff9d?style=for-the-badge)
-![SITL-Ready](https://img.shields.io/badge/Simulation-SITL%20Ready-ffb800?style=for-the-badge)
+---
+
+</div>
+
+## 🎯 What is AegisAV?
+
+**AegisAV** is a cutting-edge autonomy framework that layers **LLM-powered agentic decision-making** over classical flight control. It demonstrates a **"Supervisor" architecture** where a high-level AI brain manages:
+
+- 🧠 **Mission Objectives** — Dynamic goal selection and prioritization
+- ⚠️ **Risk-Aware Planning** — Multi-factor safety evaluation
+- 🌍 **Situational Awareness** — Real-time world model maintenance
+
+...while delegating stabilization to battle-tested autopilots like **ArduPilot** and **PX4**.
 
 ---
 
 ## 💎 The "Aegis Onyx" Experience
 
-The mission dashboard provides a premium, high-fidelity monitoring environment:
-- **Onyx Visuals**: A deep-mode interface with glassmorphism and Cyber Blue highlights.
-- **Spatial Situational Awareness**: A real-time "Radar" view of the vehicle and assets.
-- **Explainable AI (XAI)**: A live **Reasoning Feed** that exposes the "why" behind every autonomous decision.
-- **Agentic Orchestration**: Toggle between autonomous LLM agentic planning and rule-based reactive logic in real-time.
+<div align="center">
+
+| Feature | Description |
+|---------|-------------|
+| 🖤 **Onyx Visuals** | Deep-mode interface with glassmorphism and Cyber Blue accents |
+| 📡 **Spatial Awareness** | Real-time "Radar" view of vehicle and assets |
+| 🔍 **Explainable AI** | Live Reasoning Feed exposing the "why" behind every decision |
+| 🤖 **Agentic Toggle** | Switch between LLM planning and rule-based logic in real-time |
+
+</div>
+
+Access the dashboard at `http://localhost:8080/dashboard` after launch.
 
 ---
 
 ## 🧠 Core Architecture
 
-AegisAV follows a clean, three-layer separation:
-
-1.  **Decision Layer (Agent Server)**:
-    - Powered by **PydanticAI** & **Logfire**.
-    - Maintains a high-fidelity **World Model**.
-    - Evaluates complex mission risks and selects goals dynamically.
-2.  **Execution Layer (Agent Client)**:
-    - Translates agent goals into flight primitives.
-    - Manages the MAVLink handshake and state collection.
-3.  **Control Layer (SITL / Hardware)**:
-    - ArduPilot/PX4 manages physics and stabilization.
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    🎯 DECISION LAYER                            │
+│              (Agent Server • PydanticAI • Logfire)              │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────────┐  │
+│  │ World Model │  │Goal Selector│  │   Risk Evaluator        │  │
+│  │  (Pydantic) │  │   (LLM)     │  │   (Multi-Critic)        │  │
+│  └─────────────┘  └─────────────┘  └─────────────────────────┘  │
+└─────────────────────────────────────────────────────────────────┘
+                              ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                   ⚡ EXECUTION LAYER                             │
+│                     (Agent Client)                              │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────────┐  │
+│  │   Action    │  │    State    │  │   Mission Primitives    │  │
+│  │  Executor   │  │  Collector  │  │   (orbit, goto, land)   │  │
+│  └─────────────┘  └─────────────┘  └─────────────────────────┘  │
+└─────────────────────────────────────────────────────────────────┘
+                              ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                   🛩️ CONTROL LAYER                               │
+│               (ArduPilot SITL / PX4 / Hardware)                 │
+│           Physics • Stabilization • Sensor Fusion               │
+└─────────────────────────────────────────────────────────────────┘
+```
 
 ---
 
 ## 🚀 Quick Start (Dockerized)
 
-The easiest way to experience AegisAV is via Docker.
+The easiest way to experience AegisAV is via Docker Compose:
 
 ```bash
-# Clone and enter
+# Clone the repository
 git clone https://github.com/pjdog/AegisAV.git && cd AegisAV
 
-# Export keys (optional, defaults to 'mock')
+# (Optional) Set your OpenAI API key for full LLM reasoning
 export OPENAI_API_KEY=your-key-here
 
-# Launch the whole stack
+# Launch the complete stack
 docker compose up
 ```
 
-Access the **Aegis Onyx Dashboard** at: `http://localhost:8080/dashboard`
+> 💡 **No API key?** AegisAV gracefully falls back to rule-based autonomy.
+
+<div align="center">
+
+🌐 **Dashboard**: `http://localhost:8080/dashboard`  
+📊 **API Docs**: `http://localhost:8000/docs`
+
+</div>
 
 ---
 
 ## 🛠️ Developer Setup (Local)
 
-This project uses `uv` for ultra-fast Python environment management.
+This project uses [`uv`](https://github.com/astral-sh/uv) for ultra-fast Python environment management.
 
-### 1. Prerequisites
-- [uv](https://github.com/astral-sh/uv)
-- Node.js & npm (for dashboard)
-- ArduPilot SITL (for simulation)
+### Prerequisites
 
-### 2. Install & Build
+| Tool | Purpose | Install |
+|------|---------|---------|
+| **uv** | Python env management | `curl -LsSf https://astral.sh/uv/install.sh \| sh` |
+| **Node.js** | Dashboard build | [nodejs.org](https://nodejs.org/) |
+| **ArduPilot SITL** | Flight simulation | [SITL Setup](https://ardupilot.org/dev/docs/sitl-simulator-software-in-the-loop.html) |
+
+### Install & Build
+
 ```bash
 # Sync Python environment
 uv sync
@@ -73,15 +128,16 @@ uv sync
 cd frontend && npm install && npm run build && cd ..
 ```
 
-### 3. Run Mission
+### Run a Mission
+
 ```bash
-# Start realistic SITL
+# Terminal 1: Start realistic SITL simulation
 ./scripts/run_sim.sh --realistic
 
-# Start Agent Server
+# Terminal 2: Launch the Agent Server
 uv run aegis-server
 
-# Launch Mission Client
+# Terminal 3: Execute a demo mission
 uv run aegis-demo --scenario anomaly
 ```
 
@@ -89,14 +145,59 @@ uv run aegis-demo --scenario anomaly
 
 ## 📊 Observability & Tracing
 
-AegisAV is built for high-reliability operations:
-- **Live Reasoning**: Real-time LLM logic streamed to the UI.
-- **Structured Logs**: Full system logs available via the dashboard terminal.
-- **Deep Tracing**: Integrated with **Logfire** for production-grade agentic observability.
+AegisAV is built for **high-reliability operations**:
+
+| Capability | Description |
+|------------|-------------|
+| 💭 **Live Reasoning** | Real-time LLM logic streamed to the dashboard |
+| 📝 **Structured Logs** | Full system logs via the integrated terminal |
+| 🔥 **Deep Tracing** | Production-grade observability with [Logfire](https://pydantic.dev/logfire) |
 
 ---
 
-## 📜 License & Use
-AegisAV is provided under the MIT License. It is intended for research, competitions, and architectural demonstrations in autonomous systems.
+## 🧪 Testing
 
-**Disclaimer**: This software is not flight-certified and is intended for simulation and research only.
+```bash
+# Run the full test suite
+uv run pytest
+
+# Run with coverage
+uv run pytest --cov=agent --cov=autonomy
+
+# Run specific test modules
+uv run pytest tests/test_advanced_decision.py -v
+```
+
+---
+
+## 📁 Project Structure
+
+```
+AegisAV/
+├── agent/
+│   ├── server/          # Decision layer (PydanticAI agents, critics)
+│   └── client/          # Execution layer (action executor, state collector)
+├── autonomy/            # Vehicle interface (MAVLink, mission primitives)
+├── frontend/            # Aegis Onyx dashboard (Vite + React)
+├── configs/             # YAML configurations (thresholds, agent settings)
+├── scripts/             # SITL launcher, simulation scenarios
+└── tests/               # Comprehensive test suite
+```
+
+---
+
+## 📜 License
+
+<div align="center">
+
+**MIT License** — Free for research, competitions, and architectural demonstrations.
+
+⚠️ **Disclaimer**: This software is not flight-certified.  
+Intended for simulation and research only.
+
+---
+
+Made with 🤖 + ☕ for the future of autonomous systems.
+
+</div>
+]]>

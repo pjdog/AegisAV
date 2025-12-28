@@ -6,10 +6,25 @@ import asyncio
 import sys
 import tempfile
 from collections.abc import Generator
+from datetime import datetime
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+
+from agent.server.goal_selector import GoalSelector
+from agent.server.risk_evaluator import RiskEvaluator, RiskThresholds
+from agent.server.world_model import WorldModel
+from autonomy.vehicle_state import (
+    Attitude,
+    BatteryState,
+    FlightMode,
+    GPSState,
+    Position,
+    VehicleHealth,
+    VehicleState,
+    Velocity,
+)
 
 # Add project root to path for imports
 project_root = Path(__file__).parent.parent
@@ -172,7 +187,7 @@ def mock_mavlink_connection():
             lat=int(TEST_HOME_POSITION["lat"] * 1e7),
             lon=int(TEST_HOME_POSITION["lon"] * 1e7),
             alt=int(TEST_HOME_POSITION["alt"] * 1000),
-            relative_alt=int(12 * 1000),
+            relative_alt=(12 * 1000),
             vx=0,
             vy=0,
             vz=0,
@@ -207,72 +222,54 @@ def temp_log_dir() -> Generator[Path, None, None]:
 
 
 @pytest.fixture
-async def integration_test_setup():
+def integration_test_setup():
     """Setup common integration test components."""
-    # Import here to avoid module import issues during pytest collection
-    try:
-        from datetime import datetime
+    # Create test components
+    world_model = WorldModel()
+    goal_selector = GoalSelector()
 
-        from agent.server.goal_selector import GoalSelector
-        from agent.server.risk_evaluator import RiskEvaluator, RiskThresholds
-        from agent.server.world_model import WorldModel
-        from autonomy.vehicle_state import (
-            Attitude,
-            BatteryState,
-            FlightMode,
-            GPSState,
-            Position,
-            VehicleHealth,
-            VehicleState,
-            Velocity,
-        )
+    thresholds = RiskThresholds(
+        battery_warning_percent=TEST_BATTERY_WARNING,
+        battery_critical_percent=TEST_BATTERY_CRITICAL,
+        wind_warning_ms=8.0,
+        wind_abort_ms=12.0,
+    )
+    risk_evaluator = RiskEvaluator(thresholds)
 
-        # Create test components
-        world_model = WorldModel()
-        goal_selector = GoalSelector()
+    # Create test vehicle state
+    vehicle_state = VehicleState(
+        timestamp=datetime.now(),
+        position=Position(
+            latitude=TEST_HOME_POSITION["lat"],
+            longitude=TEST_HOME_POSITION["lon"],
+            altitude_msl=TEST_HOME_POSITION["alt"],
+            altitude_agl=12.0,
+        ),
+        velocity=Velocity(0, 0, 0),
+        attitude=Attitude(0, 0, 0),
+        battery=BatteryState(22.8, 5.0, 80.0),
+        mode=FlightMode.GUIDED,
+        armed=True,
+        in_air=True,
+        gps=GPSState(3, 8, 0.8, 0.8),
+        health=VehicleHealth(True, True, True, True, True),
+        home_position=Position(
+            latitude=TEST_HOME_POSITION["lat"],
+            longitude=TEST_HOME_POSITION["lon"],
+            altitude_msl=TEST_HOME_POSITION["alt"],
+            altitude_agl=0.0,
+        ),
+    )
 
-        thresholds = RiskThresholds(
-            battery_warning_percent=TEST_BATTERY_WARNING,
-            battery_critical_percent=TEST_BATTERY_CRITICAL,
-            wind_warning_ms=8.0,
-            wind_abort_ms=12.0,
-        )
-        risk_evaluator = RiskEvaluator(thresholds)
+    # Update world model with vehicle state
+    world_model.update_vehicle(vehicle_state)
 
-        # Create test vehicle state
-        vehicle_state = VehicleState(
-            timestamp=datetime.now(),
-            position=Position(
-                latitude=TEST_HOME_POSITION["lat"],
-                longitude=TEST_HOME_POSITION["lon"],
-                altitude_msl=TEST_HOME_POSITION["alt"],
-                altitude_agl=12.0,
-            ),
-            velocity=Velocity(0, 0, 0),
-            attitude=Attitude(0, 0, 0),
-            battery=BatteryState(22.8, 5.0, 80.0),
-            mode=FlightMode.GUIDED,
-            armed=True,
-            in_air=True,
-            gps=GPSState(3, 8, 0.8, 0.8),
-            health=VehicleHealth(True, True, True, True, True),
-            home_position=Position(
-                latitude=TEST_HOME_POSITION["lat"],
-                longitude=TEST_HOME_POSITION["lon"],
-                altitude_msl=TEST_HOME_POSITION["alt"],
-                altitude_agl=0.0,
-            ),
-        )
-
-        yield {
-            "world_model": world_model,
-            "goal_selector": goal_selector,
-            "risk_evaluator": risk_evaluator,
-            "vehicle_state": vehicle_state,
-        }
-
-    except ImportError as e:
-        pytest.skip(f"Cannot import required modules for integration test: {e}")
+    return {
+        "world_model": world_model,
+        "goal_selector": goal_selector,
+        "risk_evaluator": risk_evaluator,
+        "vehicle_state": vehicle_state,
+    }
 
 
 # Ensure directories exist

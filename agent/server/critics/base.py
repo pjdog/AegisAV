@@ -144,9 +144,7 @@ class BaseCritic(ABC):
             # Perform evaluation
             if use_llm:
                 self.llm_evaluations += 1
-                logger.debug(
-                    f"{self.critic_type.value}: Using LLM evaluation " f"(force={force_llm})"
-                )
+                logger.debug(f"{self.critic_type.value}: Using LLM evaluation (force={force_llm})")
                 response = await self.evaluate_llm(decision, world, risk)
                 response.used_llm = True
             else:

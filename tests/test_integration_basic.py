@@ -227,7 +227,7 @@ class TestAsyncIntegration:
                 lat=int(TEST_HOME_POSITION["lat"] * 1e7),
                 lon=int(TEST_HOME_POSITION["lon"] * 1e7),
                 alt=int(TEST_HOME_POSITION["alt"] * 1000),
-                relative_alt=int(12 * 1000),
+                relative_alt=(12 * 1000),
                 vx=0,
                 vy=0,
                 vz=0,

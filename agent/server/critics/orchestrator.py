@@ -199,8 +199,7 @@ class CriticOrchestrator:
             )
 
             logger.warning(
-                f"Decision BLOCKED: {len(rejections)} rejections, "
-                f"consensus: {consensus_score:.2f}"
+                f"Decision BLOCKED: {len(rejections)} rejections, consensus: {consensus_score:.2f}"
             )
 
             return False, escalation

@@ -4,11 +4,11 @@ Edge case and performance tests for the agent server.
 Tests error handling, invalid inputs, timeouts, and performance characteristics.
 """
 
-import pytest
 import asyncio
 import time
 from datetime import datetime
-from unittest.mock import Mock, patch
+
+import pytest
 
 from agent.api_models import ActionType
 from agent.server.critics import AuthorityModel, CriticOrchestrator
@@ -16,7 +16,7 @@ from agent.server.decision import Decision
 from agent.server.models.critic_models import CriticVerdict
 from agent.server.models.outcome_models import DecisionFeedback, ExecutionStatus
 from agent.server.monitoring import OutcomeTracker
-from agent.server.risk_evaluator import RiskAssessment, RiskLevel, RiskFactor
+from agent.server.risk_evaluator import RiskAssessment, RiskFactor, RiskLevel
 from agent.server.world_model import (
     DockState,
     DockStatus,
@@ -33,7 +33,6 @@ from autonomy.vehicle_state import (
     VehicleState,
     Velocity,
 )
-
 
 # ============================================================================
 # Invalid Input Tests
@@ -68,7 +67,9 @@ async def test_invalid_decision_parameters():
         environment=EnvironmentState(timestamp=datetime.now()),
         assets=[],
         anomalies=[],
-        mission=MissionState(mission_id="test", mission_name="Test", assets_total=0, assets_inspected=0),
+        mission=MissionState(
+            mission_id="test", mission_name="Test", assets_total=0, assets_inspected=0
+        ),
         dock=DockState(
             position=Position(latitude=37.0, longitude=-122.0, altitude_msl=0, altitude_agl=0),
             status=DockStatus.AVAILABLE,
@@ -78,7 +79,11 @@ async def test_invalid_decision_parameters():
     risk = RiskAssessment(
         overall_level=RiskLevel.LOW,
         overall_score=0.2,
-        factors={"battery": RiskFactor(name="battery", value=0.1, threshold=0.5, critical=0.8, description="OK")},
+        factors={
+            "battery": RiskFactor(
+                name="battery", value=0.1, threshold=0.5, critical=0.8, description="OK"
+            )
+        },
     )
 
     # Should not crash, should handle gracefully
@@ -113,7 +118,9 @@ async def test_none_values_in_world_snapshot():
         environment=EnvironmentState(timestamp=datetime.now()),
         assets=[],
         anomalies=[],
-        mission=MissionState(mission_id="test", mission_name="Test", assets_total=0, assets_inspected=0),
+        mission=MissionState(
+            mission_id="test", mission_name="Test", assets_total=0, assets_inspected=0
+        ),
         dock=DockState(
             position=Position(latitude=37.0, longitude=-122.0, altitude_msl=0, altitude_agl=0),
             status=DockStatus.AVAILABLE,
@@ -123,7 +130,11 @@ async def test_none_values_in_world_snapshot():
     risk = RiskAssessment(
         overall_level=RiskLevel.LOW,
         overall_score=0.2,
-        factors={"battery": RiskFactor(name="battery", value=0.1, threshold=0.5, critical=0.8, description="OK")},
+        factors={
+            "battery": RiskFactor(
+                name="battery", value=0.1, threshold=0.5, critical=0.8, description="OK"
+            )
+        },
     )
 
     decision = Decision(action=ActionType.WAIT, parameters={"duration_s": 10}, confidence=0.9)
@@ -180,7 +191,9 @@ async def test_critic_evaluation_performance():
         environment=EnvironmentState(timestamp=datetime.now()),
         assets=[],
         anomalies=[],
-        mission=MissionState(mission_id="test", mission_name="Test", assets_total=0, assets_inspected=0),
+        mission=MissionState(
+            mission_id="test", mission_name="Test", assets_total=0, assets_inspected=0
+        ),
         dock=DockState(
             position=Position(latitude=37.0, longitude=-122.0, altitude_msl=0, altitude_agl=0),
             status=DockStatus.AVAILABLE,
@@ -190,7 +203,11 @@ async def test_critic_evaluation_performance():
     risk = RiskAssessment(
         overall_level=RiskLevel.LOW,
         overall_score=0.2,
-        factors={"battery": RiskFactor(name="battery", value=0.1, threshold=0.5, critical=0.8, description="OK")},
+        factors={
+            "battery": RiskFactor(
+                name="battery", value=0.1, threshold=0.5, critical=0.8, description="OK"
+            )
+        },
     )
 
     decision = Decision(action=ActionType.INSPECT, parameters={"asset_id": "test"}, confidence=0.9)
@@ -228,7 +245,9 @@ async def test_concurrent_decision_throughput():
         environment=EnvironmentState(timestamp=datetime.now()),
         assets=[],
         anomalies=[],
-        mission=MissionState(mission_id="test", mission_name="Test", assets_total=0, assets_inspected=0),
+        mission=MissionState(
+            mission_id="test", mission_name="Test", assets_total=0, assets_inspected=0
+        ),
         dock=DockState(
             position=Position(latitude=37.0, longitude=-122.0, altitude_msl=0, altitude_agl=0),
             status=DockStatus.AVAILABLE,
@@ -238,7 +257,11 @@ async def test_concurrent_decision_throughput():
     risk = RiskAssessment(
         overall_level=RiskLevel.LOW,
         overall_score=0.2,
-        factors={"battery": RiskFactor(name="battery", value=0.1, threshold=0.5, critical=0.8, description="OK")},
+        factors={
+            "battery": RiskFactor(
+                name="battery", value=0.1, threshold=0.5, critical=0.8, description="OK"
+            )
+        },
     )
 
     # Create 20 decisions
@@ -259,7 +282,9 @@ async def test_concurrent_decision_throughput():
 
     assert len(results) == num_decisions
     assert avg_time_ms < 100, f"Average time per decision: {avg_time_ms:.2f}ms (target: <100ms)"
-    print(f"✓ Processed {num_decisions} decisions in {total_time_ms:.2f}ms (avg: {avg_time_ms:.2f}ms per decision)")
+    print(
+        f"✓ Processed {num_decisions} decisions in {total_time_ms:.2f}ms (avg: {avg_time_ms:.2f}ms per decision)"
+    )
 
 
 @pytest.mark.asyncio
@@ -270,7 +295,8 @@ async def test_outcome_tracker_performance():
     # Create 100 outcomes
     num_outcomes = 100
     decisions = [
-        Decision(action=ActionType.INSPECT, parameters={}, confidence=0.9) for _ in range(num_outcomes)
+        Decision(action=ActionType.INSPECT, parameters={}, confidence=0.9)
+        for _ in range(num_outcomes)
     ]
 
     start_time = time.perf_counter()
@@ -322,7 +348,9 @@ async def test_extreme_risk_values():
         environment=EnvironmentState(timestamp=datetime.now()),
         assets=[],
         anomalies=[],
-        mission=MissionState(mission_id="test", mission_name="Test", assets_total=0, assets_inspected=0),
+        mission=MissionState(
+            mission_id="test", mission_name="Test", assets_total=0, assets_inspected=0
+        ),
         dock=DockState(
             position=Position(latitude=37.0, longitude=-122.0, altitude_msl=0, altitude_agl=0),
             status=DockStatus.AVAILABLE,
@@ -333,7 +361,11 @@ async def test_extreme_risk_values():
     zero_risk = RiskAssessment(
         overall_level=RiskLevel.LOW,
         overall_score=0.0,
-        factors={"battery": RiskFactor(name="battery", value=0.0, threshold=0.5, critical=0.8, description="Perfect")},
+        factors={
+            "battery": RiskFactor(
+                name="battery", value=0.0, threshold=0.5, critical=0.8, description="Perfect"
+            )
+        },
     )
 
     decision = Decision(action=ActionType.INSPECT, parameters={}, confidence=1.0)
@@ -346,7 +378,9 @@ async def test_extreme_risk_values():
         overall_level=RiskLevel.CRITICAL,
         overall_score=1.0,
         factors={
-            "battery": RiskFactor(name="battery", value=1.0, threshold=0.5, critical=0.8, description="Critical"),
+            "battery": RiskFactor(
+                name="battery", value=1.0, threshold=0.5, critical=0.8, description="Critical"
+            ),
         },
         abort_recommended=True,
     )
@@ -376,7 +410,9 @@ async def test_empty_assets_list():
         environment=EnvironmentState(timestamp=datetime.now()),
         assets=[],  # Empty assets
         anomalies=[],
-        mission=MissionState(mission_id="test", mission_name="Test", assets_total=0, assets_inspected=0),
+        mission=MissionState(
+            mission_id="test", mission_name="Test", assets_total=0, assets_inspected=0
+        ),
         dock=DockState(
             position=Position(latitude=37.0, longitude=-122.0, altitude_msl=0, altitude_agl=0),
             status=DockStatus.AVAILABLE,
@@ -386,7 +422,11 @@ async def test_empty_assets_list():
     risk = RiskAssessment(
         overall_level=RiskLevel.LOW,
         overall_score=0.2,
-        factors={"battery": RiskFactor(name="battery", value=0.1, threshold=0.5, critical=0.8, description="OK")},
+        factors={
+            "battery": RiskFactor(
+                name="battery", value=0.1, threshold=0.5, critical=0.8, description="OK"
+            )
+        },
     )
 
     decision = Decision(action=ActionType.RETURN, parameters={}, confidence=0.9)
@@ -407,7 +447,9 @@ async def test_outcome_tracker_pending_cleanup():
     tracker = OutcomeTracker(log_dir="logs/test_outcomes")
 
     # Create outcomes
-    decisions = [Decision(action=ActionType.INSPECT, parameters={}, confidence=0.9) for _ in range(10)]
+    decisions = [
+        Decision(action=ActionType.INSPECT, parameters={}, confidence=0.9) for _ in range(10)
+    ]
 
     for decision in decisions:
         tracker.create_outcome(decision)
@@ -436,7 +478,6 @@ async def test_outcome_tracker_pending_cleanup():
 async def test_critic_graceful_degradation():
     """Test that if one critic fails, system continues with remaining critics."""
     from agent.server.critics.safety_critic import SafetyCritic
-    from agent.server.critics.efficiency_critic import EfficiencyCritic
 
     # We'll test that the orchestrator handles this internally
     # For now, just verify critics don't crash with unusual inputs
@@ -458,7 +499,9 @@ async def test_critic_graceful_degradation():
         environment=EnvironmentState(timestamp=datetime.now()),
         assets=[],
         anomalies=[],
-        mission=MissionState(mission_id="test", mission_name="Test", assets_total=0, assets_inspected=0),
+        mission=MissionState(
+            mission_id="test", mission_name="Test", assets_total=0, assets_inspected=0
+        ),
         dock=DockState(
             position=Position(latitude=37.0, longitude=-122.0, altitude_msl=0, altitude_agl=0),
             status=DockStatus.AVAILABLE,
@@ -468,7 +511,11 @@ async def test_critic_graceful_degradation():
     risk = RiskAssessment(
         overall_level=RiskLevel.LOW,
         overall_score=0.2,
-        factors={"battery": RiskFactor(name="battery", value=0.1, threshold=0.5, critical=0.8, description="OK")},
+        factors={
+            "battery": RiskFactor(
+                name="battery", value=0.1, threshold=0.5, critical=0.8, description="OK"
+            )
+        },
     )
 
     decision = Decision(action=ActionType.INSPECT, parameters={}, confidence=0.9)

@@ -8,7 +8,7 @@ Supports both SITL (UDP) and hardware (serial) connections.
 import asyncio
 import logging
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 
@@ -48,6 +48,37 @@ class MAVLinkConfig:
     heartbeat_interval_s: float = 1.0
 
 
+@dataclass
+class CallbackRegistry:
+    """Callback containers for MAVLink events."""
+
+    state_callbacks: list[Callable[[VehicleState], None]] = field(default_factory=list)
+    connection_callbacks: list[Callable[[ConnectionState], None]] = field(default_factory=list)
+
+
+@dataclass
+class TelemetryCache:
+    """Cached telemetry values for building VehicleState."""
+
+    last_position: Position | None = None
+    last_velocity: Velocity | None = None
+    last_attitude: Attitude | None = None
+    last_battery: BatteryState | None = None
+    last_gps: GPSState | None = None
+    last_heartbeat: datetime | None = None
+    armed: bool = False
+    mode: FlightMode = FlightMode.UNKNOWN
+    home_position: Position | None = None
+
+
+@dataclass
+class TaskRegistry:
+    """Background tasks for MAVLink interface."""
+
+    receive_task: asyncio.Task | None = None
+    heartbeat_task: asyncio.Task | None = None
+
+
 class MAVLinkInterface:
     """
     Manages MAVLink connection and message handling.
@@ -77,24 +108,9 @@ class MAVLinkInterface:
         self._state = ConnectionState.DISCONNECTED
         self._running = False
 
-        # Callbacks
-        self._state_callbacks: list[Callable[[VehicleState], None]] = []
-        self._connection_callbacks: list[Callable[[ConnectionState], None]] = []
-
-        # Cached telemetry for state aggregation
-        self._last_position: Position | None = None
-        self._last_velocity: Velocity | None = None
-        self._last_attitude: Attitude | None = None
-        self._last_battery: BatteryState | None = None
-        self._last_gps: GPSState | None = None
-        self._last_heartbeat: datetime | None = None
-        self._armed: bool = False
-        self._mode: FlightMode = FlightMode.UNKNOWN
-        self._home_position: Position | None = None
-
-        # Tasks
-        self._receive_task: asyncio.Task | None = None
-        self._heartbeat_task: asyncio.Task | None = None
+        self._callbacks = CallbackRegistry()
+        self._telemetry = TelemetryCache()
+        self._tasks = TaskRegistry()
 
     @property
     def state(self) -> ConnectionState:
@@ -136,8 +152,8 @@ class MAVLinkInterface:
             self._running = True
 
             # Start background tasks
-            self._receive_task = asyncio.create_task(self._receive_loop())
-            self._heartbeat_task = asyncio.create_task(self._heartbeat_loop())
+            self._tasks.receive_task = asyncio.create_task(self._receive_loop())
+            self._tasks.heartbeat_task = asyncio.create_task(self._heartbeat_loop())
 
             logger.info(f"Connected to system {self._connection.target_system}")
             return True
@@ -151,17 +167,17 @@ class MAVLinkInterface:
         """Close MAVLink connection."""
         self._running = False
 
-        if self._receive_task:
-            self._receive_task.cancel()
+        if self._tasks.receive_task:
+            self._tasks.receive_task.cancel()
             try:
-                await self._receive_task
+                await self._tasks.receive_task
             except asyncio.CancelledError:
                 pass
 
-        if self._heartbeat_task:
-            self._heartbeat_task.cancel()
+        if self._tasks.heartbeat_task:
+            self._tasks.heartbeat_task.cancel()
             try:
-                await self._heartbeat_task
+                await self._tasks.heartbeat_task
             except asyncio.CancelledError:
                 pass
 
@@ -174,11 +190,11 @@ class MAVLinkInterface:
 
     def on_state_update(self, callback: Callable[[VehicleState], None]) -> None:
         """Register callback for vehicle state updates."""
-        self._state_callbacks.append(callback)
+        self._callbacks.state_callbacks.append(callback)
 
     def on_connection_change(self, callback: Callable[[ConnectionState], None]) -> None:
         """Register callback for connection state changes."""
-        self._connection_callbacks.append(callback)
+        self._callbacks.connection_callbacks.append(callback)
 
     async def arm(self) -> bool:
         """
@@ -333,32 +349,32 @@ class MAVLinkInterface:
             VehicleState if sufficient data available, None otherwise
         """
         if not all([
-            self._last_position,
-            self._last_velocity,
-            self._last_attitude,
-            self._last_battery,
+            self._telemetry.last_position,
+            self._telemetry.last_velocity,
+            self._telemetry.last_attitude,
+            self._telemetry.last_battery,
         ]):
             return None
 
         return VehicleState(
             timestamp=datetime.now(),
-            position=self._last_position,
-            velocity=self._last_velocity,
-            attitude=self._last_attitude,
-            battery=self._last_battery,
-            mode=self._mode,
-            armed=self._armed,
-            in_air=self._armed and (self._last_position.altitude_agl > 0.5),
-            gps=self._last_gps or GPSState(0, 0, 99.9, 99.9),
+            position=self._telemetry.last_position,
+            velocity=self._telemetry.last_velocity,
+            attitude=self._telemetry.last_attitude,
+            battery=self._telemetry.last_battery,
+            mode=self._telemetry.mode,
+            armed=self._telemetry.armed,
+            in_air=self._telemetry.armed and (self._telemetry.last_position.altitude_agl > 0.5),
+            gps=self._telemetry.last_gps or GPSState(0, 0, 99.9, 99.9),
             health=VehicleHealth(True, True, True, True, True),  # Simplified
-            home_position=self._home_position,
+            home_position=self._telemetry.home_position,
         )
 
     def _set_state(self, state: ConnectionState) -> None:
         """Update connection state and notify callbacks."""
         if state != self._state:
             self._state = state
-            for callback in self._connection_callbacks:
+            for callback in self._callbacks.connection_callbacks:
                 try:
                     callback(state)
                 except Exception as e:
@@ -393,8 +409,8 @@ class MAVLinkInterface:
                 )
 
                 # Check for heartbeat timeout
-                if self._last_heartbeat:
-                    elapsed = (datetime.now() - self._last_heartbeat).total_seconds()
+                if self._telemetry.last_heartbeat:
+                    elapsed = (datetime.now() - self._telemetry.last_heartbeat).total_seconds()
                     if elapsed > 5.0 and self._state == ConnectionState.CONNECTED:
                         logger.warning("Heartbeat timeout")
                         self._set_state(ConnectionState.LOST)
@@ -426,8 +442,8 @@ class MAVLinkInterface:
 
     def _process_heartbeat(self, msg) -> None:
         """Process HEARTBEAT message."""
-        self._last_heartbeat = datetime.now()
-        self._armed = (msg.base_mode & mavutil.mavlink.MAV_MODE_FLAG_SAFETY_ARMED) != 0
+        self._telemetry.last_heartbeat = datetime.now()
+        self._telemetry.armed = (msg.base_mode & mavutil.mavlink.MAV_MODE_FLAG_SAFETY_ARMED) != 0
 
         # Get mode name
         mode_mapping = self._connection.mode_mapping() if self._connection else {}
@@ -437,21 +453,21 @@ class MAVLinkInterface:
                 mode_name = name
                 break
 
-        self._mode = FlightMode.from_string(mode_name or "UNKNOWN")
+        self._telemetry.mode = FlightMode.from_string(mode_name or "UNKNOWN")
 
         if self._state == ConnectionState.LOST:
             self._set_state(ConnectionState.CONNECTED)
 
     def _process_global_position(self, msg) -> None:
         """Process GLOBAL_POSITION_INT message."""
-        self._last_position = Position(
+        self._telemetry.last_position = Position(
             latitude=msg.lat / 1e7,
             longitude=msg.lon / 1e7,
             altitude_msl=msg.alt / 1000,
             altitude_agl=msg.relative_alt / 1000,
         )
 
-        self._last_velocity = Velocity(
+        self._telemetry.last_velocity = Velocity(
             north=msg.vx / 100,
             east=msg.vy / 100,
             down=msg.vz / 100,
@@ -460,7 +476,7 @@ class MAVLinkInterface:
         # Notify callbacks
         state = self.get_current_state()
         if state:
-            for callback in self._state_callbacks:
+            for callback in self._callbacks.state_callbacks:
                 try:
                     callback(state)
                 except Exception as e:
@@ -473,7 +489,7 @@ class MAVLinkInterface:
 
     def _process_attitude(self, msg) -> None:
         """Process ATTITUDE message."""
-        self._last_attitude = Attitude(
+        self._telemetry.last_attitude = Attitude(
             roll=msg.roll,
             pitch=msg.pitch,
             yaw=msg.yaw,
@@ -481,7 +497,7 @@ class MAVLinkInterface:
 
     def _process_sys_status(self, msg) -> None:
         """Process SYS_STATUS message."""
-        self._last_battery = BatteryState(
+        self._telemetry.last_battery = BatteryState(
             voltage=msg.voltage_battery / 1000,
             current=msg.current_battery / 100 if msg.current_battery >= 0 else 0,
             remaining_percent=msg.battery_remaining if msg.battery_remaining >= 0 else 0,
@@ -489,7 +505,7 @@ class MAVLinkInterface:
 
     def _process_gps_raw(self, msg) -> None:
         """Process GPS_RAW_INT message."""
-        self._last_gps = GPSState(
+        self._telemetry.last_gps = GPSState(
             fix_type=msg.fix_type,
             satellites_visible=msg.satellites_visible,
             hdop=msg.eph / 100 if msg.eph != 65535 else 99.9,
@@ -498,7 +514,7 @@ class MAVLinkInterface:
 
     def _process_home_position(self, msg) -> None:
         """Process HOME_POSITION message."""
-        self._home_position = Position(
+        self._telemetry.home_position = Position(
             latitude=msg.latitude / 1e7,
             longitude=msg.longitude / 1e7,
             altitude_msl=msg.altitude / 1000,

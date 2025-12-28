@@ -122,11 +122,12 @@ def _create_mission_planner() -> Agent[WorldSnapshot, MissionDecision]:
         model,
         output_type=MissionDecision,
         system_prompt=(
-            "You are the AegisAV Mission Planner, the high-level intelligence for an autonomous drone. "
-            "Your task is to analyze the current world state and select the most appropriate mission goal. "
-            "Prioritize safety (battery, health, weather) above all else. "
-            "If multiple assets need inspection, prioritize based on priority level and scheduled time. "
-            "Provide clear, concise reasoning for your decisions."
+            "You are the AegisAV Mission Planner, the high-level intelligence for an "
+            "autonomous drone. Your task is to analyze the current world state and "
+            "select the most appropriate mission goal. Prioritize safety (battery, "
+            "health, weather) above all else. If multiple assets need inspection, "
+            "prioritize based on priority level and scheduled time. Provide clear, "
+            "concise reasoning for your decisions."
         ),
     )
 
@@ -284,12 +285,11 @@ class WeatherPredictor(PredictiveModel):
         """Calculate safety factor for wind conditions."""
         if wind_speed < 5:
             return 1.0  # Safe
-        elif wind_speed < 10:
+        if wind_speed < 10:
             return 0.7  # Moderate risk
-        elif wind_speed < 15:
+        if wind_speed < 15:
             return 0.4  # High risk
-        else:
-            return 0.1  # Very high risk
+        return 0.1  # Very high risk
 
 
 class GoalHierarchy:
@@ -466,30 +466,43 @@ class MetaCognitiveMonitor:
         """Calculate how much to adapt based on performance."""
         if performance > 0.8:
             return 1.2  # Increase adaptation
-        elif performance < 0.5:
+        if performance < 0.5:
             return 0.8  # Decrease adaptation
-        else:
-            return 1.0
+        return 1.0
 
     def _calculate_confidence_adjustment(self, performance: float) -> float:
         """Calculate confidence adjustment factor."""
         if performance > 0.8:
             return 1.1  # Be more confident
-        elif performance < 0.5:
+        if performance < 0.5:
             return 0.9  # Be less confident
-        else:
-            return 1.0
+        return 1.0
+
+
+@dataclass
+class DecisionModules:
+    """Grouped decision engine components to keep initialization concise."""
+
+    battery_predictor: BatteryPredictor
+    weather_predictor: WeatherPredictor
+    goal_hierarchy: GoalHierarchy
+    metacognitive_monitor: MetaCognitiveMonitor
+    agent: Agent[WorldSnapshot, MissionDecision]
+    experience_buffer: deque[LearningExperience]
 
 
 class AdvancedDecisionEngine:
     """Advanced agentic decision engine with learning and prediction."""
 
     def __init__(self):
-        self.battery_predictor = BatteryPredictor()
-        self.weather_predictor = WeatherPredictor()
-        self.goal_hierarchy = GoalHierarchy()
-        self.metacognitive_monitor = MetaCognitiveMonitor()
-        self.experience_buffer = deque(maxlen=500)
+        self.modules = DecisionModules(
+            battery_predictor=BatteryPredictor(),
+            weather_predictor=WeatherPredictor(),
+            goal_hierarchy=GoalHierarchy(),
+            metacognitive_monitor=MetaCognitiveMonitor(),
+            agent=_create_mission_planner(),
+            experience_buffer=deque(maxlen=500),
+        )
 
         # Cognitive architecture parameters
         self.cognitive_parameters = {
@@ -500,9 +513,6 @@ class AdvancedDecisionEngine:
             "confidence_decay": 0.95,  # How confidence decays
         }
 
-        # Initialize PydanticAI agent (deferred creation to avoid import-time API errors)
-        self.agent = _create_mission_planner()
-
     async def make_advanced_decision(
         self, world: WorldSnapshot, learning_experiences: list[LearningExperience] | None = None
     ) -> tuple[Goal, DecisionContext]:
@@ -511,9 +521,9 @@ class AdvancedDecisionEngine:
         # Update learning models if experiences provided
         if learning_experiences:
             for experience in learning_experiences:
-                await self.battery_predictor.update_model(experience)
-                await self.weather_predictor.update_model(experience)
-                self.experience_buffer.append(experience)
+                await self.modules.battery_predictor.update_model(experience)
+                await self.modules.weather_predictor.update_model(experience)
+                self.modules.experience_buffer.append(experience)
 
         # Identify cognitive level
         cognitive_level = self._determine_cognitive_level(world)
@@ -532,7 +542,10 @@ class AdvancedDecisionEngine:
 
         try:
             # Use PydanticAI for decision making
-            result = await self.agent.run(f"Current State: {world.model_dump_json()}", deps=world)
+            result = await self.modules.agent.run(
+                f"Current State: {world.model_dump_json()}",
+                deps=world,
+            )
             mission_decision = result.output
 
             # Convert to Goal object
@@ -551,7 +564,7 @@ class AdvancedDecisionEngine:
             )
 
             # Update meta-cognition
-            await self.metacognitive_monitor.update_metacognition(
+            await self.modules.metacognitive_monitor.update_metacognition(
                 context, {"prediction_used": True}
             )
 
@@ -569,12 +582,11 @@ class AdvancedDecisionEngine:
 
         if emergency_level > 0.8:
             return CognitiveLevel.REACTIVE
-        elif emergency_level > 0.4:
+        if emergency_level > 0.4:
             return CognitiveLevel.DELIBERATIVE
-        elif emergency_level > 0.1:
+        if emergency_level > 0.1:
             return CognitiveLevel.REFLECTIVE
-        else:
-            return CognitiveLevel.PREDICTIVE
+        return CognitiveLevel.PREDICTIVE
 
     def _calculate_emergency_level(self, world: WorldSnapshot) -> float:
         """Calculate emergency/safety level."""
@@ -606,14 +618,13 @@ class AdvancedDecisionEngine:
 
         if emergency_score > 0.7:
             return UrgencyLevel.CRITICAL
-        elif emergency_score > 0.5:
+        if emergency_score > 0.5:
             return UrgencyLevel.HIGH
-        elif emergency_score > 0.3:
+        if emergency_score > 0.3:
             return UrgencyLevel.MEDIUM
-        elif emergency_score > 0.1:
+        if emergency_score > 0.1:
             return UrgencyLevel.LOW
-        else:
-            return UrgencyLevel.ROUTINE
+        return UrgencyLevel.ROUTINE
 
     def _determine_confidence_type(
         self, world: WorldSnapshot, cognitive_level: CognitiveLevel
@@ -722,7 +733,7 @@ class AdvancedDecisionEngine:
             "mission_progress": 0.2,
             "weather_suitability": 0.1,
         }
-        score = sum(criteria[k] * weights[k] for k in criteria)
+        score = sum(value * weights[key] for key, value in criteria.items())
 
         # Select action based on score
         if criteria["safety"] < 0.5:
@@ -753,7 +764,7 @@ class AdvancedDecisionEngine:
         """Make reflective decision with meta-cognition."""
 
         # Analyze recent performance
-        recent_performance = self.metacognitive_monitor.decision_history
+        recent_performance = self.modules.metacognitive_monitor.decision_history
 
         # Get insights from past decisions
         similar_situations = self._find_similar_situations(world)
@@ -777,10 +788,11 @@ class AdvancedDecisionEngine:
                 reason=reason,
                 priority=int(80 * confidence_adjustment),
             )
-        else:
-            return Goal(
-                goal_type=GoalType.WAIT, reason=reason, priority=int(50 * confidence_adjustment)
-            )
+        return Goal(
+            goal_type=GoalType.WAIT,
+            reason=reason,
+            priority=int(50 * confidence_adjustment),
+        )
 
     async def _make_predictive_decision(
         self,
@@ -894,7 +906,7 @@ class AdvancedDecisionEngine:
         current_features = self._extract_world_features(world)
 
         # Simple similarity matching based on key parameters
-        for experience in self.experience_buffer:
+        for experience in self.modules.experience_buffer:
             if self._situation_similarity(experience.contextual_features, current_features) > 0.7:
                 similar_situations.append(experience.contextual_features)
 
@@ -941,10 +953,9 @@ class AdvancedDecisionEngine:
 
         if success_rate > 0.8:
             return f"Similar situations had {success_rate:.0%} success rate"
-        elif success_rate < 0.5:
+        if success_rate < 0.5:
             return f"Similar situations had {success_rate:.0%} success rate - be cautious"
-        else:
-            return f"Similar situations had mixed success rate ({success_rate:.0%})"
+        return f"Similar situations had mixed success rate ({success_rate:.0%})"
 
 
 # Example usage and integration

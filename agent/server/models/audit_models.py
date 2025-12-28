@@ -136,7 +136,9 @@ class AuditTrail(BaseModel):
                 ],
                 "approved": True,
                 "approver": "critic_orchestrator",
-                "summary": "Decision approved after safety and efficiency critics found no concerns",
+                "summary": (
+                    "Decision approved after safety and efficiency critics found no concerns"
+                ),
             }
         }
     }

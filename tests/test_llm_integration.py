@@ -4,6 +4,7 @@ Comprehensive tests for LLM integration in critic system.
 Tests LLM evaluation, hybrid logic, explanation agent, cost tracking, and fallback.
 """
 
+import asyncio
 import os
 from datetime import datetime
 from unittest.mock import AsyncMock, Mock, patch
@@ -93,8 +94,7 @@ def borderline_risk():
 # ============================================================================
 
 
-@pytest.mark.asyncio
-async def test_should_use_llm_high_risk(good_world_snapshot):
+def test_should_use_llm_high_risk():
     """Test that LLM is triggered for high-risk scenarios."""
     critic = SafetyCritic(llm_model="gpt-4o-mini")
     critic.config.use_llm = True
@@ -117,8 +117,7 @@ async def test_should_use_llm_high_risk(good_world_snapshot):
     assert should_use is True
 
 
-@pytest.mark.asyncio
-async def test_should_use_llm_low_confidence(good_world_snapshot):
+def test_should_use_llm_low_confidence():
     """Test that LLM is triggered for low-confidence decisions."""
     critic = SafetyCritic(llm_model="gpt-4o-mini")
     critic.config.use_llm = True
@@ -140,8 +139,7 @@ async def test_should_use_llm_low_confidence(good_world_snapshot):
     assert should_use is True
 
 
-@pytest.mark.asyncio
-async def test_should_not_use_llm_routine_decision(good_world_snapshot):
+def test_should_not_use_llm_routine_decision():
     """Test that LLM is NOT used for routine, low-risk decisions."""
     critic = SafetyCritic(llm_model="gpt-4o-mini")
     critic.config.use_llm = True
@@ -301,10 +299,12 @@ async def test_explanation_agent_generates_audit_trail(good_world_snapshot, bord
 
     # Verify audit trail structure
     assert audit_trail.decision_id == decision.decision_id
-    assert audit_trail.decision_type == "inspect"
+    assert audit_trail.approved is True
+    assert audit_trail.approver == "decision_maker"
+    assert "inspect" in audit_trail.summary.lower()
     assert len(audit_trail.reasoning_steps) >= 3
     assert len(audit_trail.factor_contributions) > 0
-    assert audit_trail.final_confidence == decision.confidence
+    assert len(audit_trail.counterfactuals) > 0
 
 
 @pytest.mark.asyncio
@@ -324,7 +324,7 @@ async def test_explanation_agent_identifies_factors(good_world_snapshot, borderl
 
 
 @pytest.mark.asyncio
-async def test_explanation_agent_generates_counterfactuals(good_world_snapshot):
+async def test_explanation_agent_generates_counterfactuals():
     """Test that explanation agent generates counterfactual scenarios."""
     agent = ExplanationAgent(llm_model="gpt-4o-mini")
 
@@ -370,8 +370,8 @@ async def test_explanation_agent_generates_counterfactuals(good_world_snapshot):
 
     # Should generate counterfactuals for low battery and high risk scenarios
     assert len(audit_trail.counterfactuals) > 0
-    counterfactual_descriptions = [c.scenario_description for c in audit_trail.counterfactuals]
-    assert any("battery" in desc.lower() for desc in counterfactual_descriptions)
+    counterfactual_names = [c.scenario_name for c in audit_trail.counterfactuals]
+    assert any("battery" in desc.lower() for desc in counterfactual_names)
 
 
 @pytest.mark.asyncio
@@ -460,7 +460,7 @@ async def test_orchestrator_uses_llm_for_hierarchical_review(good_world_snapshot
     with patch("pydantic_ai.Agent.run", new_callable=AsyncMock) as mock_run:
         mock_run.return_value = mock_result
 
-        approved, escalation = await orchestrator.validate_decision(
+        _approved, escalation = await orchestrator.validate_decision(
             decision, good_world_snapshot, critical_risk
         )
 
@@ -488,9 +488,10 @@ async def test_llm_calls_tracked_for_cost_monitoring():
     # For now, just verify we can count calls
     call_count = 0
 
-    async def mock_llm_call(*args, **kwargs):
+    async def mock_llm_call(*_args, **_kwargs):
         nonlocal call_count
         call_count += 1
+        await asyncio.sleep(0)
         mock_result = Mock()
         mock_result.data = "APPROVE"
         return mock_result

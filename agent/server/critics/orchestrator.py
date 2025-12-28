@@ -104,15 +104,15 @@ class CriticOrchestrator:
         # Apply authority model
         if self.authority_model == AuthorityModel.ADVISORY:
             return await self._apply_advisory_model(decision, risk, critic_responses)
-        elif self.authority_model == AuthorityModel.BLOCKING:
+        if self.authority_model == AuthorityModel.BLOCKING:
             return await self._apply_blocking_model(decision, risk, critic_responses)
-        elif self.authority_model == AuthorityModel.ESCALATION:
+        if self.authority_model == AuthorityModel.ESCALATION:
             return await self._apply_escalation_model(decision, world, risk, critic_responses)
-        elif self.authority_model == AuthorityModel.HIERARCHICAL:
+        if self.authority_model == AuthorityModel.HIERARCHICAL:
             return await self._apply_hierarchical_model(decision, world, risk, critic_responses)
-        else:
-            logger.error(f"Unknown authority model: {self.authority_model}")
-            return True, None
+
+        logger.error("Unknown authority model: %s", self.authority_model)
+        return True, None
 
     async def _run_critics(
         self,
@@ -237,7 +237,7 @@ class CriticOrchestrator:
             return await self._hierarchical_review(decision, world, risk, responses)
 
         # BLOCKING MODE: Moderate risk
-        elif risk.overall_score >= 0.4:
+        if risk.overall_score >= 0.4:
             if rejections:
                 consensus_score = self._calculate_consensus(responses)
                 escalation = EscalationDecision(
@@ -338,7 +338,9 @@ class CriticOrchestrator:
 
         escalation = EscalationDecision(
             escalation_level=EscalationLevel.HIERARCHICAL,
-            reason=f"Hierarchical review: {len(rejections)} rejections, {len(concerns_with)} concerns",
+            reason=(
+                f"Hierarchical review: {len(rejections)} rejections, {len(concerns_with)} concerns"
+            ),
             recommended_action=recommended_action,
             critic_responses=detailed_responses,
             consensus_score=consensus_score,

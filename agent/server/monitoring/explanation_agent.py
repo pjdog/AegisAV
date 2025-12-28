@@ -6,6 +6,7 @@ Provides counterfactual analysis and factor contributions.
 """
 
 import logging
+import time
 from datetime import datetime
 
 from pydantic_ai import Agent
@@ -19,6 +20,7 @@ from agent.server.models.audit_models import (
     ReasoningStep,
 )
 from agent.server.models.critic_models import EscalationDecision
+from agent.server.monitoring.cost_tracker import estimate_tokens, get_cost_tracker
 from agent.server.risk_evaluator import RiskAssessment
 from agent.server.world_model import WorldSnapshot
 
@@ -127,12 +129,16 @@ class ExplanationAgent:
         return AuditTrail(
             decision_id=decision.decision_id,
             timestamp=datetime.now(),
-            decision_type=decision.action.value,
             reasoning_steps=reasoning_steps,
             factor_contributions=factor_contributions,
             counterfactuals=counterfactuals,
-            final_confidence=decision.confidence,
-            explanation=decision.reasoning,
+            approved=True,  # If we're generating an audit trail, the decision was approved
+            approval_timestamp=datetime.now(),
+            approver="decision_maker",
+            summary=(
+                f"{decision.action.value} decision with {len(counterfactuals)} "
+                "counterfactuals analyzed"
+            ),
         )
 
     def _identify_factors(
@@ -210,10 +216,13 @@ class ExplanationAgent:
         if world.vehicle.battery.remaining_percent < 50:
             counterfactuals.append(
                 CounterfactualScenario(
-                    scenario_description="What if battery was at 80%?",
+                    scenario_name="What if battery was at 80%?",
                     changed_factors={"battery_percent": 80.0},
-                    predicted_outcome="Mission could continue with more aggressive inspection strategy",
+                    predicted_outcome=(
+                        "Mission could continue with more aggressive inspection strategy"
+                    ),
                     confidence=0.75,
+                    would_change_decision=True,
                 )
             )
 
@@ -221,10 +230,11 @@ class ExplanationAgent:
         if risk.overall_score > 0.5:
             counterfactuals.append(
                 CounterfactualScenario(
-                    scenario_description="What if risk score was 0.2?",
+                    scenario_name="What if risk score was 0.2?",
                     changed_factors={"risk_score": 0.2},
                     predicted_outcome="Decision would likely proceed with higher confidence",
                     confidence=0.80,
+                    would_change_decision=False,
                 )
             )
 
@@ -232,10 +242,13 @@ class ExplanationAgent:
         if world.mission.progress_percent < 100:
             counterfactuals.append(
                 CounterfactualScenario(
-                    scenario_description="What if all assets were inspected?",
+                    scenario_name="What if all assets were inspected?",
                     changed_factors={"mission_progress": 100.0},
-                    predicted_outcome="Decision would prioritize return to dock over continuing inspection",
+                    predicted_outcome=(
+                        "Decision would prioritize return to dock over continuing inspection"
+                    ),
                     confidence=0.90,
+                    would_change_decision=True,
                 )
             )
 
@@ -272,9 +285,11 @@ Use simple language suitable for operators who may not be AI experts.
 Focus on actionable insights and safety-critical information.""",
         )
 
+        start_time = time.time()
+        cost_tracker = get_cost_tracker()
+
         try:
-            result = await agent.run(
-                f"""Explain this drone decision in 2-3 sentences:
+            prompt_text = f"""Explain this drone decision in 2-3 sentences:
 
 Decision: {decision.action.value}
 Parameters: {decision.parameters}
@@ -287,10 +302,38 @@ Context:
 - Wind: {world.environment.wind_speed_ms:.1f} m/s
 
 Provide a clear, concise explanation suitable for a human operator."""
+
+            result = await agent.run(prompt_text)
+            llm_response = result.data
+
+            # Track cost
+            latency_ms = (time.time() - start_time) * 1000
+            prompt_tokens = estimate_tokens(prompt_text)
+            completion_tokens = estimate_tokens(llm_response)
+
+            cost_tracker.record_call(
+                model=self.llm_model,
+                context="explanation_agent",
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+                latency_ms=latency_ms,
+                success=True,
             )
 
-            return result.data
+            return llm_response
 
         except Exception as e:
+            # Track failed call
+            latency_ms = (time.time() - start_time) * 1000
+            cost_tracker.record_call(
+                model=self.llm_model,
+                context="explanation_agent",
+                prompt_tokens=0,
+                completion_tokens=0,
+                latency_ms=latency_ms,
+                success=False,
+                error_message=str(e),
+            )
+
             self.logger.error(f"LLM explanation failed: {e}")
             return decision.reasoning  # Fallback to original reasoning

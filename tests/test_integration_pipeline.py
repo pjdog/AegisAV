@@ -4,6 +4,7 @@ Integration tests for decision pipeline with critics.
 Tests the full flow from state ingestion → decision → critic validation → outcome tracking.
 """
 
+import asyncio
 from datetime import datetime
 
 import pytest
@@ -274,7 +275,7 @@ async def test_hierarchical_review_triggered(good_world_snapshot):
     )
 
     # Validate - should trigger hierarchical review
-    approved, escalation = await orchestrator.validate_decision(
+    _approved, escalation = await orchestrator.validate_decision(
         decision, good_world_snapshot, critical_risk
     )
 
@@ -423,10 +424,7 @@ async def test_advisory_mode_always_approves():
 @pytest.mark.asyncio
 async def test_concurrent_decision_validation():
     """Test that multiple decisions can be validated concurrently."""
-    import asyncio
-
     orchestrator = CriticOrchestrator(authority_model=AuthorityModel.ESCALATION)
-    outcome_tracker = OutcomeTracker(log_dir="logs/test_outcomes")
 
     # Create multiple decisions
     decisions = [
@@ -475,7 +473,7 @@ async def test_concurrent_decision_validation():
 
     # All should be approved
     assert len(results) == 5
-    for approved, escalation in results:
+    for approved, _escalation in results:
         assert approved is True
 
 
@@ -524,8 +522,7 @@ async def test_outcome_statistics_tracking():
     assert stats["success_rate"] == 0.7
 
 
-@pytest.mark.asyncio
-async def test_orchestrator_statistics():
+def test_orchestrator_statistics():
     """Test that critic orchestrator provides statistics."""
     orchestrator = CriticOrchestrator(authority_model=AuthorityModel.ESCALATION)
 

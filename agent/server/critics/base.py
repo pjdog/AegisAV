@@ -62,7 +62,7 @@ class BaseCritic(ABC):
 
         Must be implemented by subclasses.
         """
-        pass
+        raise NotImplementedError
 
     @abstractmethod
     async def evaluate_fast(
@@ -84,7 +84,7 @@ class BaseCritic(ABC):
 
         Must be implemented by subclasses.
         """
-        pass
+        raise NotImplementedError
 
     async def evaluate_llm(
         self, decision: Decision, world: WorldSnapshot, risk: RiskAssessment
@@ -175,7 +175,9 @@ class BaseCritic(ABC):
                 confidence=0.3,
                 concerns=[f"Evaluation failed: {e!s}"],
                 alternatives=[],
-                reasoning="Critic evaluation encountered error, defaulting to approval with concerns",
+                reasoning=(
+                    "Critic evaluation encountered error, defaulting to approval with concerns"
+                ),
                 risk_score=0.5,
                 processing_time_ms=processing_time,
                 used_llm=False,

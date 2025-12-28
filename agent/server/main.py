@@ -34,7 +34,7 @@ from agent.server.world_model import DockStatus, WorldModel
 from autonomy.vehicle_state import (
     Position,
 )
-from metrics.logger import DecisionLogger
+from metrics.logger import DecisionLogContext, DecisionLogger
 
 # Configure structured logging
 structlog.configure(
@@ -269,12 +269,12 @@ async def receive_feedback(feedback: DecisionFeedback) -> dict:
             "decision_id": feedback.decision_id,
             "outcome_status": outcome.execution_status.value,
         }
-    else:
-        logger.warning("feedback_for_unknown_decision", decision_id=feedback.decision_id)
-        return {
-            "status": "feedback_received_but_unknown_decision",
-            "decision_id": feedback.decision_id,
-        }
+
+    logger.warning("feedback_for_unknown_decision", decision_id=feedback.decision_id)
+    return {
+        "status": "feedback_received_but_unknown_decision",
+        "decision_id": feedback.decision_id,
+    }
 
 
 @app.post("/state", response_model=DecisionResponse)
@@ -334,7 +334,15 @@ async def receive_state(state: VehicleStateRequest) -> DecisionResponse:
     server_state.last_decision = decision
     server_state.decisions_made += 1
 
-    server_state.decision_logger.log_decision(decision, risk, snapshot, goal, escalation)
+    server_state.decision_logger.log_decision(
+        DecisionLogContext(
+            decision=decision,
+            risk=risk,
+            world=snapshot,
+            goal=goal,
+            escalation=escalation,
+        )
+    )
 
     # Log decision
     logger.info(
@@ -381,7 +389,7 @@ async def _make_decision(snapshot, risk: RiskAssessment) -> tuple[Decision, Goal
     if goal.goal_type == GoalType.ABORT:
         return Decision.abort(goal.reason), goal
 
-    elif goal.goal_type in (
+    if goal.goal_type in (
         GoalType.RETURN_LOW_BATTERY,
         GoalType.RETURN_MISSION_COMPLETE,
         GoalType.RETURN_WEATHER,
@@ -391,7 +399,7 @@ async def _make_decision(snapshot, risk: RiskAssessment) -> tuple[Decision, Goal
             confidence=goal.confidence,
         ), goal
 
-    elif goal.goal_type == GoalType.INSPECT_ASSET and goal.target_asset:
+    if goal.goal_type == GoalType.INSPECT_ASSET and goal.target_asset:
         return Decision.inspect(
             asset_id=goal.target_asset.asset_id,
             position=Position(
@@ -401,11 +409,13 @@ async def _make_decision(snapshot, risk: RiskAssessment) -> tuple[Decision, Goal
                 + goal.target_asset.inspection_altitude_agl,
             ),
             reason=goal.reason,
-            orbit_radius=goal.target_asset.orbit_radius_m,
-            dwell_time_s=goal.target_asset.dwell_time_s,
+            inspection={
+                "orbit_radius_m": goal.target_asset.orbit_radius_m,
+                "dwell_time_s": goal.target_asset.dwell_time_s,
+            },
         ), goal
 
-    elif goal.goal_type == GoalType.INSPECT_ANOMALY and goal.target_asset:
+    if goal.goal_type == GoalType.INSPECT_ANOMALY and goal.target_asset:
         return Decision.inspect(
             asset_id=goal.target_asset.asset_id,
             position=Position(
@@ -415,8 +425,10 @@ async def _make_decision(snapshot, risk: RiskAssessment) -> tuple[Decision, Goal
                 + goal.target_asset.inspection_altitude_agl,
             ),
             reason=goal.reason,
-            orbit_radius=goal.target_asset.orbit_radius_m * 0.75,  # Closer for anomaly
-            dwell_time_s=goal.target_asset.dwell_time_s * 2,  # Longer for anomaly
+            inspection={
+                "orbit_radius_m": goal.target_asset.orbit_radius_m * 0.75,
+                "dwell_time_s": goal.target_asset.dwell_time_s * 2,
+            },
         ), goal
 
     elif goal.goal_type == GoalType.WAIT:

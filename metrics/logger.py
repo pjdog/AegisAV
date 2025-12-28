@@ -58,6 +58,17 @@ class DecisionLogEntry:
         return json.dumps(self.to_dict(), indent=2)
 
 
+@dataclass
+class DecisionLogContext:
+    """Inputs required to log a decision."""
+
+    decision: Any
+    risk: Any
+    world: Any
+    goal: Any | None
+    escalation: Any | None = None
+
+
 class DecisionLogger:
     """
     Logs agent decisions with full context for analysis.
@@ -75,7 +86,7 @@ class DecisionLogger:
         logger.start_run("mission-001")
 
         # Log each decision
-        logger.log_decision(decision, risk, world_snapshot, goal)
+        logger.log_decision(DecisionLogContext(decision, risk, world_snapshot, goal))
 
         logger.end_run()
     """
@@ -115,27 +126,22 @@ class DecisionLogger:
             self._current_run = None
             self._run_file = None
 
-    def log_decision(
-        self,
-        decision: Any,
-        risk: Any,
-        world: Any,
-        goal: Any | None,
-        escalation: Any | None = None,
-    ) -> None:
+    def log_decision(self, context: DecisionLogContext) -> None:
         """
         Log a decision with full context.
 
         Args:
-            decision: The Decision object
-            risk: The RiskAssessment object
-            world: The WorldSnapshot object
-            goal: The Goal object
-            escalation: The EscalationDecision object (Phase 2)
+            context: Aggregated context for the decision
         """
         if not self._run_file:
             # Auto-start if not started
             self.start_run()
+
+        decision = context.decision
+        risk = context.risk
+        world = context.world
+        goal = context.goal
+        escalation = context.escalation
 
         # Extract critic concerns if escalation exists
         critic_concerns = []

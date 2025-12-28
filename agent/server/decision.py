@@ -133,10 +133,12 @@ class Decision(BaseModel):
         asset_id: str,
         position: Position,
         reason: str,
-        orbit_radius: float = 20.0,
-        dwell_time_s: float = 30.0,
+        inspection: dict[str, float] | None = None,
     ) -> "Decision":
         """Create an INSPECT decision."""
+        inspection = inspection or {}
+        orbit_radius = inspection.get("orbit_radius_m", 20.0)
+        dwell_time_s = inspection.get("dwell_time_s", 30.0)
         return cls(
             action=ActionType.INSPECT,
             parameters={

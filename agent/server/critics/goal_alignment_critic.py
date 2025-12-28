@@ -7,6 +7,9 @@ and strategic goals.
 
 import logging
 
+from pydantic_ai import Agent
+from pydantic_ai.models.openai import OpenAIModel
+
 from agent.server.critics.base import BaseCritic
 from agent.server.decision import Decision
 from agent.server.models.critic_models import (
@@ -324,9 +327,6 @@ class GoalAlignmentCritic(BaseCritic):
         Returns:
             CriticResponse with detailed LLM reasoning
         """
-        from pydantic_ai import Agent
-        from pydantic_ai.models.openai import OpenAIModel
-
         # Prepare context for LLM
         pending_assets = world.get_pending_assets()
         anomaly_assets = world.get_anomaly_assets()

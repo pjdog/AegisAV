@@ -87,7 +87,7 @@ class AgentClient:
 
                 # Check if decision requires action
                 action = decision.get("action", "none")
-                if action != "none" and action != "wait":
+                if action not in ("none", "wait"):
                     # Execute the decision
                     result = await self.action_executor.execute(decision)
 

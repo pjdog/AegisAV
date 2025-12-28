@@ -153,59 +153,64 @@ class GoalSelector:
         Returns:
             Selected goal with priority and context
         """
+        goal: Goal | None = None
+
         # If advanced engine is enabled and initialized, use it
         if self.use_advanced_engine and self.advanced_engine:
             try:
                 goal, _context = await self.advanced_engine.make_advanced_decision(world)
-                logger.info(f"Advanced goal selected: {goal.goal_type} - {goal.reason}")
-                return goal
+                logger.info("Advanced goal selected: %s - %s", goal.goal_type, goal.reason)
             except Exception as e:
-                logger.error(f"Advanced decision failed, falling back to rules: {e}")
+                logger.error("Advanced decision failed, falling back to rules: %s", e)
 
         # Priority 1: Check for critical conditions requiring abort
-        abort_goal = self._check_abort_conditions(world)
-        if abort_goal:
-            logger.warning(f"ABORT condition: {abort_goal.reason}")
-            return abort_goal
+        if goal is None:
+            goal = self._check_abort_conditions(world)
+            if goal:
+                logger.warning("ABORT condition: %s", goal.reason)
 
         # Priority 2: Check battery level
-        battery_goal = self._check_battery(world)
-        if battery_goal:
-            logger.info(f"Battery goal: {battery_goal.reason}")
-            return battery_goal
+        if goal is None:
+            goal = self._check_battery(world)
+            if goal:
+                logger.info("Battery goal: %s", goal.reason)
 
         # Priority 3: Check weather conditions
-        weather_goal = self._check_weather(world)
-        if weather_goal:
-            logger.info(f"Weather goal: {weather_goal.reason}")
-            return weather_goal
+        if goal is None:
+            goal = self._check_weather(world)
+            if goal:
+                logger.info("Weather goal: %s", goal.reason)
 
         # Priority 4: Check for anomalies needing attention
-        anomaly_goal = self._check_anomalies(world)
-        if anomaly_goal:
-            logger.info(f"Anomaly goal: {anomaly_goal.reason}")
-            return anomaly_goal
+        if goal is None:
+            goal = self._check_anomalies(world)
+            if goal:
+                logger.info("Anomaly goal: %s", goal.reason)
 
         # Priority 5: Check for assets needing inspection
-        inspection_goal = self._check_inspections(world)
-        if inspection_goal:
-            logger.info(f"Inspection goal: {inspection_goal.reason}")
-            return inspection_goal
+        if goal is None:
+            goal = self._check_inspections(world)
+            if goal:
+                logger.info("Inspection goal: %s", goal.reason)
 
         # Priority 6: Check if mission complete
-        if world.mission.is_active and world.mission.assets_inspected >= world.mission.assets_total:
-            return Goal(
-                goal_type=GoalType.RETURN_MISSION_COMPLETE,
-                priority=50,
-                reason="All assets inspected, mission complete",
-            )
+        if goal is None and world.mission.is_active:
+            if world.mission.assets_inspected >= world.mission.assets_total:
+                goal = Goal(
+                    goal_type=GoalType.RETURN_MISSION_COMPLETE,
+                    priority=50,
+                    reason="All assets inspected, mission complete",
+                )
 
         # Default: Wait
-        return Goal(
-            goal_type=GoalType.WAIT,
-            priority=100,
-            reason="No actionable goals, holding position",
-        )
+        if goal is None:
+            goal = Goal(
+                goal_type=GoalType.WAIT,
+                priority=100,
+                reason="No actionable goals, holding position",
+            )
+
+        return goal
 
     def _check_abort_conditions(self, world: WorldSnapshot) -> Goal | None:
         """Check for conditions that require immediate abort."""

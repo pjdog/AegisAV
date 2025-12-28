@@ -144,7 +144,9 @@ ignore = [
 "agent/server/decision.py" = ["RUF009"]  # Allow complex expressions in decision logic
 "agent/server/world_model.py" = ["RUF005"]  # Allow complex loops in world modeling
 "autonomy/mavlink_interface.py" = ["RUF012"]  # Allow try/except in MAVLink comms
-"tests/" = ["S"]  # Allow all security rules in tests
+"agent/server/critics/*.py" = ["PLC0415"]  # Allow in-function pydantic_ai imports (optional dep)
+"tests/*" = ["S", "PLC0415"]  # Allow security rules and conditional imports in tests
+
 
 [tool.ruff.lint.flake8-copyright]
 # Copyright notice requirements

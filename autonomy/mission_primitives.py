@@ -38,6 +38,28 @@ class PrimitiveConfig:
     poll_interval_s: float = 0.5
 
 
+@dataclass
+class OrbitPlan:
+    """Parameters for orbiting around a center point."""
+
+    radius: float
+    altitude_agl: float
+    orbits: int = 1
+    speed: float = 5.0
+    clockwise: bool = True
+    timeout_s: float | None = None
+
+
+@dataclass
+class DockPlan:
+    """Parameters for docking approach and landing."""
+
+    approach_altitude: float = 10.0
+    approach_speed: float = 2.0
+    landing_speed: float = 0.5
+    timeout_s: float | None = None
+
+
 class MissionPrimitives:
     """
     High-level mission primitives for common flight operations.
@@ -152,42 +174,32 @@ class MissionPrimitives:
 
         return await self._wait_for_position(target, timeout)
 
-    async def orbit(
-        self,
-        center: Position,
-        radius: float,
-        altitude_agl: float,
-        orbits: int = 1,
-        speed: float = 5.0,
-        clockwise: bool = True,
-        timeout: float | None = None,
-    ) -> PrimitiveResult:
+    async def orbit(self, center: Position, plan: OrbitPlan) -> PrimitiveResult:
         """
         Orbit around a center point.
 
         Args:
             center: Center position to orbit around
-            radius: Orbit radius in meters
-            altitude_agl: Altitude above ground level
-            orbits: Number of complete orbits
-            speed: Tangential speed in m/s
-            clockwise: Direction of orbit
-            timeout: Maximum time for all orbits
+            plan: Orbit parameters (radius, altitude, speed, etc.)
 
         Returns:
             PrimitiveResult indicating success or failure
         """
-        timeout = timeout or self.config.default_timeout_s * orbits
+        timeout = plan.timeout_s or self.config.default_timeout_s * plan.orbits
         self.clear_abort()
 
         logger.info(
-            f"Orbit around ({center.latitude:.6f}, {center.longitude:.6f}), r={radius}m, {orbits} orbits"
+            "Orbit around (%.6f, %.6f), r=%.1fm, %s orbits",
+            center.latitude,
+            center.longitude,
+            plan.radius,
+            plan.orbits,
         )
 
         # Calculate waypoints around orbit
-        num_waypoints = 8 * orbits
+        num_waypoints = 8 * plan.orbits
         angle_step = (2 * math.pi) / 8
-        if not clockwise:
+        if not plan.clockwise:
             angle_step = -angle_step
 
         for i in range(num_waypoints):
@@ -195,22 +207,8 @@ class MissionPrimitives:
                 logger.info("Orbit aborted")
                 return PrimitiveResult.ABORTED
 
-            angle = i * angle_step
-
-            # Calculate position on orbit (rough approximation)
-            # Note: For production, use proper geodetic calculations
-            lat_offset = (radius * math.cos(angle)) / 111320  # degrees
-            lon_offset = (radius * math.sin(angle)) / (
-                111320 * math.cos(math.radians(center.latitude))
-            )
-
-            waypoint = Position(
-                latitude=center.latitude + lat_offset,
-                longitude=center.longitude + lon_offset,
-                altitude_msl=center.altitude_msl + altitude_agl,
-            )
-
-            result = await self.goto(waypoint, speed, timeout / num_waypoints)
+            waypoint = self._calculate_orbit_waypoint(center, plan, i * angle_step)
+            result = await self.goto(waypoint, plan.speed, timeout / num_waypoints)
             if result != PrimitiveResult.SUCCESS:
                 return result
 
@@ -262,14 +260,7 @@ class MissionPrimitives:
 
         return await self._wait_for_disarm(timeout)
 
-    async def dock(
-        self,
-        dock_position: Position,
-        approach_altitude: float = 10.0,
-        approach_speed: float = 2.0,
-        landing_speed: float = 0.5,
-        timeout: float | None = None,
-    ) -> PrimitiveResult:
+    async def dock(self, dock_position: Position, plan: DockPlan | None = None) -> PrimitiveResult:
         """
         Perform precision landing at dock position.
 
@@ -280,28 +271,31 @@ class MissionPrimitives:
 
         Args:
             dock_position: Position of the dock
-            approach_altitude: Altitude for approach in meters AGL
-            approach_speed: Speed during approach
-            landing_speed: Speed during final descent
-            timeout: Maximum time for entire operation
+            plan: Docking parameters (approach, speed, timeout)
 
         Returns:
             PrimitiveResult indicating success or failure
         """
-        _ = landing_speed
-        timeout = timeout or self.config.default_timeout_s * 2
+        plan = plan or DockPlan()
+        timeout = plan.timeout_s or self.config.default_timeout_s * 2
         self.clear_abort()
 
-        logger.info(f"Docking at ({dock_position.latitude:.6f}, {dock_position.longitude:.6f})")
+        logger.info(
+            "Docking at (%.6f, %.6f), approach %.1fm @ %.1fm/s",
+            dock_position.latitude,
+            dock_position.longitude,
+            plan.approach_altitude,
+            plan.approach_speed,
+        )
 
         # Phase 1: Approach point
         approach_position = Position(
             latitude=dock_position.latitude,
             longitude=dock_position.longitude,
-            altitude_msl=dock_position.altitude_msl + approach_altitude,
+            altitude_msl=dock_position.altitude_msl + plan.approach_altitude,
         )
 
-        result = await self.goto(approach_position, approach_speed, timeout / 2)
+        result = await self.goto(approach_position, plan.approach_speed, timeout / 2)
         if result != PrimitiveResult.SUCCESS:
             return result
 
@@ -355,6 +349,22 @@ class MissionPrimitives:
             elapsed += self.config.poll_interval_s
 
         return PrimitiveResult.TIMEOUT
+
+    @staticmethod
+    def _calculate_orbit_waypoint(center: Position, plan: OrbitPlan, angle: float) -> Position:
+        """Calculate the next waypoint on an orbit path."""
+        # Calculate position on orbit (rough approximation)
+        # Note: For production, use proper geodetic calculations
+        lat_offset = (plan.radius * math.cos(angle)) / 111320  # degrees
+        lon_offset = (plan.radius * math.sin(angle)) / (
+            111320 * math.cos(math.radians(center.latitude))
+        )
+
+        return Position(
+            latitude=center.latitude + lat_offset,
+            longitude=center.longitude + lon_offset,
+            altitude_msl=center.altitude_msl + plan.altitude_agl,
+        )
 
     async def _wait_for_disarm(
         self,

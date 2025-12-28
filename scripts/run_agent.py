@@ -11,6 +11,7 @@ import logging
 import os
 import signal
 import sys
+from asyncio.subprocess import Process
 from datetime import datetime
 from pathlib import Path
 
@@ -42,7 +43,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-async def start_server() -> asyncio.subprocess.Process:
+async def start_server() -> Process:
     """Start the agent server in a subprocess."""
     logger.info("Starting agent server...")
     return await asyncio.create_subprocess_exec(
@@ -54,7 +55,7 @@ async def start_server() -> asyncio.subprocess.Process:
     )
 
 
-async def start_client(config_path: str, connection: str) -> asyncio.subprocess.Process:
+async def start_client(config_path: str, connection: str) -> Process:
     """Start the agent client in a subprocess."""
     logger.info("Starting agent client...")
 

@@ -24,7 +24,7 @@
 **AegisAV** is a cutting-edge autonomy framework that layers **LLM-powered agentic decision-making** over classical flight control. It demonstrates a **"Supervisor" architecture** where a high-level AI brain manages:
 
 - 🧠 **Mission Objectives** — Dynamic goal selection and prioritization
-- ⚠️ **Risk-Aware Planning** — Multi-factor safety evaluation  
+- ⚠️ **Risk-Aware Planning** — Multi-factor safety evaluation
 - 🌍 **Situational Awareness** — Real-time world model maintenance
 
 ...while delegating stabilization to battle-tested autopilots like **ArduPilot** and **PX4**.

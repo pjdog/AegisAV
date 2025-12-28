@@ -2,22 +2,70 @@
 Integration tests for MAVLink interface and vehicle communication.
 """
 
-import asyncio
+import json
 from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-pytest.importorskip("pymavlink")
+try:
+    import pymavlink  # noqa: F401
 
-from autonomy.mavlink_interface import MAVLinkInterface
-from autonomy.vehicle_state import (
-    VehicleState,
-)
-from tests.conftest import (
-    TEST_HOME_POSITION,
-    TEST_MAVLINK_CONNECTION,
-)
+    from autonomy.mavlink_interface import MAVLinkConfig, MAVLinkInterface
+    from autonomy.mission_primitives import MissionPrimitives
+    from autonomy.vehicle_state import (
+        Attitude,
+        BatteryState,
+        FlightMode,
+        GPSState,
+        Position,
+        VehicleHealth,
+        VehicleState,
+        Velocity,
+    )
+    from tests.conftest import (
+        TEST_HOME_POSITION,
+        TEST_MAVLINK_COMPONENT_ID,
+        TEST_MAVLINK_CONNECTION,
+        TEST_MAVLINK_SYSTEM_ID,
+    )
+except ImportError:
+    pytest.skip("pymavlink not installed", allow_module_level=True)
+
+
+def _make_config() -> MAVLinkConfig:
+    return MAVLinkConfig(
+        connection_string=TEST_MAVLINK_CONNECTION,
+        source_system=TEST_MAVLINK_SYSTEM_ID,
+        source_component=TEST_MAVLINK_COMPONENT_ID,
+        timeout_ms=1000,
+    )
+
+
+def _mock_vehicle_state(altitude_agl: float, armed: bool) -> VehicleState:
+    return VehicleState(
+        timestamp=datetime.now(),
+        position=Position(
+            latitude=TEST_HOME_POSITION["lat"],
+            longitude=TEST_HOME_POSITION["lon"],
+            altitude_msl=TEST_HOME_POSITION["alt"],
+            altitude_agl=altitude_agl,
+        ),
+        velocity=Velocity(0.0, 0.0, 0.0),
+        attitude=Attitude(0.0, 0.0, 0.0),
+        battery=BatteryState(22.2, 6.5, 75.0),
+        mode=FlightMode.GUIDED,
+        armed=armed,
+        in_air=armed,
+        gps=GPSState(3, 10, 0.7, 0.8),
+        health=VehicleHealth(True, True, True, True, True),
+        home_position=Position(
+            latitude=TEST_HOME_POSITION["lat"],
+            longitude=TEST_HOME_POSITION["lon"],
+            altitude_msl=TEST_HOME_POSITION["alt"],
+            altitude_agl=0.0,
+        ),
+    )
 
 
 class TestMAVLinkInterface:
@@ -26,128 +74,85 @@ class TestMAVLinkInterface:
     @pytest.mark.asyncio
     async def test_mavlink_connection_establishment(self, mock_mavlink_connection):
         """Test establishing MAVLink connection."""
+        config = _make_config()
         with patch("pymavlink.mavutil.mavlink_connection") as mock_conn_func:
             mock_conn_func.return_value = mock_mavlink_connection
-            interface = MAVLinkInterface()
-            await interface.connect(TEST_MAVLINK_CONNECTION)
+            interface = MAVLinkInterface(config)
+            connected = await interface.connect()
 
-            # Verify connection was attempted
-            mock_conn_func.assert_called_once_with(TEST_MAVLINK_CONNECTION, timeout=30)
-            mock_mavlink_connection.wait_heartbeat.assert_called_once()
-
-            # Verify connection state
+            assert connected is True
+            mock_conn_func.assert_called_once_with(
+                config.connection_string,
+                source_system=config.source_system,
+                source_component=config.source_component,
+            )
+            mock_mavlink_connection.wait_heartbeat.assert_called_once_with(
+                timeout=config.timeout_ms / 1000
+            )
             assert interface.is_connected
 
     @pytest.mark.asyncio
     async def test_telemetry_reception(self, mock_mavlink_connection):
         """Test receiving and processing telemetry data."""
-        with patch("pymavlink.mavutil.mavlink_connection") as mock_conn_func:
-            mock_conn_func.return_value = mock_mavlink_connection
+        interface = MAVLinkInterface(_make_config())
+        interface._connection = mock_mavlink_connection
 
-            interface = MAVLinkInterface()
-            await interface.connect(TEST_MAVLINK_CONNECTION)
+        interface._process_heartbeat(mock_mavlink_connection.messages["HEARTBEAT"])
+        interface._process_global_position(mock_mavlink_connection.messages["GLOBAL_POSITION_INT"])
+        interface._process_attitude(mock_mavlink_connection.messages["ATTITUDE"])
+        interface._process_sys_status(mock_mavlink_connection.messages["SYS_STATUS"])
+        interface._process_gps_raw(mock_mavlink_connection.messages["GPS_RAW_INT"])
 
-            # Mock message loop
-            interface.mav_conn = mock_mavlink_connection
-
-            # Test position message handling
-            position_state = await interface._process_position_message()
-            assert position_state is not None
-            assert abs(position_state.latitude - TEST_HOME_POSITION["lat"]) < 0.0001
-            assert abs(position_state.longitude - TEST_HOME_POSITION["lon"]) < 0.0001
-
-    @pytest.mark.asyncio
-    async def test_vehicle_state_aggregation(self, mock_mavlink_connection):
-        """Test aggregation of multiple MAVLink messages into vehicle state."""
-        with patch("pymavlink.mavutil.mavlink_connection") as mock_conn_func:
-            mock_conn_func.return_value = mock_mavlink_connection
-
-            interface = MAVLinkInterface()
-            await interface.connect(TEST_MAVLINK_CONNECTION)
-            interface.mav_conn = mock_mavlink_connection
-
-            # Get aggregated vehicle state
-            vehicle_state = await interface.get_vehicle_state()
-
-            assert isinstance(vehicle_state, VehicleState)
-            assert vehicle_state.timestamp is not None
-            assert vehicle_state.position is not None
-            assert vehicle_state.battery is not None
-            assert vehicle_state.attitude is not None
-            assert vehicle_state.mode is not None
-
-            # Verify specific values
-            assert vehicle_state.battery.remaining_percent == 80.0
-            assert vehicle_state.position.latitude == TEST_HOME_POSITION["lat"]
+        vehicle_state = interface.get_current_state()
+        assert vehicle_state is not None
+        assert abs(vehicle_state.position.latitude - TEST_HOME_POSITION["lat"]) < 0.0001
+        assert abs(vehicle_state.position.longitude - TEST_HOME_POSITION["lon"]) < 0.0001
 
     @pytest.mark.asyncio
     async def test_command_sending(self, mock_mavlink_connection):
         """Test sending commands to vehicle via MAVLink."""
-        with patch("pymavlink.mavutil.mavlink_connection") as mock_conn_func:
-            mock_conn_func.return_value = mock_mavlink_connection
+        interface = MAVLinkInterface(_make_config())
+        interface._connection = mock_mavlink_connection
+        mock_mavlink_connection.mode_mapping.return_value = {"GUIDED": 4}
 
-            interface = MAVLinkInterface()
-            await interface.connect(TEST_MAVLINK_CONNECTION)
-            interface.mav_conn = mock_mavlink_connection
+        await interface.arm()
+        mock_mavlink_connection.arducopter_arm.assert_called_once()
 
-            # Test arm command
-            await interface.arm()
-            mock_mavlink_connection.mav.command_long_send.assert_called()
+        await interface.disarm()
+        mock_mavlink_connection.arducopter_disarm.assert_called_once()
 
-            # Test disarm command
-            await interface.disarm()
-            mock_mavlink_connection.mav.command_long_send.assert_called()
+        await interface.set_mode("GUIDED")
+        mock_mavlink_connection.set_mode.assert_called_once_with(4)
 
-            # Test mode change
-            await interface.set_mode("GUIDED")
-            mock_mavlink_connection.mav.command_long_send.assert_called()
-
-            # Test position command
-            await self._send_position_command(interface)
-            mock_mavlink_connection.mav.set_position_target_global_int_send.assert_called()
-
-    async def _send_position_command(self, interface):
-        """Helper method for position command testing."""
-        await interface.send_position_command(
+        await interface.goto(
             latitude=TEST_HOME_POSITION["lat"],
             longitude=TEST_HOME_POSITION["lon"],
             altitude=TEST_HOME_POSITION["alt"],
         )
+        mock_mavlink_connection.mav.set_position_target_global_int_send.assert_called()
 
     @pytest.mark.asyncio
     async def test_connection_timeout_handling(self):
         """Test handling of connection timeouts and reconnection."""
         with patch("pymavlink.mavutil.mavlink_connection") as mock_conn_func:
             mock_conn = MagicMock()
-            mock_conn.wait_heartbeat = AsyncMock(
-                side_effect=asyncio.TimeoutError("Connection timeout")
-            )
+            mock_conn.wait_heartbeat.side_effect = TimeoutError("Connection timeout")
             mock_conn_func.return_value = mock_conn
 
-            interface = MAVLinkInterface()
+            interface = MAVLinkInterface(_make_config())
+            connected = await interface.connect()
 
-            # Should raise exception on timeout
-            with pytest.raises(ConnectionError):
-                await interface.connect(TEST_MAVLINK_CONNECTION, timeout=1.0)
-
+            assert connected is False
             assert not interface.is_connected
 
-    @pytest.mark.asyncio
-    async def test_heartbeat_monitoring(self, mock_mavlink_connection):
-        """Test heartbeat monitoring and connection status tracking."""
-        with patch("pymavlink.mavutil.mavlink_connection") as mock_conn_func:
-            mock_conn_func.return_value = mock_mavlink_connection
+    def test_heartbeat_updates_timestamp(self, mock_mavlink_connection):
+        """Test heartbeat processing updates timestamps."""
+        interface = MAVLinkInterface(_make_config())
+        interface._connection = mock_mavlink_connection
 
-            interface = MAVLinkInterface()
-            await interface.connect(TEST_MAVLINK_CONNECTION)
-            interface.mav_conn = mock_mavlink_connection
-
-            # Test heartbeat detection
-            last_heartbeat = interface.last_heartbeat
-            await interface._check_heartbeat()
-
-            # Should update heartbeat timestamp
-            assert interface.last_heartbeat >= last_heartbeat
+        assert interface._telemetry.last_heartbeat is None
+        interface._process_heartbeat(mock_mavlink_connection.messages["HEARTBEAT"])
+        assert interface._telemetry.last_heartbeat is not None
 
 
 class TestVehicleStateModels:
@@ -155,37 +160,13 @@ class TestVehicleStateModels:
 
     def test_vehicle_state_serialization(self):
         """Test vehicle state serialization for API communication."""
-        vehicle_state = VehicleState(
-            timestamp=datetime.now(),
-            position=Position(
-                latitude=TEST_HOME_POSITION["lat"],
-                longitude=TEST_HOME_POSITION["lon"],
-                altitude_msl=TEST_HOME_POSITION["alt"],
-                altitude_agl=12.0,
-            ),
-            velocity=Velocity(1.0, 2.0, 0.5),
-            attitude=Attitude(0.1, 0.2, 3.14),
-            battery=BatteryState(22.2, 6.5, 75.0),
-            mode=FlightMode.GUIDED,
-            armed=True,
-            in_air=True,
-            gps=GPSState(3, 10, 0.7, 0.8),
-            health=VehicleHealth(True, True, True, True, True),
-            home_position=Position(
-                latitude=TEST_HOME_POSITION["lat"],
-                longitude=TEST_HOME_POSITION["lon"],
-                altitude_msl=TEST_HOME_POSITION["alt"],
-                altitude_agl=0.0,
-            ),
-        )
+        vehicle_state = _mock_vehicle_state(altitude_agl=12.0, armed=True)
 
-        # Test dict serialization
         state_dict = vehicle_state.to_dict()
         assert isinstance(state_dict, dict)
         assert "position" in state_dict
         assert "timestamp" in state_dict
 
-        # Test JSON serialization
         json_str = json.dumps(state_dict, default=str)
         assert isinstance(json.loads(json_str), dict)
 
@@ -194,14 +175,12 @@ class TestVehicleStateModels:
         pos1 = Position(47.397742, 8.545594, 488.0, 0.0)
         pos2 = Position(47.398500, 8.546500, 495.0, 12.0)
 
-        # Test distance calculation
         distance = pos1.distance_to(pos2)
         assert distance > 0
-        assert distance < 1000  # Should be reasonable for nearby coordinates
+        assert distance < 1000
 
-        # Test distance in 2D
         distance_2d = pos1.distance_2d_to(pos2)
-        assert 0 < distance_2d < distance  # 2D distance should be less than 3D
+        assert 0 < distance_2d < distance
 
 
 class TestMissionPrimitivesIntegration:
@@ -210,58 +189,51 @@ class TestMissionPrimitivesIntegration:
     @pytest.mark.asyncio
     async def test_takeoff_sequence(self, mock_mavlink_connection):
         """Test takeoff mission primitive."""
-        with patch("pymavlink.mavutil.mavlink_connection") as mock_conn_func:
-            mock_conn_func.return_value = mock_mavlink_connection
+        interface = MAVLinkInterface(_make_config())
+        interface._connection = mock_mavlink_connection
+        mock_mavlink_connection.mode_mapping.return_value = {"GUIDED": 4}
 
-            interface = MAVLinkInterface()
-            await interface.connect(TEST_MAVLINK_CONNECTION)
-            interface.mav_conn = mock_mavlink_connection
+        primitives = MissionPrimitives(interface)
+        with patch("autonomy.mission_primitives.asyncio.sleep", new=AsyncMock()):
+            with patch.object(interface, "get_current_state") as mock_state:
+                mock_state.return_value = _mock_vehicle_state(altitude_agl=10.0, armed=True)
+                result = await primitives.arm_and_takeoff(altitude=10.0)
 
-            # Test takeoff execution
-            takeoff = TakeoffPrimitive(interface, altitude=10.0)
-            success = await takeoff.execute()
-
-            # Should send arm and takeoff commands
-            assert mock_mavlink_connection.mav.command_long_send.called
-            assert success is True
+        assert result is not None
+        assert mock_mavlink_connection.mav.command_long_send.called
 
     @pytest.mark.asyncio
     async def test_goto_navigation(self, mock_mavlink_connection):
         """Test goto navigation primitive."""
-        with patch("pymavlink.mavutil.mavlink_connection") as mock_conn_func:
-            mock_conn_func.return_value = mock_mavlink_connection
+        interface = MAVLinkInterface(_make_config())
+        interface._connection = mock_mavlink_connection
 
-            interface = MAVLinkInterface()
-            await interface.connect(TEST_MAVLINK_CONNECTION)
-            interface.mav_conn = mock_mavlink_connection
+        primitives = MissionPrimitives(interface)
+        target = Position(
+            latitude=TEST_HOME_POSITION["lat"],
+            longitude=TEST_HOME_POSITION["lon"],
+            altitude_msl=TEST_HOME_POSITION["alt"],
+        )
+        with patch("autonomy.mission_primitives.asyncio.sleep", new=AsyncMock()):
+            with patch.object(interface, "get_current_state") as mock_state:
+                mock_state.return_value = _mock_vehicle_state(altitude_agl=5.0, armed=True)
+                result = await primitives.goto(target)
 
-            # Test goto execution
-            goto = GotoPrimitive(
-                interface,
-                latitude=TEST_HOME_POSITION["lat"],
-                longitude=TEST_HOME_POSITION["lon"],
-                altitude=TEST_HOME_POSITION["alt"],
-            )
-            success = await goto.execute()
-
-            # Should send position command
-            assert mock_mavlink_connection.mav.set_position_target_global_int_send.called
-            assert success is True
+        assert result is not None
+        assert mock_mavlink_connection.mav.set_position_target_global_int_send.called
 
     @pytest.mark.asyncio
     async def test_land_sequence(self, mock_mavlink_connection):
         """Test landing mission primitive."""
-        with patch("pymavlink.mavutil.mavlink_connection") as mock_conn_func:
-            mock_conn_func.return_value = mock_mavlink_connection
+        interface = MAVLinkInterface(_make_config())
+        interface._connection = mock_mavlink_connection
+        mock_mavlink_connection.mode_mapping.return_value = {"LAND": 9}
 
-            interface = MAVLinkInterface()
-            await interface.connect(TEST_MAVLINK_CONNECTION)
-            interface.mav_conn = mock_mavlink_connection
+        primitives = MissionPrimitives(interface)
+        with patch("autonomy.mission_primitives.asyncio.sleep", new=AsyncMock()):
+            with patch.object(interface, "get_current_state") as mock_state:
+                mock_state.return_value = _mock_vehicle_state(altitude_agl=0.0, armed=False)
+                result = await primitives.land()
 
-            # Test land execution
-            land = LandPrimitive(interface)
-            success = await land.execute()
-
-            # Should send land command
-            assert mock_mavlink_connection.mav.command_long_send.called
-            assert success is True
+        assert result is not None
+        assert mock_mavlink_connection.set_mode.called

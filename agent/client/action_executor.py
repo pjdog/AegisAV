@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from enum import Enum
 
 from autonomy.mavlink_interface import MAVLinkInterface
-from autonomy.mission_primitives import MissionPrimitives, PrimitiveResult
+from autonomy.mission_primitives import MissionPrimitives, OrbitPlan, PrimitiveResult
 from autonomy.vehicle_state import Position
 
 logger = logging.getLogger(__name__)
@@ -114,7 +114,7 @@ class ActionExecutor:
                     message="Success",
                     duration_s=duration,
                 )
-            elif result == PrimitiveResult.ABORTED:
+            if result == PrimitiveResult.ABORTED:
                 self._state = ExecutionState.ABORTED
                 return ExecutionResult(
                     decision_id=decision_id,
@@ -123,15 +123,14 @@ class ActionExecutor:
                     message="Aborted",
                     duration_s=duration,
                 )
-            else:
-                self._state = ExecutionState.FAILED
-                return ExecutionResult(
-                    decision_id=decision_id,
-                    action=action,
-                    state=ExecutionState.FAILED,
-                    message=f"Failed: {result.value}",
-                    duration_s=duration,
-                )
+            self._state = ExecutionState.FAILED
+            return ExecutionResult(
+                decision_id=decision_id,
+                action=action,
+                state=ExecutionState.FAILED,
+                message=f"Failed: {result.value}",
+                duration_s=duration,
+            )
 
         except Exception as e:
             self._state = ExecutionState.FAILED
@@ -210,12 +209,8 @@ class ActionExecutor:
         dwell_time = parameters.get("dwell_time_s", 30)
 
         if orbit_radius > 0:
-            return await self.primitives.orbit(
-                center=target,
-                radius=orbit_radius,
-                altitude_agl=20,
-                orbits=1,
-            )
+            plan = OrbitPlan(radius=orbit_radius, altitude_agl=20, orbits=1)
+            return await self.primitives.orbit(target, plan)
         await asyncio.sleep(dwell_time)
         return PrimitiveResult.SUCCESS
 

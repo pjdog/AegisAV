@@ -165,45 +165,19 @@ class RiskEvaluator:
         warnings: list[str] = []
         abort_reasons: list[str] = []
 
-        # Battery risk
-        battery_factor = self._assess_battery(world)
-        factors["battery"] = battery_factor
-        if battery_factor.is_critical:
-            abort_reasons.append(battery_factor.description)
-        elif battery_factor.is_concerning:
-            warnings.append(battery_factor.description)
-
-        # Wind risk
-        wind_factor = self._assess_wind(world)
-        factors["wind"] = wind_factor
-        if wind_factor.is_critical:
-            abort_reasons.append(wind_factor.description)
-        elif wind_factor.is_concerning:
-            warnings.append(wind_factor.description)
-
-        # GPS risk
-        gps_factor = self._assess_gps(world)
-        factors["gps"] = gps_factor
-        if gps_factor.is_critical:
-            abort_reasons.append(gps_factor.description)
-        elif gps_factor.is_concerning:
-            warnings.append(gps_factor.description)
-
-        # Health risk
-        health_factor = self._assess_health(world)
-        factors["health"] = health_factor
-        if health_factor.is_critical:
-            abort_reasons.append(health_factor.description)
-        elif health_factor.is_concerning:
-            warnings.append(health_factor.description)
-
-        # Distance risk
-        distance_factor = self._assess_distance(world)
-        factors["distance"] = distance_factor
-        if distance_factor.is_critical:
-            abort_reasons.append(distance_factor.description)
-        elif distance_factor.is_concerning:
-            warnings.append(distance_factor.description)
+        for name, assessor in (
+            ("battery", self._assess_battery),
+            ("wind", self._assess_wind),
+            ("gps", self._assess_gps),
+            ("health", self._assess_health),
+            ("distance", self._assess_distance),
+        ):
+            factor = assessor(world)
+            factors[name] = factor
+            if factor.is_critical:
+                abort_reasons.append(factor.description)
+            elif factor.is_concerning:
+                warnings.append(factor.description)
 
         # Calculate overall score
         overall_score = sum(

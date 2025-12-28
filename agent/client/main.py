@@ -103,8 +103,6 @@ class AgentClient:
                 if not self._running:
                     break
 
-                action = decision.get("action", "none")
-
                 # Execute the decision (including wait/none for outcome tracking)
                 result = await self.action_executor.execute(decision)
 

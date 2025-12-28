@@ -16,7 +16,10 @@ const SpatialView = ({
 }) => {
     const size = 300;
     const center = size / 2;
-    const scale = 2; // Pixels per meter
+    // Scale: 300px width represeting 200m dia (100m radius) -> 1.5 px/m
+    const scale = 1.5;
+
+    // console.log("Rendering SpatialView", assets);
 
     const gridRings = [50, 100];
 

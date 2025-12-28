@@ -19,6 +19,13 @@ type ActionCount = {
   count: number;
 };
 
+type SpatialAsset = {
+  id: string;
+  type: string;
+  x: number;
+  y: number;
+};
+
 type RecentEntry = {
   timestamp: string;
   action: string;
@@ -26,6 +33,11 @@ type RecentEntry = {
   risk_level: string;
   battery_percent: number;
   reason?: string;
+  vehicle_state?: {
+    armed: boolean;
+    mode: string;
+  };
+  spatial_context?: SpatialAsset[];
 };
 
 type LogEntry = {
@@ -261,7 +273,9 @@ const Dashboard = () => {
       </section>
 
       <section className="split">
-        <SpatialView />
+        <SpatialView
+          assets={runData?.recent[0]?.spatial_context || []}
+        />
         <article className="card">
           <div className="card-header">
             <h2>Reasoning Feed</h2>

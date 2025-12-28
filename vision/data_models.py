@@ -33,6 +33,12 @@ class DetectionClass(str, Enum):
     DISCOLORATION = "discoloration"
     DEFORMATION = "deformation"
     VEGETATION_OVERGROWTH = "vegetation_overgrowth"
+    HOT_SPOT = "hot_spot"
+    DAMAGE = "damage"
+    WEAR = "wear"
+    STAIN = "stain"
+    LEAK = "leak"
+    VEGETATION = "vegetation"
 
     # Equipment issues
     MISSING_COMPONENT = "missing_component"
@@ -146,6 +152,9 @@ class Detection(BaseModel, frozen=True):
     bounding_box: BoundingBox
     severity: float = Field(
         default=0.0, ge=0.0, le=1.0, description="Defect severity (0=minor, 1=critical)"
+    )
+    raw_class_name: str | None = Field(
+        default=None, description="Original class name from detector model"
     )
     metadata: dict[str, Any] = Field(default_factory=dict)
 

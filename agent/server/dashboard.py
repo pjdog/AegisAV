@@ -9,6 +9,7 @@ from typing import Any
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+import math
 
 
 def _load_entries(run_file: Path) -> list[dict[str, Any]]:
@@ -23,6 +24,17 @@ def _load_entries(run_file: Path) -> list[dict[str, Any]]:
                 continue
             entries.append(json.loads(line))
     return entries
+
+
+def _calculate_relative_pos(
+    origin_lat: float, origin_lon: float, target_lat: float, target_lon: float
+) -> dict[str, float]:
+    """Calculate relative X, Y in meters (flat earth approximation)."""
+    # 1 deg lat ~ 111,111 meters
+    # 1 deg lon ~ 111,111 * cos(lat) meters
+    lat_m = (target_lat - origin_lat) * 111111
+    lon_m = (target_lon - origin_lon) * 111111 * math.cos(math.radians(origin_lat))
+    return {"x": lon_m, "y": lat_m}
 
 
 def _list_runs(log_dir: Path) -> list[str]:
@@ -79,14 +91,40 @@ def _recent(entries: list[dict[str, Any]], limit: int = 12) -> list[dict[str, An
     recent_entries = entries[-limit:]
     items = []
     for entry in recent_entries[::-1]:
-        items.append({
+        item = {
             "timestamp": entry.get("timestamp"),
             "action": entry.get("action"),
             "confidence": entry.get("confidence"),
             "risk_level": entry.get("risk_level"),
             "battery_percent": entry.get("battery_percent"),
             "reason": entry.get("reason"),
-        })
+            "vehicle_state": {
+                "armed": entry.get("armed", False),
+                "mode": entry.get("mode", "UNKNOWN"),
+            },
+        }
+
+        # Calculate spatial context if available
+        vehicle_pos = entry.get("vehicle_position")
+        assets = entry.get("assets", [])
+        spatial_context = []
+
+        if vehicle_pos and assets:
+            v_lat = vehicle_pos.get("lat")
+            v_lon = vehicle_pos.get("lon")
+            for asset in assets:
+                rel = _calculate_relative_pos(
+                    v_lat, v_lon, asset.get("lat", 0), asset.get("lon", 0)
+                )
+                spatial_context.append({
+                    "id": asset.get("id"),
+                    "type": asset.get("type"),
+                    "x": rel["x"],
+                    "y": rel["y"],
+                })
+        
+        item["spatial_context"] = spatial_context
+        items.append(item)
     return items
 
 

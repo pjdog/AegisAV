@@ -49,6 +49,9 @@ class DecisionLogEntry:
     escalation_level: str | None = None
     escalation_reason: str | None = None
 
+    # Visualization
+    assets: list[dict] = None
+
     def to_dict(self) -> dict:
         """Convert to dictionary."""
         return asdict(self)
@@ -176,6 +179,17 @@ class DecisionLogger:
             critic_concerns=critic_concerns if critic_concerns else None,
             escalation_level=escalation.escalation_level.value if escalation else None,
             escalation_reason=escalation.reason if escalation else None,
+            # Phase 4: Spatial context for visualization
+            assets=[
+                {
+                    "id": a.asset_id,
+                    "type": a.asset_type.value,
+                    "lat": a.position.latitude,
+                    "lon": a.position.longitude,
+                    "alt": a.position.altitude_msl,
+                }
+                for a in world.assets
+            ],
         )
 
         self._entries.append(entry)

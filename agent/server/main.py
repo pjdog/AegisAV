@@ -23,10 +23,10 @@ from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
 from agent.api_models import ActionType, DecisionResponse, HealthResponse, VehicleStateRequest
-from agent.server.events import Event, EventSeverity, EventType
 from agent.server.critics import AuthorityModel, CriticOrchestrator
 from agent.server.dashboard import add_dashboard_routes
 from agent.server.decision import Decision
+from agent.server.events import Event, EventSeverity, EventType
 from agent.server.goal_selector import GoalSelector
 from agent.server.goals import Goal, GoalType
 from agent.server.models import DecisionFeedback

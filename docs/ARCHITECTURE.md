@@ -88,9 +88,9 @@ The system exhibits agency through:
 
 ```
 Heavy computation ───────────────► Agent Server (edge/cloud)
-    - World modeling                    
-    - Planning/replanning               
-    - Risk assessment                   
+    - World modeling
+    - Planning/replanning
+    - Risk assessment
 
 Light execution ─────────────────► Agent Client (onboard)
     - Telemetry aggregation
@@ -166,21 +166,21 @@ Maintains a fused, consistent view of the operational environment:
 class WorldModel:
     """
     Unified state representation for decision-making.
-    
+
     Updates from:
     - Agent client state reports (vehicle telemetry)
     - Asset database (inspection targets)
     - Environment services (weather API, mock in SITL)
     - Anomaly detection (vision pipeline, mock in SITL)
     """
-    
+
     vehicle: VehicleState       # Position, velocity, battery, mode
     assets: List[Asset]         # Inspection targets with status
     dock: DockState             # Dock position, availability, charge
     environment: Environment    # Weather, wind, visibility
     mission: MissionState       # Current mission progress
     anomalies: List[Anomaly]    # Detected issues
-    
+
     def update_vehicle(self, state: VehicleState) -> None: ...
     def get_snapshot(self) -> WorldSnapshot: ...
     def time_since_last_update(self) -> timedelta: ...
@@ -195,14 +195,14 @@ class GoalSelector:
     """
     Selects goals by evaluating current world state against
     mission objectives and operational constraints.
-    
+
     Goal Types:
     - INSPECT: Visit an asset for inspection
     - RETURN: Return to dock for recharge
     - ABORT: Terminate mission due to risk
     - WAIT: Hold position pending condition
     """
-    
+
     def select_goal(self, world: WorldSnapshot) -> Goal:
         """
         Priority logic:
@@ -223,18 +223,18 @@ Assesses operational risks and gates decisions:
 class RiskEvaluator:
     """
     Evaluates risk factors and provides go/no-go decisions.
-    
+
     Risk Factors:
     - Battery: Remaining capacity vs return distance
     - Weather: Wind speed, visibility, precipitation
     - Vehicle: Health status, sensor validity
     - Connectivity: Agent server link quality
     """
-    
+
     def evaluate(self, world: WorldSnapshot) -> RiskAssessment:
         """Returns aggregated risk score and component breakdown."""
         ...
-    
+
     def should_abort(self, risk: RiskAssessment) -> bool:
         """Returns True if any risk exceeds abort threshold."""
         ...
@@ -248,20 +248,20 @@ Manages communication with the flight controller:
 class MAVLinkInterface:
     """
     MAVLink connection and message handling.
-    
+
     Supports:
     - UDP connection to SITL
     - Serial connection to Pixhawk (future)
     - Message subscription and publishing
     - Heartbeat monitoring
     """
-    
+
     async def connect(self, connection_string: str) -> None: ...
     async def send_position_command(self, lat, lon, alt) -> None: ...
     async def set_mode(self, mode: str) -> None: ...
     async def arm(self) -> None: ...
     async def disarm(self) -> None: ...
-    
+
     # Telemetry subscriptions
     def on_position(self, callback: Callable) -> None: ...
     def on_attitude(self, callback: Callable) -> None: ...
@@ -357,7 +357,7 @@ class Attitude:
     pitch: float  # radians
     yaw: float    # radians
 
-@dataclass 
+@dataclass
 class BatteryState:
     voltage: float           # volts
     current: float           # amps
@@ -418,20 +418,20 @@ class Decision:
 ```python
 async def agent_loop():
     """Main decision loop running on agent server."""
-    
+
     while running:
         # 1. Receive state update from client
         state = await receive_state_update()
-        
+
         # 2. Update world model
         world_model.update(state)
-        
+
         # 3. Get world snapshot
         snapshot = world_model.get_snapshot()
-        
+
         # 4. Evaluate risks
         risk = risk_evaluator.evaluate(snapshot)
-        
+
         # 5. Check abort conditions
         if risk_evaluator.should_abort(risk):
             decision = Decision(
@@ -442,13 +442,13 @@ async def agent_loop():
         else:
             # 6. Select goal
             goal = goal_selector.select_goal(snapshot)
-            
+
             # 7. Generate plan/action
             decision = planner.plan_for_goal(goal, snapshot)
-        
+
         # 8. Log decision
         decision_logger.log(decision, snapshot, risk)
-        
+
         # 9. Return decision to client
         await send_decision(decision)
 ```
@@ -561,7 +561,7 @@ Agent runs on companion computer (Jetson, Pi, etc.)
 agent:
   name: "aegis-primary"
   loop_rate_hz: 10
-  
+
 server:
   host: "0.0.0.0"
   port: 8080
@@ -569,7 +569,7 @@ server:
 mavlink:
   connection: "udp:127.0.0.1:14550"
   timeout_ms: 1000
-  
+
 decision:
   confidence_threshold: 0.7
   max_replan_attempts: 3

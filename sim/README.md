@@ -10,6 +10,11 @@ This directory contains ArduPilot SITL and Gazebo configuration:
 
 See the main README for ArduPilot SITL installation instructions.
 
+## Where to Run
+
+Simulation is CPU/GPU intensive. Run SITL/Gazebo on a Linux workstation with a GPU.
+Point the agent client at the agent server host on the same LAN.
+
 ## Quick Start
 
 ```bash

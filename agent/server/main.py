@@ -10,28 +10,28 @@ import logging
 from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
 
 import structlog
+import uvicorn
 import yaml
+
+try:
+    import logfire
+except ImportError:  # pragma: no cover - optional dependency
+    logfire = None
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
 
-from agent.server.decision import ActionType, Decision
+from agent.api_models import ActionType, DecisionResponse, HealthResponse, VehicleStateRequest
+from agent.server.dashboard import add_dashboard_routes
+from agent.server.decision import Decision
 from agent.server.goal_selector import Goal, GoalSelector, GoalType
 from agent.server.risk_evaluator import RiskAssessment, RiskEvaluator, RiskThresholds
 from agent.server.world_model import DockStatus, WorldModel
 from autonomy.vehicle_state import (
-    Attitude,
-    BatteryState,
-    FlightMode,
-    GPSState,
     Position,
-    VehicleHealth,
-    VehicleState,
-    Velocity,
 )
+from metrics.logger import DecisionLogger
 
 # Configure structured logging
 structlog.configure(
@@ -55,110 +55,37 @@ structlog.configure(
 logger = structlog.get_logger(__name__)
 
 
-# Pydantic models for API
-class PositionModel(BaseModel):
-    latitude: float
-    longitude: float
-    altitude_msl: float
-    altitude_agl: float = 0.0
-
-
-class VelocityModel(BaseModel):
-    north: float
-    east: float
-    down: float
-
-
-class AttitudeModel(BaseModel):
-    roll: float
-    pitch: float
-    yaw: float
-
-
-class BatteryModel(BaseModel):
-    voltage: float
-    current: float
-    remaining_percent: float
-
-
-class GPSModel(BaseModel):
-    fix_type: int
-    satellites_visible: int
-    hdop: float
-    vdop: float = 99.9
-
-
-class HealthModel(BaseModel):
-    sensors_healthy: bool = True
-    gps_healthy: bool = True
-    battery_healthy: bool = True
-    motors_healthy: bool = True
-    ekf_healthy: bool = True
-
-
-class VehicleStateRequest(BaseModel):
-    """Vehicle state sent by agent client."""
-    
-    timestamp: str
-    position: PositionModel
-    velocity: VelocityModel
-    attitude: AttitudeModel
-    battery: BatteryModel
-    mode: str
-    armed: bool
-    in_air: bool
-    gps: GPSModel
-    health: HealthModel
-
-
-class DecisionResponse(BaseModel):
-    """Decision response to agent client."""
-    
-    decision_id: str
-    action: str
-    parameters: dict
-    confidence: float
-    reasoning: str
-    risk_level: str
-    timestamp: str
-
-
-class HealthResponse(BaseModel):
-    """Server health status."""
-    
-    status: str
-    uptime_seconds: float
-    last_state_update: Optional[str]
-    decisions_made: int
-
-
 # Global state
 class ServerState:
+    # pylint: disable=too-many-instance-attributes
     def __init__(self):
         self.world_model = WorldModel()
         self.goal_selector = GoalSelector()
         self.risk_evaluator = RiskEvaluator()
         self.start_time = datetime.now()
         self.decisions_made = 0
-        self.last_decision: Optional[Decision] = None
+        self.last_decision: Decision | None = None
         self.config: dict = {}
-    
+        self.log_dir = Path(__file__).resolve().parents[2] / "logs"
+        self.decision_logger = DecisionLogger(self.log_dir)
+        self.current_run_id: str | None = None
+
     def load_config(self, config_path: Path) -> None:
         """Load configuration from YAML file."""
         if config_path.exists():
-            with open(config_path) as f:
+            with open(config_path, encoding="utf-8") as f:
                 self.config = yaml.safe_load(f)
             logger.info("config_loaded", path=str(config_path))
-    
+
     def load_mission(self, mission_path: Path) -> None:
         """Load mission configuration."""
         if mission_path.exists():
-            with open(mission_path) as f:
+            with open(mission_path, encoding="utf-8") as f:
                 mission_config = yaml.safe_load(f)
-            
+
             # Load assets
             self.world_model.load_assets_from_config(mission_config)
-            
+
             # Set dock position
             dock_config = mission_config.get("dock", {})
             pos = dock_config.get("position", {})
@@ -171,7 +98,7 @@ class ServerState:
                     ),
                     status=DockStatus.AVAILABLE,
                 )
-            
+
             logger.info("mission_loaded", path=str(mission_path))
 
 
@@ -179,20 +106,21 @@ server_state = ServerState()
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(_app: FastAPI):
     """Application lifespan handler."""
+    await asyncio.sleep(0)
     # Startup
     config_dir = Path(__file__).parent.parent.parent.parent / "configs"
-    
+
     server_state.load_config(config_dir / "agent_config.yaml")
     server_state.load_mission(config_dir / "mission_config.yaml")
-    
+
     # Load risk thresholds
     risk_path = config_dir / "risk_thresholds.yaml"
     if risk_path.exists():
-        with open(risk_path) as f:
+        with open(risk_path, encoding="utf-8") as f:
             risk_config = yaml.safe_load(f)
-        
+
         thresholds = RiskThresholds(
             battery_warning_percent=risk_config.get("battery", {}).get("warning_percent", 30),
             battery_critical_percent=risk_config.get("battery", {}).get("abort_percent", 15),
@@ -200,12 +128,14 @@ async def lifespan(app: FastAPI):
             wind_abort_ms=risk_config.get("wind", {}).get("abort_ms", 12),
         )
         server_state.risk_evaluator = RiskEvaluator(thresholds)
-    
+
+    server_state.current_run_id = server_state.decision_logger.start_run()
     logger.info("server_started")
-    
+
     yield
-    
+
     # Shutdown
+    server_state.decision_logger.end_run()
     logger.info("server_stopped")
 
 
@@ -215,6 +145,64 @@ app = FastAPI(
     version="0.1.0",
     lifespan=lifespan,
 )
+
+# Dashboard routes
+add_dashboard_routes(app, server_state.log_dir)
+
+
+@app.get("/api/config/agent")
+async def get_agent_config():
+    """Return the current agent orchestration configuration."""
+    return {
+        "use_advanced_engine": server_state.goal_selector.use_advanced_engine,
+        "is_initialized": server_state.goal_selector.advanced_engine is not None,
+    }
+
+
+@app.post("/api/config/agent")
+async def update_agent_config(config: dict):
+    """Update agent orchestration configuration."""
+    enabled = config.get("use_advanced_engine", True)
+    await server_state.goal_selector.orchestrate(enabled)
+    return {"status": "success", "use_advanced_engine": enabled}
+
+
+if logfire:
+    logfire.configure(send_to_logfire=False)  # Local only for now
+    logfire.instrument_fastapi(app)
+
+
+# In-memory log buffer for frontend access
+class LogBufferHandler(logging.Handler):
+    def __init__(self, capacity: int = 50):
+        super().__init__()
+        self.capacity = capacity
+        self.buffer: list[dict] = []
+
+    def emit(self, record: logging.LogRecord):
+        try:
+            log_entry = {
+                "timestamp": datetime.fromtimestamp(record.created).isoformat(),
+                "level": record.levelname,
+                "name": record.name,
+                "message": self.format(record),
+            }
+            self.buffer.append(log_entry)
+            if len(self.buffer) > self.capacity:
+                self.buffer.pop(0)
+        except Exception:
+            self.handleError(record)
+
+
+log_buffer = LogBufferHandler()
+logging.getLogger().addHandler(log_buffer)
+
+
+@app.get("/api/logs")
+async def get_logs():
+    """Return the recent log buffer for the dashboard."""
+    return {"logs": log_buffer.buffer}
+
 
 # CORS middleware
 app.add_middleware(
@@ -230,12 +218,12 @@ app.add_middleware(
 async def health_check() -> HealthResponse:
     """Check server health status."""
     uptime = (datetime.now() - server_state.start_time).total_seconds()
-    
+
     last_update = None
     update_time = server_state.world_model.time_since_update()
     if update_time:
         last_update = (datetime.now() - update_time).isoformat()
-    
+
     return HealthResponse(
         status="healthy",
         uptime_seconds=uptime,
@@ -248,75 +236,40 @@ async def health_check() -> HealthResponse:
 async def receive_state(state: VehicleStateRequest) -> DecisionResponse:
     """
     Receive vehicle state and return decision.
-    
+
     This is the main endpoint called by the agent client.
     """
     logger.debug("state_received", armed=state.armed, mode=state.mode)
-    
-    # Convert to internal VehicleState
-    vehicle_state = VehicleState(
-        timestamp=datetime.fromisoformat(state.timestamp),
-        position=Position(
-            latitude=state.position.latitude,
-            longitude=state.position.longitude,
-            altitude_msl=state.position.altitude_msl,
-            altitude_agl=state.position.altitude_agl,
-        ),
-        velocity=Velocity(
-            north=state.velocity.north,
-            east=state.velocity.east,
-            down=state.velocity.down,
-        ),
-        attitude=Attitude(
-            roll=state.attitude.roll,
-            pitch=state.attitude.pitch,
-            yaw=state.attitude.yaw,
-        ),
-        battery=BatteryState(
-            voltage=state.battery.voltage,
-            current=state.battery.current,
-            remaining_percent=state.battery.remaining_percent,
-        ),
-        mode=FlightMode.from_string(state.mode),
-        armed=state.armed,
-        in_air=state.in_air,
-        gps=GPSState(
-            fix_type=state.gps.fix_type,
-            satellites_visible=state.gps.satellites_visible,
-            hdop=state.gps.hdop,
-            vdop=state.gps.vdop,
-        ),
-        health=VehicleHealth(
-            sensors_healthy=state.health.sensors_healthy,
-            gps_healthy=state.health.gps_healthy,
-            battery_healthy=state.health.battery_healthy,
-            motors_healthy=state.health.motors_healthy,
-            ekf_healthy=state.health.ekf_healthy,
-        ),
-    )
-    
+
+    # Convert to internal VehicleState using the helper method
+    vehicle_state = (
+        state.to_dataclass()
+    )  # Note: despite the name, it returns a Pydantic-based VehicleState
+
     # Update world model
     server_state.world_model.update_vehicle(vehicle_state)
-    
+
     # Get world snapshot
     snapshot = server_state.world_model.get_snapshot()
     if snapshot is None:
         raise HTTPException(status_code=500, detail="World model not initialized")
-    
+
     # Evaluate risk
     risk = server_state.risk_evaluator.evaluate(snapshot)
-    
+
     # Log warnings
     for warning in risk.warnings:
         logger.warning("risk_warning", warning=warning)
-    
+
     # Make decision
-    decision = _make_decision(snapshot, risk)
-    
+    decision, goal = await _make_decision(snapshot, risk)
+
     # Track decision
     server_state.last_decision = decision
     server_state.decisions_made += 1
-    
+
+    server_state.decision_logger.log_decision(decision, risk, snapshot, goal)
+
     # Log decision
     logger.info(
         "decision_made",
@@ -326,22 +279,26 @@ async def receive_state(state: VehicleStateRequest) -> DecisionResponse:
         reasoning=decision.reasoning,
         risk_level=risk.overall_level.value,
     )
-    
+
+    # Map RiskLevel to numerical or string value expected by response
+    # The new DecisionResponse uses risk_assessment: Dict[str, float]
+    # Older one used risk_level: str
+
     return DecisionResponse(
-        decision_id=decision.decision_id,
         action=decision.action.value,
         parameters=decision.parameters,
         confidence=decision.confidence,
         reasoning=decision.reasoning,
-        risk_level=risk.overall_level.value,
-        timestamp=decision.timestamp.isoformat(),
+        risk_assessment={name: f.value for name, f in risk.factors.items()},
+        timestamp=decision.timestamp,
     )
 
 
-def _make_decision(snapshot, risk: RiskAssessment) -> Decision:
+async def _make_decision(snapshot, risk: RiskAssessment) -> tuple[Decision, Goal | None]:
+    # pylint: disable=too-many-return-statements
     """
     Core decision-making logic.
-    
+
     Combines goal selection with risk assessment to produce a decision.
     """
     # Check if abort recommended
@@ -349,15 +306,15 @@ def _make_decision(snapshot, risk: RiskAssessment) -> Decision:
         return Decision.abort(
             reason=risk.abort_reason or "Risk threshold exceeded",
             risk_factors={name: f.value for name, f in risk.factors.items()},
-        )
-    
+        ), None
+
     # Select goal
-    goal: Goal = server_state.goal_selector.select_goal(snapshot)
-    
+    goal: Goal = await server_state.goal_selector.select_goal(snapshot)
+
     # Convert goal to decision
     if goal.goal_type == GoalType.ABORT:
-        return Decision.abort(goal.reason)
-    
+        return Decision.abort(goal.reason), goal
+
     elif goal.goal_type in (
         GoalType.RETURN_LOW_BATTERY,
         GoalType.RETURN_MISSION_COMPLETE,
@@ -366,53 +323,53 @@ def _make_decision(snapshot, risk: RiskAssessment) -> Decision:
         return Decision.return_to_dock(
             reason=goal.reason,
             confidence=goal.confidence,
-        )
-    
+        ), goal
+
     elif goal.goal_type == GoalType.INSPECT_ASSET and goal.target_asset:
         return Decision.inspect(
             asset_id=goal.target_asset.asset_id,
             position=Position(
                 latitude=goal.target_asset.position.latitude,
                 longitude=goal.target_asset.position.longitude,
-                altitude_msl=goal.target_asset.position.altitude_msl + goal.target_asset.inspection_altitude_agl,
+                altitude_msl=goal.target_asset.position.altitude_msl
+                + goal.target_asset.inspection_altitude_agl,
             ),
             reason=goal.reason,
             orbit_radius=goal.target_asset.orbit_radius_m,
             dwell_time_s=goal.target_asset.dwell_time_s,
-        )
-    
+        ), goal
+
     elif goal.goal_type == GoalType.INSPECT_ANOMALY and goal.target_asset:
         return Decision.inspect(
             asset_id=goal.target_asset.asset_id,
             position=Position(
                 latitude=goal.target_asset.position.latitude,
                 longitude=goal.target_asset.position.longitude,
-                altitude_msl=goal.target_asset.position.altitude_msl + goal.target_asset.inspection_altitude_agl,
+                altitude_msl=goal.target_asset.position.altitude_msl
+                + goal.target_asset.inspection_altitude_agl,
             ),
             reason=goal.reason,
             orbit_radius=goal.target_asset.orbit_radius_m * 0.75,  # Closer for anomaly
             dwell_time_s=goal.target_asset.dwell_time_s * 2,  # Longer for anomaly
-        )
-    
+        ), goal
+
     elif goal.goal_type == GoalType.WAIT:
-        return Decision.wait(goal.reason)
-    
+        return Decision.wait(goal.reason), goal
+
     else:
         return Decision(
             action=ActionType.NONE,
             reasoning="No actionable goal",
-        )
+        ), None
 
 
 def main() -> None:
     """Run the agent server."""
-    import uvicorn
-    
     logging.basicConfig(level=logging.INFO)
-    
+
     uvicorn.run(
         "agent.server.main:app",
-        host="0.0.0.0",
+        host="0.0.0.0",  # noqa: S104
         port=8080,
         reload=True,
     )

@@ -1,0 +1,32 @@
+version: '3.8'
+
+services:
+  aegis-server:
+    build:
+      context: .
+      dockerfile: Dockerfile.server
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./logs:/app/logs
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-mock}
+      - LOGFIRE_TOKEN=${LOGFIRE_TOKEN:-}
+    networks:
+      - aegis-net
+
+  aegis-client:
+    build:
+      context: .
+      dockerfile: Dockerfile.client
+    depends_on:
+      - aegis-server
+    environment:
+      - SERVER_URL=http://aegis-server:8080
+      - VEHICLE_URL=tcp:127.0.0.1:5760 # Assumes SITL is on host, but can be proxied
+    networks:
+      - aegis-net
+
+networks:
+  aegis-net:
+    driver: bridge

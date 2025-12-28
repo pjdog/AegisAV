@@ -3,14 +3,13 @@ Integration test configuration and fixtures.
 """
 
 import asyncio
-import pytest
+import sys
 import tempfile
-import yaml
+from collections.abc import Generator
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
-from typing import Generator, AsyncGenerator
-import sys
-import os
+
+import pytest
 
 # Add project root to path for imports
 project_root = Path(__file__).parent.parent
@@ -103,24 +102,24 @@ mission:
   mission_id: "test-integration"
   mission_name: "Integration Test Mission"
   home_position:
-    latitude: {TEST_HOME_POSITION['lat']}
-    longitude: {TEST_HOME_POSITION['lon']}
-    altitude: {TEST_HOME_POSITION['alt']}
-  
+    latitude: {TEST_HOME_POSITION["lat"]}
+    longitude: {TEST_HOME_POSITION["lon"]}
+    altitude: {TEST_HOME_POSITION["alt"]}
+
   dock:
     position:
-      latitude: {TEST_DOCK_POSITION['lat']}
-      longitude: {TEST_DOCK_POSITION['lon']}
-      altitude: {TEST_DOCK_POSITION['alt']}
+      latitude: {TEST_DOCK_POSITION["lat"]}
+      longitude: {TEST_DOCK_POSITION["lon"]}
+      altitude: {TEST_DOCK_POSITION["alt"]}
 
 assets:
   - asset_id: "test-asset-001"
     name: "Test Asset 1"
     asset_type: "solar_panel"
     position:
-      latitude: {TEST_ASSET_POSITION['lat']}
-      longitude: {TEST_ASSET_POSITION['lon']}
-      altitude: {TEST_ASSET_POSITION['alt']}
+      latitude: {TEST_ASSET_POSITION["lat"]}
+      longitude: {TEST_ASSET_POSITION["lon"]}
+      altitude: {TEST_ASSET_POSITION["alt"]}
     priority: 1
     inspection_interval_minutes: 60
 """
@@ -160,40 +159,43 @@ connectivity:
 def mock_mavlink_connection():
     """Create a mock MAVLink connection for testing."""
     mock = MagicMock()
-    
+
     # Mock connection methods
     mock.wait_heartbeat = AsyncMock(return_value=True)
     mock.target_system = TEST_MAVLINK_SYSTEM_ID
     mock.target_component = TEST_MAVLINK_COMPONENT_ID
-    
+
     # Mock vehicle state
     mock.messages = {
-        'HEARTBEAT': MagicMock(type=2, base_mode=217, custom_mode=4),  # GUIDED mode
-        'GLOBAL_POSITION_INT': MagicMock(
-            lat=int(TEST_HOME_POSITION['lat'] * 1e7),
-            lon=int(TEST_HOME_POSITION['lon'] * 1e7),
-            alt=int(TEST_HOME_POSITION['alt'] * 1000),
+        "HEARTBEAT": MagicMock(type=2, base_mode=217, custom_mode=4),  # GUIDED mode
+        "GLOBAL_POSITION_INT": MagicMock(
+            lat=int(TEST_HOME_POSITION["lat"] * 1e7),
+            lon=int(TEST_HOME_POSITION["lon"] * 1e7),
+            alt=int(TEST_HOME_POSITION["alt"] * 1000),
             relative_alt=int(12 * 1000),
-            vx=0, vy=0, vz=0
+            vx=0,
+            vy=0,
+            vz=0,
         ),
-        'ATTITUDE': MagicMock(roll=0.0, pitch=0.0, yaw=0.0),
-        'SYS_STATUS': MagicMock(
+        "ATTITUDE": MagicMock(roll=0.0, pitch=0.0, yaw=0.0),
+        "SYS_STATUS": MagicMock(
             voltage_battery=22800,  # 22.8V
-            current_battery=500,     # 0.5A
-            battery_remaining=80     # 80%
+            current_battery=500,  # 0.5A
+            battery_remaining=80,  # 80%
         ),
-        'GPS_RAW_INT': MagicMock(
+        "GPS_RAW_INT": MagicMock(
             fix_type=3,  # 3D fix
             satellites_visible=8,
             hdop=80,  # 0.8
-            eph=100, epv=100
-        )
+            eph=100,
+            epv=100,
+        ),
     }
-    
+
     # Mock command sending
     mock.mav.command_long_send = MagicMock()
     mock.mav.set_position_target_global_int_send = MagicMock()
-    
+
     return mock
 
 
@@ -209,19 +211,26 @@ async def integration_test_setup():
     """Setup common integration test components."""
     # Import here to avoid module import issues during pytest collection
     try:
-        from agent.server.world_model import WorldModel
+        from datetime import datetime
+
         from agent.server.goal_selector import GoalSelector
         from agent.server.risk_evaluator import RiskEvaluator, RiskThresholds
+        from agent.server.world_model import WorldModel
         from autonomy.vehicle_state import (
-            VehicleState, Position, Velocity, Attitude, BatteryState,
-            FlightMode, GPSState, VehicleHealth
+            Attitude,
+            BatteryState,
+            FlightMode,
+            GPSState,
+            Position,
+            VehicleHealth,
+            VehicleState,
+            Velocity,
         )
-        from datetime import datetime
-        
+
         # Create test components
         world_model = WorldModel()
         goal_selector = GoalSelector()
-        
+
         thresholds = RiskThresholds(
             battery_warning_percent=TEST_BATTERY_WARNING,
             battery_critical_percent=TEST_BATTERY_CRITICAL,
@@ -229,15 +238,15 @@ async def integration_test_setup():
             wind_abort_ms=12.0,
         )
         risk_evaluator = RiskEvaluator(thresholds)
-        
+
         # Create test vehicle state
         vehicle_state = VehicleState(
             timestamp=datetime.now(),
             position=Position(
-                latitude=TEST_HOME_POSITION['lat'],
-                longitude=TEST_HOME_POSITION['lon'],
-                altitude_msl=TEST_HOME_POSITION['alt'],
-                altitude_agl=12.0
+                latitude=TEST_HOME_POSITION["lat"],
+                longitude=TEST_HOME_POSITION["lon"],
+                altitude_msl=TEST_HOME_POSITION["alt"],
+                altitude_agl=12.0,
             ),
             velocity=Velocity(0, 0, 0),
             attitude=Attitude(0, 0, 0),
@@ -248,20 +257,20 @@ async def integration_test_setup():
             gps=GPSState(3, 8, 0.8, 0.8),
             health=VehicleHealth(True, True, True, True, True),
             home_position=Position(
-                latitude=TEST_HOME_POSITION['lat'],
-                longitude=TEST_HOME_POSITION['lon'],
-                altitude_msl=TEST_HOME_POSITION['alt'],
-                altitude_agl=0.0
+                latitude=TEST_HOME_POSITION["lat"],
+                longitude=TEST_HOME_POSITION["lon"],
+                altitude_msl=TEST_HOME_POSITION["alt"],
+                altitude_agl=0.0,
             ),
         )
-        
+
         yield {
-            'world_model': world_model,
-            'goal_selector': goal_selector,
-            'risk_evaluator': risk_evaluator,
-            'vehicle_state': vehicle_state,
+            "world_model": world_model,
+            "goal_selector": goal_selector,
+            "risk_evaluator": risk_evaluator,
+            "vehicle_state": vehicle_state,
         }
-        
+
     except ImportError as e:
         pytest.skip(f"Cannot import required modules for integration test: {e}")
 

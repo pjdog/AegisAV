@@ -1,0 +1,24 @@
+# AegisAV Realistic Simulation Parameters
+# Use with sim_vehicle.py --add-param-file=sim/realistic.params
+
+# --- Environment ---
+SIM_WIND_SPD     5.0     # Default 5m/s wind
+SIM_WIND_DIR     45.0    # 45 deg wind direction
+SIM_WIND_TURB    0.2     # Subtle turbulence
+
+# --- Sensors & Noise ---
+SIM_GPS_ACC      2.5     # 2.5m GPS accuracy (standard)
+SIM_GPS_DELAY    200     # 200ms GPS latency
+SIM_ACCEL_NOISE  0.02    # Increased accelerometer noise
+SIM_GYRO_NOISE   0.01    # Increased gyro noise
+
+# --- Battery & Power ---
+SIM_BATT_VOLTAGE 22.2    # 6S LiPo nominal
+SIM_BATT_CAP_AH  5.0     # 5000mAh capacity
+SIM_BATT_WATT_MAX 500    # Max discharge rate limit
+
+# --- Safety & Failafes ---
+BATT_LOW_W_PCT   25      # Battery low warning at 25%
+BATT_CRT_W_PCT   15      # Battery critical warning at 15%
+FS_GCS_ENABLE    1       # Enable GCS failsafe
+FS_EKF_THRESH    0.8     # Lower EKF threshold for more sensitivity

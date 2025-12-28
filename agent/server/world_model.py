@@ -6,17 +6,17 @@ for decision-making. Fuses data from vehicle telemetry, asset database,
 and environmental sources.
 """
 
-from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from enum import Enum
-from typing import Optional
+
+from pydantic import BaseModel, ConfigDict, Field
 
 from autonomy.vehicle_state import Position, VehicleState
 
 
 class AssetType(Enum):
     """Types of infrastructure assets."""
-    
+
     SOLAR_PANEL = "solar_panel"
     WIND_TURBINE = "wind_turbine"
     SUBSTATION = "substation"
@@ -28,7 +28,7 @@ class AssetType(Enum):
 
 class AssetStatus(Enum):
     """Current status of an asset."""
-    
+
     NORMAL = "normal"
     WARNING = "warning"
     ANOMALY = "anomaly"
@@ -37,42 +37,43 @@ class AssetStatus(Enum):
 
 class DockStatus(Enum):
     """Dock availability status."""
-    
+
     AVAILABLE = "available"
     OCCUPIED = "occupied"
     CHARGING = "charging"
     OFFLINE = "offline"
 
 
-@dataclass
-class Asset:
+class Asset(BaseModel):
     """An infrastructure asset being monitored."""
-    
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
     asset_id: str
     name: str
     asset_type: AssetType
     position: Position
-    
+
     # Inspection parameters
     inspection_altitude_agl: float = 20.0
     orbit_radius_m: float = 20.0
     dwell_time_s: float = 30.0
-    
+
     # Status
     status: AssetStatus = AssetStatus.UNKNOWN
     priority: int = 1  # Lower = higher priority
-    
+
     # Timing
-    last_inspection: Optional[datetime] = None
-    next_scheduled: Optional[datetime] = None
-    
+    last_inspection: datetime | None = None
+    next_scheduled: datetime | None = None
+
     @property
-    def time_since_inspection(self) -> Optional[timedelta]:
+    def time_since_inspection(self) -> timedelta | None:
         """Time elapsed since last inspection."""
         if self.last_inspection is None:
             return None
         return datetime.now() - self.last_inspection
-    
+
     @property
     def needs_inspection(self) -> bool:
         """Check if asset is due for inspection."""
@@ -81,83 +82,83 @@ class Asset:
         return datetime.now() >= self.next_scheduled
 
 
-@dataclass
-class Anomaly:
+class Anomaly(BaseModel):
     """A detected anomaly at an asset."""
-    
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
     anomaly_id: str
     asset_id: str
     detected_at: datetime
-    severity: float  # 0.0 - 1.0
+    severity: float = Field(..., ge=0.0, le=1.0)
     description: str
-    
+
     # Location
-    position: Optional[Position] = None
-    
+    position: Position | None = None
+
     # Status
     acknowledged: bool = False
     resolved: bool = False
 
 
-@dataclass
-class DockState:
+class DockState(BaseModel):
     """State of the charging dock."""
-    
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
     position: Position
     status: DockStatus
-    
+
     # Charging info
     charge_rate_percent_per_minute: float = 1.5
-    current_vehicle_id: Optional[str] = None
-    
+    current_vehicle_id: str | None = None
+
     # Approach parameters
     approach_altitude_m: float = 10.0
 
 
-@dataclass
-class EnvironmentState:
+class EnvironmentState(BaseModel):
     """Environmental conditions."""
-    
+
     timestamp: datetime
-    
+
     # Weather
     wind_speed_ms: float = 0.0
     wind_direction_deg: float = 0.0
     temperature_c: float = 20.0
     visibility_m: float = 10000.0
-    
+
     # Conditions
     precipitation: str = "none"  # none, light_rain, heavy_rain, snow, etc.
     is_daylight: bool = True
-    
+
     @property
     def is_flyable(self) -> bool:
         """Check if conditions allow flight."""
         return (
-            self.wind_speed_ms < 12.0 and
-            self.visibility_m > 1000.0 and
-            self.precipitation in ("none", "light_rain")
+            self.wind_speed_ms < 12.0
+            and self.visibility_m > 1000.0
+            and self.precipitation in ("none", "light_rain")
         )
 
 
-@dataclass
-class MissionState:
+class MissionState(BaseModel):
     """Current mission progress."""
-    
+
     mission_id: str
     mission_name: str
-    
+
     # Progress
-    started_at: Optional[datetime] = None
+    started_at: datetime | None = None
     current_phase: str = "idle"
     assets_inspected: int = 0
     assets_total: int = 0
-    
+
     # Status
     is_active: bool = False
     is_complete: bool = False
-    abort_reason: Optional[str] = None
-    
+    abort_reason: str | None = None
+
     @property
     def progress_percent(self) -> float:
         """Calculate mission progress percentage."""
@@ -166,54 +167,55 @@ class MissionState:
         return (self.assets_inspected / self.assets_total) * 100
 
 
-@dataclass
-class WorldSnapshot:
+class WorldSnapshot(BaseModel):
     """
     Immutable snapshot of the world state at a point in time.
-    
+
     This is passed to the goal selector and risk evaluator for
     decision-making. Creating snapshots ensures consistent state
     during decision computation.
     """
-    
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
     timestamp: datetime
-    
+
     # Vehicle
     vehicle: VehicleState
-    
+
     # Assets
     assets: list[Asset]
     anomalies: list[Anomaly]
-    
+
     # Infrastructure
     dock: DockState
-    
+
     # Environment
     environment: EnvironmentState
-    
+
     # Mission
     mission: MissionState
-    
+
     # Computed
     overall_confidence: float = 1.0
-    
-    def get_asset(self, asset_id: str) -> Optional[Asset]:
+
+    def get_asset(self, asset_id: str) -> Asset | None:
         """Get asset by ID."""
         for asset in self.assets:
             if asset.asset_id == asset_id:
                 return asset
         return None
-    
+
     def get_pending_assets(self) -> list[Asset]:
         """Get assets that need inspection, sorted by priority."""
         pending = [a for a in self.assets if a.needs_inspection]
         return sorted(pending, key=lambda a: a.priority)
-    
+
     def get_anomaly_assets(self) -> list[Asset]:
         """Get assets with active anomalies."""
         anomaly_asset_ids = {a.asset_id for a in self.anomalies if not a.resolved}
         return [a for a in self.assets if a.asset_id in anomaly_asset_ids]
-    
+
     def distance_to_dock(self) -> float:
         """Calculate distance from current position to dock."""
         return self.vehicle.position.distance_to(self.dock.position)
@@ -222,65 +224,65 @@ class WorldSnapshot:
 class WorldModel:
     """
     Maintains and updates the world state.
-    
+
     The WorldModel is the single source of truth for the agent's
     understanding of the operational environment. It:
-    
+
     - Aggregates vehicle telemetry
     - Tracks asset status and inspection history
     - Monitors environmental conditions
     - Provides consistent snapshots for decision-making
-    
+
     Example:
         model = WorldModel()
         model.load_assets_from_config(mission_config)
         model.set_dock(dock_position)
-        
+
         # Update from telemetry
         model.update_vehicle(vehicle_state)
-        
+
         # Get snapshot for decisions
         snapshot = model.get_snapshot()
     """
-    
+
     def __init__(self) -> None:
-        self._vehicle: Optional[VehicleState] = None
+        self._vehicle: VehicleState | None = None
         self._assets: list[Asset] = []
         self._anomalies: list[Anomaly] = []
-        self._dock: Optional[DockState] = None
+        self._dock: DockState | None = None
         self._environment = EnvironmentState(timestamp=datetime.now())
         self._mission = MissionState(mission_id="", mission_name="")
-        
-        self._last_update: Optional[datetime] = None
-    
+
+        self._last_update: datetime | None = None
+
     def update_vehicle(self, state: VehicleState) -> None:
         """Update vehicle state from telemetry."""
         self._vehicle = state
         self._last_update = datetime.now()
-    
+
     def set_dock(self, position: Position, status: DockStatus = DockStatus.AVAILABLE) -> None:
         """Set dock position and status."""
         self._dock = DockState(position=position, status=status)
-    
+
     def add_asset(self, asset: Asset) -> None:
         """Add or update an asset."""
         # Replace if exists
         self._assets = [a for a in self._assets if a.asset_id != asset.asset_id]
         self._assets.append(asset)
-    
+
     def load_assets_from_config(self, config: dict) -> None:
         """
         Load assets from mission configuration.
-        
+
         Args:
             config: Mission configuration dictionary
         """
         assets_config = config.get("assets", [])
-        
+
         for asset_data in assets_config:
             pos = asset_data.get("position", {})
             inspection = asset_data.get("inspection", {})
-            
+
             asset = Asset(
                 asset_id=asset_data["id"],
                 name=asset_data.get("name", asset_data["id"]),
@@ -296,7 +298,7 @@ class WorldModel:
                 priority=asset_data.get("priority", 1),
             )
             self.add_asset(asset)
-    
+
     def record_inspection(self, asset_id: str, cadence_minutes: float = 30) -> None:
         """Record that an asset was inspected."""
         for asset in self._assets:
@@ -304,28 +306,28 @@ class WorldModel:
                 asset.last_inspection = datetime.now()
                 asset.next_scheduled = datetime.now() + timedelta(minutes=cadence_minutes)
                 break
-    
+
     def add_anomaly(self, anomaly: Anomaly) -> None:
         """Add a detected anomaly."""
         self._anomalies.append(anomaly)
-        
+
         # Update asset status
         for asset in self._assets:
             if asset.asset_id == anomaly.asset_id:
                 asset.status = AssetStatus.ANOMALY
                 break
-    
+
     def resolve_anomaly(self, anomaly_id: str) -> None:
         """Mark an anomaly as resolved."""
         for anomaly in self._anomalies:
             if anomaly.anomaly_id == anomaly_id:
                 anomaly.resolved = True
                 break
-    
+
     def update_environment(self, env: EnvironmentState) -> None:
         """Update environmental conditions."""
         self._environment = env
-    
+
     def start_mission(self, mission_id: str, mission_name: str) -> None:
         """Start a new mission."""
         self._mission = MissionState(
@@ -335,17 +337,17 @@ class WorldModel:
             is_active=True,
             assets_total=len(self._assets),
         )
-    
-    def get_snapshot(self) -> Optional[WorldSnapshot]:
+
+    def get_snapshot(self) -> WorldSnapshot | None:
         """
         Get an immutable snapshot of current world state.
-        
+
         Returns:
             WorldSnapshot if sufficient data available, None otherwise
         """
         if self._vehicle is None or self._dock is None:
             return None
-        
+
         return WorldSnapshot(
             timestamp=datetime.now(),
             vehicle=self._vehicle,
@@ -355,8 +357,8 @@ class WorldModel:
             environment=self._environment,
             mission=self._mission,
         )
-    
-    def time_since_update(self) -> Optional[timedelta]:
+
+    def time_since_update(self) -> timedelta | None:
         """Time since last vehicle state update."""
         if self._last_update is None:
             return None

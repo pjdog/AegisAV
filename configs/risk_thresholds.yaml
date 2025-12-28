@@ -6,7 +6,7 @@ battery:
   warning_percent: 30      # Issue warning below this level
   critical_percent: 20     # Force return to dock
   abort_percent: 15        # Emergency land immediately
-  
+
   # Reserve requirements
   reserve_margin_percent: 10  # Additional margin for safety
 
@@ -19,7 +19,7 @@ wind:
 weather:
   # Visibility thresholds (meters)
   min_visibility_m: 1000
-  
+
   # Precipitation
   no_fly_conditions:
     - "heavy_rain"
@@ -31,7 +31,7 @@ connectivity:
   # Heartbeat monitoring
   heartbeat_timeout_s: 5      # Warn if no heartbeat
   abort_timeout_s: 30         # Abort if connection lost
-  
+
   # Server connection
   server_timeout_s: 10        # Warn if server unreachable
   server_abort_s: 60          # Fallback to safe behavior
@@ -42,7 +42,7 @@ vehicle:
     - "gps"
     - "imu"
     - "barometer"
-  
+
   # GPS quality
   min_satellites: 6
   max_hdop: 2.0
@@ -50,7 +50,7 @@ vehicle:
 geofence:
   # Maximum distance from home (meters)
   max_distance_m: 5000
-  
+
   # Altitude limits (meters AGL)
   max_altitude_m: 120
   min_altitude_m: 5
@@ -59,7 +59,7 @@ operational:
   # Time-based constraints
   max_flight_duration_min: 45
   min_remaining_time_min: 5
-  
+
   # Mission constraints
   max_waypoint_error_m: 10
   position_hold_timeout_s: 30

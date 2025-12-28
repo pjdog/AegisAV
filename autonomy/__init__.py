@@ -9,8 +9,8 @@ from autonomy.vehicle_state import (
     Attitude,
     BatteryState,
     FlightMode,
-    GPSState,
     GPSInfo,
+    GPSState,
     Position,
     VehicleHealth,
     VehicleState,
@@ -18,30 +18,31 @@ from autonomy.vehicle_state import (
 )
 
 __all__ = [
-    # Vehicle state
-    "Position",
-    "Velocity",
     "Attitude",
     "BatteryState",
     "FlightMode",
-    "GPSState",
     "GPSInfo",
+    "GPSState",
+    # Vehicle state
+    "Position",
     "VehicleHealth",
     "VehicleState",
+    "Velocity",
 ]
 
 # Optional imports that require pymavlink
 try:
-    from autonomy.mavlink_interface import (
+    from autonomy.mavlink_interface import (  # noqa: F401
         ConnectionState,
         MAVLinkConfig,
         MAVLinkInterface,
     )
-    from autonomy.mission_primitives import (
+    from autonomy.mission_primitives import (  # noqa: F401
         MissionPrimitives,
         PrimitiveConfig,
         PrimitiveResult,
     )
+
     __all__.extend([
         "ConnectionState",
         "MAVLinkConfig",

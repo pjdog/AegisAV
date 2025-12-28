@@ -51,10 +51,10 @@ start_sitl() {
     log_info "  Vehicle: $VEHICLE_TYPE ($VEHICLE_FRAME)"
     log_info "  Home: $HOME_LAT, $HOME_LON, $HOME_ALT"
     log_info "  Port: $SITL_PORT"
-    
+
     # Build home string
     HOME_STR="$HOME_LAT,$HOME_LON,$HOME_ALT,0"
-    
+
     # Start SITL
     sim_vehicle.py \
         -v "$VEHICLE_TYPE" \
@@ -106,6 +106,10 @@ while [[ $# -gt 0 ]]; do
             SPEEDUP=$2
             shift 2
             ;;
+        --realistic)
+            REALISTIC=true
+            shift
+            ;;
         *)
             # Pass remaining args to sim_vehicle.py
             break
@@ -113,7 +117,14 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
+# Prepare additional params
+EXTRA_PARAMS=""
+if [ "$REALISTIC" = true ]; then
+    log_info "Realistic mode enabled, loading sim/realistic.params"
+    EXTRA_PARAMS="--add-param-file=$PROJECT_DIR/sim/realistic.params"
+fi
+
 # Main
 log_info "AegisAV Simulation Launcher"
 check_ardupilot
-start_sitl "$@"
+start_sitl $EXTRA_PARAMS "$@"

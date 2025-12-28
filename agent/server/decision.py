@@ -4,45 +4,19 @@ Decision Data Models
 Defines the Decision type which is the primary output of the agent server.
 """
 
-from dataclasses import dataclass, field
 from datetime import datetime
-from enum import Enum
-from typing import Any, Optional
+from typing import Any
 
+from pydantic import BaseModel, Field
+
+from agent.api_models import ActionType
 from autonomy.vehicle_state import Position
 
 
-class ActionType(Enum):
-    """Types of actions the agent can command."""
-    
-    # Movement actions
-    GOTO = "goto"                    # Fly to a position
-    TAKEOFF = "takeoff"              # Take off to altitude
-    LAND = "land"                    # Land at current position
-    RTL = "rtl"                      # Return to launch
-    
-    # Mission actions
-    INSPECT = "inspect"              # Perform asset inspection
-    ORBIT = "orbit"                  # Orbit around a point
-    
-    # Dock actions
-    DOCK = "dock"                    # Return to dock and land
-    RECHARGE = "recharge"            # Recharge at dock
-    UNDOCK = "undock"                # Take off from dock
-    
-    # Control actions
-    WAIT = "wait"                    # Hold position, wait for condition
-    ABORT = "abort"                  # Emergency abort mission
-    
-    # No action
-    NONE = "none"                    # No action required
-
-
-@dataclass
-class Decision:
+class Decision(BaseModel):
     """
     The primary output of the agent's decision-making process.
-    
+
     Each decision includes:
     - The action to take
     - Parameters for the action
@@ -50,25 +24,25 @@ class Decision:
     - Human-readable reasoning (for explainability)
     - Risk assessment at time of decision
     """
-    
+
     action: ActionType
-    parameters: dict[str, Any] = field(default_factory=dict)
+    parameters: dict[str, Any] = Field(default_factory=dict)
     confidence: float = 1.0
     reasoning: str = ""
-    
+
     # Context
-    timestamp: datetime = field(default_factory=datetime.now)
-    risk_factors: dict[str, float] = field(default_factory=dict)
-    
+    timestamp: datetime = Field(default_factory=datetime.now)
+    risk_factors: dict[str, float] = Field(default_factory=dict)
+
     # Tracking
-    decision_id: str = ""
-    supersedes: Optional[str] = None  # ID of decision this replaces
-    
-    def __post_init__(self) -> None:
+    decision_id: str = Field(default="")
+    supersedes: str | None = None  # ID of decision this replaces
+
+    def model_post_init(self, __context: Any) -> None:
         """Generate decision ID if not provided."""
         if not self.decision_id:
             self.decision_id = f"dec_{self.timestamp.strftime('%Y%m%d_%H%M%S_%f')}"
-    
+
     @property
     def is_movement(self) -> bool:
         """Check if this decision involves vehicle movement."""
@@ -80,14 +54,14 @@ class Decision:
             ActionType.DOCK,
             ActionType.ORBIT,
         }
-    
+
     @property
     def is_abort(self) -> bool:
         """Check if this is an abort decision."""
         return self.action == ActionType.ABORT
-    
+
     @property
-    def target_position(self) -> Optional[Position]:
+    def target_position(self) -> Position | None:
         """Extract target position from parameters if present."""
         pos_data = self.parameters.get("position")
         if pos_data:
@@ -98,34 +72,16 @@ class Decision:
                 altitude_agl=pos_data.get("altitude_agl", 0),
             )
         return None
-    
+
     def to_dict(self) -> dict:
         """Convert to dictionary for JSON serialization."""
-        return {
-            "decision_id": self.decision_id,
-            "action": self.action.value,
-            "parameters": self.parameters,
-            "confidence": self.confidence,
-            "reasoning": self.reasoning,
-            "timestamp": self.timestamp.isoformat(),
-            "risk_factors": self.risk_factors,
-            "supersedes": self.supersedes,
-        }
-    
+        return self.model_dump(mode="json")
+
     @classmethod
     def from_dict(cls, data: dict) -> "Decision":
         """Create Decision from dictionary."""
-        return cls(
-            action=ActionType(data["action"]),
-            parameters=data.get("parameters", {}),
-            confidence=data.get("confidence", 1.0),
-            reasoning=data.get("reasoning", ""),
-            timestamp=datetime.fromisoformat(data["timestamp"]) if "timestamp" in data else datetime.now(),
-            risk_factors=data.get("risk_factors", {}),
-            decision_id=data.get("decision_id", ""),
-            supersedes=data.get("supersedes"),
-        )
-    
+        return cls.model_validate(data)
+
     @classmethod
     def wait(cls, reason: str, duration_s: float = 0) -> "Decision":
         """Create a WAIT decision."""
@@ -134,9 +90,9 @@ class Decision:
             parameters={"duration_s": duration_s},
             reasoning=reason,
         )
-    
+
     @classmethod
-    def abort(cls, reason: str, risk_factors: Optional[dict] = None) -> "Decision":
+    def abort(cls, reason: str, risk_factors: dict | None = None) -> "Decision":
         """Create an ABORT decision."""
         return cls(
             action=ActionType.ABORT,
@@ -144,13 +100,13 @@ class Decision:
             confidence=1.0,
             risk_factors=risk_factors or {},
         )
-    
+
     @classmethod
     def goto(
         cls,
         position: Position,
         reason: str,
-        speed: Optional[float] = None,
+        speed: float | None = None,
         confidence: float = 1.0,
     ) -> "Decision":
         """Create a GOTO decision."""
@@ -163,14 +119,14 @@ class Decision:
         }
         if speed:
             params["speed_ms"] = speed
-        
+
         return cls(
             action=ActionType.GOTO,
             parameters=params,
             reasoning=reason,
             confidence=confidence,
         )
-    
+
     @classmethod
     def inspect(
         cls,
@@ -195,7 +151,7 @@ class Decision:
             },
             reasoning=reason,
         )
-    
+
     @classmethod
     def return_to_dock(cls, reason: str, confidence: float = 1.0) -> "Decision":
         """Create a DOCK decision to return to dock."""

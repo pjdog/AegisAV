@@ -1,183 +1,102 @@
-# AegisAV
-Enabling truly autonomous infrastructure and farm management using a mix of agentic edge computation as well as base station
-# aeigisAv
+# AegisAV: Agentic Supervisory Autonomy
 
-**Agentic Supervisory Autonomy for Long-Duration Aerial Monitoring**
+**Empowering Autonomous Infrastructure & Aerial Monitoring with Explainable AI**
 
-`aeigisAv` is a simulation-first autonomy framework that demonstrates how **agentic decision-making can supervise classical flight control** to enable long-term, low-touch aerial monitoring missions.
+`AegisAV` is a state-of-the-art autonomy framework that layers **LLM-powered agentic decision-making** over classical flight control. It demonstrates a "Supervisor" architecture where a high-level brain manages mission objectives, risk-aware planning, and situational awareness while delegating stabilization to proven autopilots (ArduPilot/PX4).
 
-Rather than replacing proven flight controllers, `aeigisAv` layers an **adaptive, explainable, risk-aware agent** on top of existing autopilots (ArduPilot / PX4 via MAVLink), allowing autonomous aerial systems to:
-
-- Monitor infrastructure or agricultural assets over long time horizons
-- Autonomously dock and recharge
-- Adapt inspection cadence based on detected anomalies
-- Replan or abort missions under uncertainty
-- Operate with minimal human oversight
-
-This repository contains a **fully hardware-free Software-In-The-Loop (SITL) implementation** demonstrating these capabilities using ArduPilot, Gazebo, and a Python-based agent architecture.
+![Aegis Onyx Dashboard Concept](https://img.shields.io/badge/UI-Aegis%20Onyx-00f2ff?style=for-the-badge)
+![Engine-PydanticAI](https://img.shields.io/badge/Engine-PydanticAI-00ff9d?style=for-the-badge)
+![SITL-Ready](https://img.shields.io/badge/Simulation-SITL%20Ready-ffb800?style=for-the-badge)
 
 ---
 
-## Why aeigisAv?
+## 💎 The "Aegis Onyx" Experience
 
-Most “autonomous” drone systems today are:
-- Scripted
-- Brittle to environmental change
-- Operator-intensive
-- Focused on data capture rather than decision-making
-
-`aeigisAv` addresses this gap by introducing **true agency**:
-> The system reasons over goals, constraints, and uncertainty — not just waypoints.
-
-The agent:
-- Maintains an internal world model
-- Chooses between competing goals
-- Adapts plans over time
-- Explains its decisions
-- Knows when *not* to fly
+The mission dashboard provides a premium, high-fidelity monitoring environment:
+- **Onyx Visuals**: A deep-mode interface with glassmorphism and Cyber Blue highlights.
+- **Spatial Situational Awareness**: A real-time "Radar" view of the vehicle and assets.
+- **Explainable AI (XAI)**: A live **Reasoning Feed** that exposes the "why" behind every autonomous decision.
+- **Agentic Orchestration**: Toggle between autonomous LLM agentic planning and rule-based reactive logic in real-time.
 
 ---
 
-## Core Design Principles
+## 🧠 Core Architecture
 
-### 1. Supervisory Autonomy (Not End-to-End AI)
-- Classical control remains responsible for stabilization and safety
-- The agent operates at the **mission and decision layer**
-- This mirrors real certification-friendly autonomy architectures
+AegisAV follows a clean, three-layer separation:
 
-### 2. Agentic, Not Scripted
-The system is considered *agentic* because it:
-- Selects goals dynamically
-- Replans in response to outcomes
-- Performs self-evaluation and confidence gating
-- Logs structured reasoning traces
-
-### 3. Simulation-First, Hardware-Ready
-- Entirely runnable with no physical hardware
-- Uses real flight software (ArduPilot SITL)
-- Agent logic is platform-agnostic and MAVLink-based
-- Transfers directly to Pixhawk-class systems later
+1.  **Decision Layer (Agent Server)**:
+    - Powered by **PydanticAI** & **Logfire**.
+    - Maintains a high-fidelity **World Model**.
+    - Evaluates complex mission risks and selects goals dynamically.
+2.  **Execution Layer (Agent Client)**:
+    - Translates agent goals into flight primitives.
+    - Manages the MAVLink handshake and state collection.
+3.  **Control Layer (SITL / Hardware)**:
+    - ArduPilot/PX4 manages physics and stabilization.
 
 ---
 
-## Example Use Case
+## 🚀 Quick Start (Dockerized)
 
-**Persistent Infrastructure Monitoring**
-1. Drone launches from a dock
-2. Inspects assets on a baseline cadence
-3. Detects an anomaly at one site
-4. Increases revisit frequency and changes vantage points
-5. Aborts early if risk thresholds are exceeded
-6. Returns to dock and schedules follow-up autonomously
-
-The operator only intervenes on exceptions.
-
----
-
-## Repository Structure
-
-aeigisAv/
-├── sim/ # ArduPilot SITL + Gazebo worlds
-├── agent/ # Agentic decision-making logic
-├── autonomy/ # MAVLink interface & mission primitives
-├── metrics/ # Logging, plots, and comparisons
-├── configs/ # Tunable parameters and thresholds
-├── scripts/ # Entry points and utilities
-└── logs/ # Decision traces and run data
-
-
----
-
-## Architecture Overview
-
-┌────────────────────────────┐
-│ Agent Server (Heavy) │
-│ - World model │
-│ - Goal selection │
-│ - Risk & confidence logic │
-│ - Decision logging │
-└────────────┬───────────────┘
-│ HTTP / IPC
-┌────────────▼───────────────┐
-│ Agent Client (Light) │
-│ - State collection │
-│ - Action execution │
-└────────────┬───────────────┘
-│ MAVLink
-┌────────────▼───────────────┐
-│ ArduPilot SITL │
-│ - Stabilization │
-│ - Failsafes │
-│ - Vehicle dynamics │
-└────────────────────────────┘
-
-
-This separation allows the agent to run:
-- onboard
-- on an edge computer
-- on a centralized fleet brain
-
-without changing flight software.
-
----
-
-## What This Project Demonstrates
-
-✔ True agentic decision-making  
-✔ Long-horizon planning  
-✔ Risk-aware self-aborts  
-✔ Autonomous docking & recharge (simulated)  
-✔ Reduced operator cognitive load  
-✔ Explainable autonomy via decision logs  
-
----
-
-## What This Project Does *Not* Attempt
-
-✗ End-to-end learned flight control  
-✗ Replacement of certified autopilots  
-✗ Hardware-specific tuning  
-✗ Vision model training (mocked where needed)
-
-These choices are deliberate and aligned with real-world autonomy deployment constraints.
-
----
-
-## Running the Simulation (High Level)
+The easiest way to experience AegisAV is via Docker.
 
 ```bash
-# Start ArduPilot SITL + Gazebo
-./scripts/run_sim.sh
+# Clone and enter
+git clone https://github.com/pjdog/AegisAV.git && cd AegisAV
 
-# Start the agent server
-python agent_server/main.py
+# Export keys (optional, defaults to 'mock')
+export OPENAI_API_KEY=your-key-here
 
-# Run the agent client
-python scripts/run_agent.py --scenario anomaly
+# Launch the whole stack
+docker compose up
+```
 
-Roadmap (Short-Term)
+Access the **Aegis Onyx Dashboard** at: `http://localhost:8080/dashboard`
 
-Multi-asset scheduling
+---
 
-Fleet-level coordination
+## 🛠️ Developer Setup (Local)
 
-Communication degradation modeling
+This project uses `uv` for ultra-fast Python environment management.
 
-Dock reliability modeling
+### 1. Prerequisites
+- [uv](https://github.com/astral-sh/uv)
+- Node.js & npm (for dashboard)
+- ArduPilot SITL (for simulation)
 
-    Replace mock anomalies with vision inputs
+### 2. Install & Build
+```bash
+# Sync Python environment
+uv sync
 
-License & Use
+# Build the Onyx Dashboard
+cd frontend && npm install && npm run build && cd ..
+```
 
-This project is intended for:
+### 3. Run Mission
+```bash
+# Start realistic SITL
+./scripts/run_sim.sh --realistic
 
-    research
+# Start Agent Server
+uv run aegis-server
 
-    competitions
+# Launch Mission Client
+uv run aegis-demo --scenario anomaly
+```
 
-    architectural demonstration
+---
 
-See LICENSE for details.
-Disclaimer
+## 📊 Observability & Tracing
 
-This software is not flight-certified and is provided for simulation and research purposes only.
+AegisAV is built for high-reliability operations:
+- **Live Reasoning**: Real-time LLM logic streamed to the UI.
+- **Structured Logs**: Full system logs available via the dashboard terminal.
+- **Deep Tracing**: Integrated with **Logfire** for production-grade agentic observability.
+
+---
+
+## 📜 License & Use
+AegisAV is provided under the MIT License. It is intended for research, competitions, and architectural demonstrations in autonomous systems.
+
+**Disclaimer**: This software is not flight-certified and is intended for simulation and research only.

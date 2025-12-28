@@ -8,84 +8,15 @@ hierarchical decision making with predictive capabilities and adaptive learning.
 
 from __future__ import annotations
 
-import importlib
 import logging
 from collections import deque
-from dataclasses import dataclass
 from datetime import datetime, timedelta
-from enum import Enum
-from typing import TYPE_CHECKING
 
-from pydantic import BaseModel, ConfigDict
-
-from agent.server.world_model import Asset, WorldSnapshot
+from agent.server.advanced_decision import AdvancedDecisionEngine, create_advanced_decision_engine
+from agent.server.goals import Goal, GoalSelectorConfig, GoalType
+from agent.server.world_model import WorldSnapshot
 
 logger = logging.getLogger(__name__)
-
-
-class GoalType(Enum):
-    """Types of goals the agent can pursue."""
-
-    # Inspection goals
-    INSPECT_ASSET = "inspect_asset"  # Inspect a specific asset
-    INSPECT_ANOMALY = "inspect_anomaly"  # Re-inspect asset with anomaly
-
-    # Return goals
-    RETURN_LOW_BATTERY = "return_low_battery"
-    RETURN_MISSION_COMPLETE = "return_complete"
-    RETURN_WEATHER = "return_weather"
-
-    # Control goals
-    WAIT = "wait"
-    ABORT = "abort"
-
-    # Dock goals
-    RECHARGE = "recharge"
-
-    # No goal
-    NONE = "none"
-
-
-class Goal(BaseModel):
-    """A goal selected by the agent.
-
-    Goals represent high-level objectives that the planner will
-    translate into specific actions.
-    """
-
-    model_config = ConfigDict(arbitrary_types_allowed=True)
-
-    goal_type: GoalType
-    priority: int
-    target_asset: Asset | None = None
-    reason: str = ""
-    confidence: float = 1.0
-    deadline: datetime | None = None
-
-    @property
-    def is_abort(self) -> bool:
-        """Check if this is an abort goal."""
-        return self.goal_type == GoalType.ABORT
-
-    @property
-    def is_return(self) -> bool:
-        """Check if this is a return goal."""
-        return self.goal_type in (
-            GoalType.RETURN_LOW_BATTERY,
-            GoalType.RETURN_MISSION_COMPLETE,
-            GoalType.RETURN_WEATHER,
-        )
-
-
-@dataclass(frozen=True)
-class GoalSelectorConfig:
-    """Configuration values for goal selection."""
-
-    battery_return_threshold: float = 30.0
-    battery_critical_threshold: float = 20.0
-    anomaly_revisit_interval_minutes: float = 10.0
-    normal_cadence_minutes: float = 30.0
-    use_advanced_engine: bool = True
 
 
 class GoalSelector:
@@ -136,11 +67,13 @@ class GoalSelector:
         }
 
     async def initialize(self) -> None:
-        """Initialize advanced decision engine if enabled."""
+        """Initialize advanced decision engine if enabled.
+
+        Returns:
+            None
+        """
         if self.use_advanced_engine:
-            module = importlib.import_module("agent.server.advanced_decision")
-            create_engine = module.create_advanced_decision_engine
-            self.advanced_engine = await create_engine()
+            self.advanced_engine = await create_advanced_decision_engine()
             logger.info("Advanced decision engine initialized")
 
     async def select_goal(self, world: WorldSnapshot) -> Goal:
@@ -148,10 +81,10 @@ class GoalSelector:
         Select the next goal based on current world state.
 
         Args:
-            world: Current world snapshot
+            world (WorldSnapshot): Current world snapshot.
 
         Returns:
-            Selected goal with priority and context
+            Goal: Selected goal with priority and context.
         """
         goal: Goal | None = None
 
@@ -163,35 +96,20 @@ class GoalSelector:
             except Exception as e:
                 logger.error("Advanced decision failed, falling back to rules: %s", e)
 
-        # Priority 1: Check for critical conditions requiring abort
         if goal is None:
-            goal = self._check_abort_conditions(world)
-            if goal:
-                logger.warning("ABORT condition: %s", goal.reason)
-
-        # Priority 2: Check battery level
-        if goal is None:
-            goal = self._check_battery(world)
-            if goal:
-                logger.info("Battery goal: %s", goal.reason)
-
-        # Priority 3: Check weather conditions
-        if goal is None:
-            goal = self._check_weather(world)
-            if goal:
-                logger.info("Weather goal: %s", goal.reason)
-
-        # Priority 4: Check for anomalies needing attention
-        if goal is None:
-            goal = self._check_anomalies(world)
-            if goal:
-                logger.info("Anomaly goal: %s", goal.reason)
-
-        # Priority 5: Check for assets needing inspection
-        if goal is None:
-            goal = self._check_inspections(world)
-            if goal:
-                logger.info("Inspection goal: %s", goal.reason)
+            checks = (
+                (self._check_abort_conditions, logger.warning, "ABORT condition: %s"),
+                (self._check_battery, logger.info, "Battery goal: %s"),
+                (self._check_weather, logger.info, "Weather goal: %s"),
+                (self._check_anomalies, logger.info, "Anomaly goal: %s"),
+                (self._check_inspections, logger.info, "Inspection goal: %s"),
+            )
+            for check, log_func, message in checks:
+                candidate = check(world)
+                if candidate:
+                    log_func(message, candidate.reason)
+                    goal = candidate
+                    break
 
         # Priority 6: Check if mission complete
         if goal is None and world.mission.is_active:
@@ -224,7 +142,7 @@ class GoalSelector:
             )
 
         # Vehicle unhealthy
-        if not world.vehicle.health.is_healthy:
+        if world.vehicle.health and not world.vehicle.health.is_healthy:
             unhealthy = []
             if not world.vehicle.health.sensors_healthy:
                 unhealthy.append("sensors")
@@ -246,7 +164,7 @@ class GoalSelector:
             )
 
         # GPS lost
-        if not world.vehicle.gps.has_fix:
+        if world.vehicle.gps and not world.vehicle.gps.has_fix:
             return Goal(
                 goal_type=GoalType.ABORT,
                 priority=0,
@@ -348,7 +266,3 @@ class GoalSelector:
             )
 
         return None
-
-
-if TYPE_CHECKING:
-    from agent.server.advanced_decision import AdvancedDecisionEngine

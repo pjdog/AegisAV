@@ -19,22 +19,26 @@ try:
     import logfire
 except ImportError:  # pragma: no cover - optional dependency
     logfire = None
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
 from agent.api_models import ActionType, DecisionResponse, HealthResponse, VehicleStateRequest
+from agent.server.events import Event, EventSeverity, EventType
 from agent.server.critics import AuthorityModel, CriticOrchestrator
 from agent.server.dashboard import add_dashboard_routes
 from agent.server.decision import Decision
-from agent.server.goal_selector import Goal, GoalSelector, GoalType
+from agent.server.goal_selector import GoalSelector
+from agent.server.goals import Goal, GoalType
 from agent.server.models import DecisionFeedback
 from agent.server.monitoring import OutcomeTracker
 from agent.server.risk_evaluator import RiskAssessment, RiskEvaluator, RiskThresholds
+from agent.server.vision.vision_service import VisionService, VisionServiceConfig
 from agent.server.world_model import DockStatus, WorldModel
 from autonomy.vehicle_state import (
     Position,
 )
 from metrics.logger import DecisionLogContext, DecisionLogger
+from vision.data_models import DetectionResult
 
 # Configure structured logging
 structlog.configure(
@@ -60,6 +64,8 @@ logger = structlog.get_logger(__name__)
 
 # Global state
 class ServerState:
+    """Container for server-wide state and shared services."""
+
     # pylint: disable=too-many-instance-attributes
     def __init__(self):
         self.world_model = WorldModel()
@@ -76,6 +82,10 @@ class ServerState:
         # Phase 2: Multi-agent critics
         self.critic_orchestrator = CriticOrchestrator(authority_model=AuthorityModel.ESCALATION)
         self.outcome_tracker = OutcomeTracker(log_dir=self.log_dir / "outcomes")
+
+        # Phase 3: Vision system
+        self.vision_service = None  # Initialized in lifespan if enabled
+        self.vision_enabled = False
 
     def load_config(self, config_path: Path) -> None:
         """Load configuration from YAML file."""
@@ -112,6 +122,44 @@ class ServerState:
 server_state = ServerState()
 
 
+# WebSocket connection manager for real-time event broadcasting
+class ConnectionManager:
+    """Manages WebSocket connections for real-time dashboard updates."""
+
+    def __init__(self):
+        self.active_connections: set[WebSocket] = set()
+
+    async def connect(self, websocket: WebSocket):
+        """Accept and track a new WebSocket connection."""
+        await websocket.accept()
+        self.active_connections.add(websocket)
+        logger.info("websocket_connected", total_connections=len(self.active_connections))
+
+    def disconnect(self, websocket: WebSocket):
+        """Remove a WebSocket connection."""
+        self.active_connections.discard(websocket)
+        logger.info("websocket_disconnected", total_connections=len(self.active_connections))
+
+    async def broadcast(self, event: Event):
+        """Broadcast event to all connected clients."""
+        message = event.model_dump(mode="json")
+        disconnected = set()
+
+        for connection in self.active_connections:
+            try:
+                await connection.send_json(message)
+            except Exception as e:
+                logger.warning("websocket_send_failed", error=str(e))
+                disconnected.add(connection)
+
+        # Clean up failed connections
+        for conn in disconnected:
+            self.disconnect(conn)
+
+
+connection_manager = ConnectionManager()
+
+
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     """Application lifespan handler."""
@@ -136,12 +184,51 @@ async def lifespan(_app: FastAPI):
         )
         server_state.risk_evaluator = RiskEvaluator(thresholds)
 
+    # Initialize vision service if enabled
+    vision_config_path = config_dir / "vision_config.yaml"
+    if vision_config_path.exists():
+        with open(vision_config_path, encoding="utf-8") as f:
+            vision_config = yaml.safe_load(f)
+
+        vision_enabled = vision_config.get("vision", {}).get("enabled", False)
+        if vision_enabled:
+            try:
+                vision_service_config = VisionServiceConfig(
+                    confidence_threshold=vision_config.get("vision", {})
+                    .get("server", {})
+                    .get("detection", {})
+                    .get("confidence_threshold", 0.7),
+                    severity_threshold=vision_config.get("vision", {})
+                    .get("server", {})
+                    .get("detection", {})
+                    .get("severity_threshold", 0.4),
+                )
+                server_state.vision_service = VisionService(
+                    world_model=server_state.world_model,
+                    config=vision_service_config,
+                )
+
+                # Initialize vision service
+                await server_state.vision_service.initialize()
+                server_state.vision_enabled = True
+                logger.info("vision_service_initialized")
+
+            except Exception as e:
+                logger.error("vision_service_init_failed", error=str(e))
+                server_state.vision_enabled = False
+    else:
+        logger.info("vision_config_not_found", message="Vision system disabled")
+
     server_state.current_run_id = server_state.decision_logger.start_run()
     logger.info("server_started")
 
     yield
 
     # Shutdown
+    if server_state.vision_service:
+        await server_state.vision_service.shutdown()
+        logger.info("vision_service_shutdown")
+
     server_state.decision_logger.end_run()
     logger.info("server_stopped")
 
@@ -155,6 +242,21 @@ app = FastAPI(
 
 # Dashboard routes
 add_dashboard_routes(app, server_state.log_dir)
+
+
+@app.websocket("/ws")
+async def websocket_endpoint(websocket: WebSocket):
+    """WebSocket endpoint for real-time event broadcasting to dashboard."""
+    await connection_manager.connect(websocket)
+    try:
+        # Keep connection alive and receive ping/pong messages
+        while True:
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        connection_manager.disconnect(websocket)
+    except Exception as e:
+        logger.error("websocket_error", error=str(e))
+        connection_manager.disconnect(websocket)
 
 
 @app.get("/api/config/agent")
@@ -175,18 +277,25 @@ async def update_agent_config(config: dict):
 
 
 if logfire:
-    logfire.configure(send_to_logfire=False)  # Local only for now
-    logfire.instrument_fastapi(app)
+    try:
+        logfire.configure(send_to_logfire=False)  # Local only for now
+        logfire.instrument_fastapi(app)
+    except (ImportError, RuntimeError) as e:
+        # Missing optional opentelemetry-instrumentation-fastapi
+        logging.getLogger(__name__).warning(f"Logfire instrumentation disabled: {e}")
 
 
 # In-memory log buffer for frontend access
 class LogBufferHandler(logging.Handler):
+    """Ring buffer log handler for dashboard access."""
+
     def __init__(self, capacity: int = 50):
         super().__init__()
         self.capacity = capacity
         self.buffer: list[dict] = []
 
     def emit(self, record: logging.LogRecord):
+        """Store formatted log records in a bounded in-memory buffer."""
         try:
             log_entry = {
                 "timestamp": datetime.fromtimestamp(record.created).isoformat(),
@@ -239,6 +348,30 @@ async def health_check() -> HealthResponse:
     )
 
 
+@app.post("/api/execution_event")
+async def receive_execution_event(event_data: dict) -> dict:
+    """
+    Receive execution event from client for WebSocket broadcast.
+
+    Args:
+        event_data: Execution event data from client
+
+    Returns:
+        Confirmation of receipt
+    """
+    # Broadcast client execution event
+    await connection_manager.broadcast(
+        Event(
+            event_type=EventType.CLIENT_EXECUTION,
+            timestamp=datetime.now(),
+            data=event_data,
+            severity=EventSeverity.INFO,
+        )
+    )
+
+    return {"status": "received"}
+
+
 @app.post("/feedback")
 async def receive_feedback(feedback: DecisionFeedback) -> dict:
     """
@@ -263,12 +396,126 @@ async def receive_feedback(feedback: DecisionFeedback) -> dict:
     # Update outcome tracker with execution results
     outcome = await server_state.outcome_tracker.process_feedback(feedback)
 
+    # Process vision data if available and vision service is enabled
+    vision_observation = None
+    if feedback.anomaly_detected and server_state.vision_enabled and server_state.vision_service:
+        try:
+            client_detection: DetectionResult | None = None
+            image_path: Path | None = None
+            vehicle_state: dict | None = None
+            asset_id = feedback.asset_inspected or "unknown"
+
+            inspection_data = feedback.inspection_data or {}
+            if isinstance(inspection_data, dict):
+                asset_id_from_payload = inspection_data.get("asset_id")
+                if isinstance(asset_id_from_payload, str) and asset_id_from_payload:
+                    asset_id = asset_id_from_payload
+
+                vehicle_state = inspection_data.get("vehicle_state")
+                if vehicle_state is not None and not isinstance(vehicle_state, dict):
+                    vehicle_state = None
+
+                vision_payload = inspection_data.get("vision", {})
+                if isinstance(vision_payload, dict):
+                    vehicle_state = vehicle_state or vision_payload.get("vehicle_state")
+                    if vehicle_state is not None and not isinstance(vehicle_state, dict):
+                        vehicle_state = None
+
+                    image_path_str = (
+                        vision_payload.get("best_image_path")
+                        or vision_payload.get("best_detection_image")
+                        or vision_payload.get("image_path")
+                    )
+                    if isinstance(image_path_str, str) and image_path_str:
+                        image_path = Path(image_path_str)
+
+                    detection_payload = (
+                        vision_payload.get("best_detection")
+                        or vision_payload.get("client_detection")
+                        or vision_payload.get("detection_result")
+                    )
+                    if isinstance(detection_payload, dict):
+                        try:
+                            client_detection = DetectionResult.model_validate(detection_payload)
+                        except Exception as e:
+                            logger.warning(
+                                "feedback_client_detection_parse_failed",
+                                error=str(e),
+                            )
+
+            # Process inspection result
+            vision_observation = await server_state.vision_service.process_inspection_result(
+                asset_id=asset_id,
+                client_detection=client_detection,
+                image_path=image_path,
+                vehicle_state=vehicle_state,
+            )
+
+            # Broadcast vision detection event
+            await connection_manager.broadcast(
+                Event(
+                    event_type=EventType.VISION_DETECTION,
+                    timestamp=datetime.now(),
+                    data={
+                        "observation_id": vision_observation.observation_id,
+                        "asset_id": vision_observation.asset_id,
+                        "defect_detected": vision_observation.defect_detected,
+                        "max_confidence": vision_observation.max_confidence,
+                        "max_severity": vision_observation.max_severity,
+                    },
+                    severity=(
+                        EventSeverity.WARNING
+                        if vision_observation.defect_detected
+                        else EventSeverity.INFO
+                    ),
+                )
+            )
+
+            if vision_observation.anomaly_created:
+                logger.info(
+                    "vision_anomaly_created",
+                    asset_id=vision_observation.asset_id,
+                    anomaly_id=vision_observation.anomaly_id,
+                    severity=vision_observation.max_severity,
+                    confidence=vision_observation.max_confidence,
+                )
+
+                # Broadcast anomaly created event
+                await connection_manager.broadcast(
+                    Event(
+                        event_type=EventType.ANOMALY_CREATED,
+                        timestamp=datetime.now(),
+                        data={
+                            "anomaly_id": vision_observation.anomaly_id or "",
+                            "asset_id": vision_observation.asset_id,
+                            "severity": vision_observation.max_severity,
+                            "confidence": vision_observation.max_confidence,
+                            "description": f"Vision anomaly detected on {vision_observation.asset_id}",
+                        },
+                        severity=EventSeverity.CRITICAL,
+                    )
+                )
+
+        except Exception as e:
+            logger.error("vision_processing_failed", error=str(e))
+
     if outcome:
-        return {
+        response = {
             "status": "feedback_received",
             "decision_id": feedback.decision_id,
             "outcome_status": outcome.execution_status.value,
         }
+
+        if vision_observation:
+            response["vision"] = {
+                "observation_id": vision_observation.observation_id,
+                "defect_detected": vision_observation.defect_detected,
+                "anomaly_created": vision_observation.anomaly_created,
+                "max_confidence": vision_observation.max_confidence,
+                "max_severity": vision_observation.max_severity,
+            }
+
+        return response
 
     logger.warning("feedback_for_unknown_decision", decision_id=feedback.decision_id)
     return {
@@ -302,6 +549,22 @@ async def receive_state(state: VehicleStateRequest) -> DecisionResponse:
     # Evaluate risk
     risk = server_state.risk_evaluator.evaluate(snapshot)
 
+    # Broadcast risk update event
+    await connection_manager.broadcast(
+        Event(
+            event_type=EventType.RISK_UPDATE,
+            timestamp=datetime.now(),
+            data={
+                "risk_level": risk.overall_level.value,
+                "risk_score": risk.overall_score,
+                "factors": {name: f.value for name, f in risk.factors.items()},
+                "abort_recommended": risk.abort_recommended,
+                "warnings": risk.warnings,
+            },
+            severity=EventSeverity.WARNING if risk.abort_recommended else EventSeverity.INFO,
+        )
+    )
+
     # Log warnings
     for warning in risk.warnings:
         logger.warning("risk_warning", warning=warning)
@@ -309,9 +572,48 @@ async def receive_state(state: VehicleStateRequest) -> DecisionResponse:
     # Make decision
     decision, goal = await _make_decision(snapshot, risk)
 
+    # Broadcast goal selection event if goal was selected
+    if goal:
+        await connection_manager.broadcast(
+            Event(
+                event_type=EventType.GOAL_SELECTED,
+                timestamp=datetime.now(),
+                data={
+                    "goal_type": goal.goal_type.value,
+                    "priority": goal.priority,
+                    "target": goal.parameters,
+                    "confidence": goal.confidence,
+                    "reasoning": goal.reasoning,
+                },
+                severity=EventSeverity.INFO,
+            )
+        )
+
     # Phase 2: Validate decision with multi-agent critics
     approved, escalation = await server_state.critic_orchestrator.validate_decision(
         decision, snapshot, risk
+    )
+
+    # Broadcast critic validation event
+    await connection_manager.broadcast(
+        Event(
+            event_type=EventType.CRITIC_VALIDATION,
+            timestamp=datetime.now(),
+            data={
+                "approved": approved,
+                "decision_id": decision.decision_id,
+                "action": decision.action.value,
+                "escalation": (
+                    {
+                        "reason": escalation.reason,
+                        "severity": escalation.severity.value,
+                    }
+                    if escalation
+                    else None
+                ),
+            },
+            severity=EventSeverity.WARNING if not approved else EventSeverity.INFO,
+        )
     )
 
     # If decision was blocked, override with abort
@@ -354,11 +656,28 @@ async def receive_state(state: VehicleStateRequest) -> DecisionResponse:
         risk_level=risk.overall_level.value,
     )
 
+    # Broadcast server decision event
+    await connection_manager.broadcast(
+        Event(
+            event_type=EventType.SERVER_DECISION,
+            timestamp=datetime.now(),
+            data={
+                "decision_id": decision.decision_id,
+                "action": decision.action.value,
+                "parameters": decision.parameters,
+                "confidence": decision.confidence,
+                "reasoning": decision.reasoning,
+            },
+            severity=EventSeverity.INFO,
+        )
+    )
+
     # Map RiskLevel to numerical or string value expected by response
     # The new DecisionResponse uses risk_assessment: Dict[str, float]
     # Older one used risk_level: str
 
     return DecisionResponse(
+        decision_id=decision.decision_id,
         action=decision.action.value,
         parameters=decision.parameters,
         confidence=decision.confidence,
@@ -431,14 +750,76 @@ async def _make_decision(snapshot, risk: RiskAssessment) -> tuple[Decision, Goal
             },
         ), goal
 
-    elif goal.goal_type == GoalType.WAIT:
+    if goal.goal_type == GoalType.WAIT:
         return Decision.wait(goal.reason), goal
 
-    else:
-        return Decision(
-            action=ActionType.NONE,
-            reasoning="No actionable goal",
-        ), None
+    return Decision(
+        action=ActionType.NONE,
+        reasoning="No actionable goal",
+    ), None
+
+
+# Vision API Endpoints
+@app.get("/api/vision/statistics")
+async def get_vision_statistics():
+    """Get vision system statistics."""
+    if not server_state.vision_enabled or not server_state.vision_service:
+        raise HTTPException(status_code=503, detail="Vision service not available")
+
+    stats = server_state.vision_service.get_statistics()
+    return {
+        "enabled": True,
+        "statistics": stats,
+    }
+
+
+@app.get("/api/vision/observations")
+async def get_vision_observations(limit: int = 100):
+    """Get recent vision observations."""
+    if not server_state.vision_enabled or not server_state.vision_service:
+        raise HTTPException(status_code=503, detail="Vision service not available")
+
+    observations = server_state.vision_service.get_recent_observations(limit=limit)
+    return {
+        "observations": [
+            {
+                "observation_id": obs.observation_id,
+                "asset_id": obs.asset_id,
+                "timestamp": obs.timestamp.isoformat(),
+                "defect_detected": obs.defect_detected,
+                "max_confidence": obs.max_confidence,
+                "max_severity": obs.max_severity,
+                "anomaly_created": obs.anomaly_created,
+                "anomaly_id": obs.anomaly_id,
+            }
+            for obs in observations
+        ],
+        "total": len(observations),
+    }
+
+
+@app.get("/api/vision/observations/{asset_id}")
+async def get_asset_observations(asset_id: str):
+    """Get vision observations for a specific asset."""
+    if not server_state.vision_enabled or not server_state.vision_service:
+        raise HTTPException(status_code=503, detail="Vision service not available")
+
+    observations = server_state.vision_service.get_observations_for_asset(asset_id)
+    return {
+        "asset_id": asset_id,
+        "observations": [
+            {
+                "observation_id": obs.observation_id,
+                "timestamp": obs.timestamp.isoformat(),
+                "defect_detected": obs.defect_detected,
+                "max_confidence": obs.max_confidence,
+                "max_severity": obs.max_severity,
+                "anomaly_created": obs.anomaly_created,
+            }
+            for obs in observations
+        ],
+        "total": len(observations),
+    }
 
 
 def main() -> None:

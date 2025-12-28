@@ -259,11 +259,10 @@ class CriticOrchestrator:
             return True, None
 
         # ADVISORY MODE: Low risk
-        else:
-            total_concerns = sum(len(r.concerns) for r in responses)
-            if total_concerns > 0:
-                logger.info(f"Advisory mode: {total_concerns} concerns logged, decision approved")
-            return True, None
+        total_concerns = sum(len(r.concerns) for r in responses)
+        if total_concerns > 0:
+            logger.info("Advisory mode: %s concerns logged, decision approved", total_concerns)
+        return True, None
 
     async def _apply_hierarchical_model(
         self,

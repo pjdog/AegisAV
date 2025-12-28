@@ -139,8 +139,8 @@ class BaseCritic(ABC):
         self.evaluations_performed += 1
 
         try:
-            # Determine evaluation method
-            use_llm = force_llm or (self.config.use_llm and self._should_use_llm(decision, risk))
+            # Determine evaluation method (respect global LLM disable)
+            use_llm = self.config.use_llm and (force_llm or self._should_use_llm(decision, risk))
 
             # Perform evaluation
             if use_llm:

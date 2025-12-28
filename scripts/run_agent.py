@@ -128,14 +128,20 @@ async def run_demo(scenario: str) -> None:
         vehicle_state = VehicleState(
             timestamp=datetime.now(),
             position=current_pos,
-            velocity=Velocity(0, 0, 0),
-            attitude=Attitude(0, 0, 0),
-            battery=BatteryState(22.8, 5.0, battery_percent),
+            velocity=Velocity(north=0, east=0, down=0),
+            attitude=Attitude(roll=0, pitch=0, yaw=0),
+            battery=BatteryState(voltage=22.8, current=5.0, remaining_percent=battery_percent),
             mode=FlightMode.GUIDED,
             armed=True,
             in_air=True,
-            gps=GPSState(3, 12, 0.9, 0.9),
-            health=VehicleHealth(True, True, True, True, True),
+            gps=GPSState(fix_type=3, satellites_visible=12, hdop=0.9, vdop=0.9),
+            health=VehicleHealth(
+                sensors_healthy=True,
+                gps_healthy=True,
+                battery_healthy=True,
+                motors_healthy=True,
+                ekf_healthy=True,
+            ),
             home_position=dock_pos,
         )
 

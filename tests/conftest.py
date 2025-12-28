@@ -176,9 +176,10 @@ def mock_mavlink_connection():
     mock = MagicMock()
 
     # Mock connection methods
-    mock.wait_heartbeat = AsyncMock(return_value=True)
+    mock.wait_heartbeat = MagicMock(return_value=True)
     mock.target_system = TEST_MAVLINK_SYSTEM_ID
     mock.target_component = TEST_MAVLINK_COMPONENT_ID
+    mock.recv_match = MagicMock(return_value=None)
 
     # Mock vehicle state
     mock.messages = {
@@ -245,14 +246,20 @@ def integration_test_setup():
             altitude_msl=TEST_HOME_POSITION["alt"],
             altitude_agl=12.0,
         ),
-        velocity=Velocity(0, 0, 0),
-        attitude=Attitude(0, 0, 0),
-        battery=BatteryState(22.8, 5.0, 80.0),
+        velocity=Velocity(north=0, east=0, down=0),
+        attitude=Attitude(roll=0, pitch=0, yaw=0),
+        battery=BatteryState(voltage=22.8, current=5.0, remaining_percent=80.0),
         mode=FlightMode.GUIDED,
         armed=True,
         in_air=True,
-        gps=GPSState(3, 8, 0.8, 0.8),
-        health=VehicleHealth(True, True, True, True, True),
+        gps=GPSState(fix_type=3, satellites_visible=8, hdop=0.8, vdop=0.8),
+        health=VehicleHealth(
+            sensors_healthy=True,
+            gps_healthy=True,
+            battery_healthy=True,
+            motors_healthy=True,
+            ekf_healthy=True,
+        ),
         home_position=Position(
             latitude=TEST_HOME_POSITION["lat"],
             longitude=TEST_HOME_POSITION["lon"],

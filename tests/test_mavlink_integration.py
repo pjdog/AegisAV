@@ -34,6 +34,7 @@ except ImportError:
 
 
 def _make_config() -> MAVLinkConfig:
+    """Create a test MAVLink configuration payload."""
     return MAVLinkConfig(
         connection_string=TEST_MAVLINK_CONNECTION,
         source_system=TEST_MAVLINK_SYSTEM_ID,
@@ -43,6 +44,7 @@ def _make_config() -> MAVLinkConfig:
 
 
 def _mock_vehicle_state(altitude_agl: float, armed: bool) -> VehicleState:
+    """Create a mock vehicle state for MAVLink tests."""
     return VehicleState(
         timestamp=datetime.now(),
         position=Position(
@@ -51,14 +53,20 @@ def _mock_vehicle_state(altitude_agl: float, armed: bool) -> VehicleState:
             altitude_msl=TEST_HOME_POSITION["alt"],
             altitude_agl=altitude_agl,
         ),
-        velocity=Velocity(0.0, 0.0, 0.0),
-        attitude=Attitude(0.0, 0.0, 0.0),
-        battery=BatteryState(22.2, 6.5, 75.0),
+        velocity=Velocity(north=0.0, east=0.0, down=0.0),
+        attitude=Attitude(roll=0.0, pitch=0.0, yaw=0.0),
+        battery=BatteryState(voltage=22.2, current=6.5, remaining_percent=75.0),
         mode=FlightMode.GUIDED,
         armed=armed,
         in_air=armed,
-        gps=GPSState(3, 10, 0.7, 0.8),
-        health=VehicleHealth(True, True, True, True, True),
+        gps=GPSState(fix_type=3, satellites_visible=10, hdop=0.7, vdop=0.8),
+        health=VehicleHealth(
+            sensors_healthy=True,
+            gps_healthy=True,
+            battery_healthy=True,
+            motors_healthy=True,
+            ekf_healthy=True,
+        ),
         home_position=Position(
             latitude=TEST_HOME_POSITION["lat"],
             longitude=TEST_HOME_POSITION["lon"],
@@ -90,6 +98,8 @@ class TestMAVLinkInterface:
                 timeout=config.timeout_ms / 1000
             )
             assert interface.is_connected
+
+            await interface.disconnect()
 
     @pytest.mark.asyncio
     async def test_telemetry_reception(self, mock_mavlink_connection):
@@ -150,9 +160,9 @@ class TestMAVLinkInterface:
         interface = MAVLinkInterface(_make_config())
         interface._connection = mock_mavlink_connection
 
-        assert interface._telemetry.last_heartbeat is None
+        assert interface._telemetry.status.last_heartbeat is None
         interface._process_heartbeat(mock_mavlink_connection.messages["HEARTBEAT"])
-        assert interface._telemetry.last_heartbeat is not None
+        assert interface._telemetry.status.last_heartbeat is not None
 
 
 class TestVehicleStateModels:
@@ -172,14 +182,25 @@ class TestVehicleStateModels:
 
     def test_position_distance_calculations(self):
         """Test position distance calculation methods."""
-        pos1 = Position(47.397742, 8.545594, 488.0, 0.0)
-        pos2 = Position(47.398500, 8.546500, 495.0, 12.0)
+        pos1 = Position(
+            latitude=47.397742,
+            longitude=8.545594,
+            altitude_msl=488.0,
+            altitude_agl=0.0,
+        )
+        pos2 = Position(
+            latitude=47.398500,
+            longitude=8.546500,
+            altitude_msl=495.0,
+            altitude_agl=12.0,
+        )
 
         distance = pos1.distance_to(pos2)
         assert distance > 0
         assert distance < 1000
 
-        distance_2d = pos1.distance_2d_to(pos2)
+        pos2_horizontal = pos2.model_copy(update={"altitude_msl": pos1.altitude_msl})
+        distance_2d = pos1.distance_to(pos2_horizontal)
         assert 0 < distance_2d < distance
 
 

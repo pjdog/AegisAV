@@ -6,6 +6,7 @@ Defines structures for tracking execution results and validating predictions.
 
 from datetime import datetime
 from enum import Enum
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -118,6 +119,9 @@ class DecisionFeedback(BaseModel):
     asset_inspected: str | None = None
     anomaly_detected: bool = Field(default=False)
     anomaly_resolved: bool = Field(default=False)
+
+    # Optional inspection payload (e.g., vision results)
+    inspection_data: dict[str, Any] | None = Field(default=None)
 
     # Error reporting
     errors: list[str] = Field(default_factory=list)

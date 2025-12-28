@@ -10,10 +10,14 @@ import logging
 import time
 from dataclasses import dataclass
 from enum import Enum
+from typing import TYPE_CHECKING
 
 from autonomy.mavlink_interface import MAVLinkInterface
 from autonomy.mission_primitives import MissionPrimitives, OrbitPlan, PrimitiveResult
 from autonomy.vehicle_state import Position
+
+if TYPE_CHECKING:
+    from agent.client.vision_client import InspectionVisionResults, VisionClient
 
 logger = logging.getLogger(__name__)
 
@@ -61,12 +65,14 @@ class ActionExecutor:
                 logger.error(f"Execution failed: {result.message}")
     """
 
-    def __init__(self, mavlink: MAVLinkInterface):
+    def __init__(self, mavlink: MAVLinkInterface, vision_client: "VisionClient | None" = None):
         self.mavlink = mavlink
         self.primitives = MissionPrimitives(mavlink)
+        self.vision_client = vision_client
 
         self._current_decision: str | None = None
         self._state = ExecutionState.IDLE
+        self._last_inspection_results: InspectionVisionResults | None = None
 
     @property
     def is_executing(self) -> bool:
@@ -207,12 +213,40 @@ class ActionExecutor:
 
         orbit_radius = parameters.get("orbit_radius_m", 0)
         dwell_time = parameters.get("dwell_time_s", 30)
+        asset_id = parameters.get("asset_id", "unknown")
 
+        # Start vision capture if enabled
+        vision_task = None
+        if self.vision_client and self.vision_client.enabled:
+            inspection_duration = dwell_time  # Use dwell time as duration
+            vision_task = asyncio.create_task(
+                self.vision_client.capture_during_inspection(
+                    asset_id=asset_id,
+                    duration_s=inspection_duration,
+                    vehicle_state_fn=self._get_vehicle_state_dict,
+                )
+            )
+
+        # Execute inspection maneuver
         if orbit_radius > 0:
             plan = OrbitPlan(radius=orbit_radius, altitude_agl=20, orbits=1)
-            return await self.primitives.orbit(target, plan)
-        await asyncio.sleep(dwell_time)
-        return PrimitiveResult.SUCCESS
+            result = await self.primitives.orbit(target, plan)
+        else:
+            await asyncio.sleep(dwell_time)
+            result = PrimitiveResult.SUCCESS
+
+        # Wait for vision capture to complete
+        if vision_task:
+            try:
+                self._last_inspection_results = await vision_task
+                logger.info(
+                    f"Vision capture complete: {len(self._last_inspection_results.captures)} images"
+                )
+            except Exception as e:
+                logger.error(f"Vision capture failed: {e}")
+                # Continue anyway - vision failure shouldn't fail the inspection
+
+        return result
 
     async def _handle_dock(self, parameters: dict) -> PrimitiveResult:
         dock_pos = parameters.get("dock_position")
@@ -230,3 +264,24 @@ class ActionExecutor:
 
     async def _handle_land(self, _parameters: dict) -> PrimitiveResult:
         return await self.primitives.land()
+
+    def _get_vehicle_state_dict(self) -> dict:
+        """Get current vehicle state as dictionary for vision metadata."""
+        state = self.mavlink.get_vehicle_state()
+        if not state:
+            return {}
+
+        return {
+            "position": {
+                "latitude": state.position.latitude,
+                "longitude": state.position.longitude,
+                "altitude_msl": state.position.altitude_msl,
+            },
+            "heading_deg": state.heading_deg,
+            "altitude_agl": state.altitude_agl,
+            "battery_percent": state.battery.remaining_percent if state.battery else None,
+        }
+
+    def get_last_inspection_results(self) -> "InspectionVisionResults | None":
+        """Get vision results from the last inspection."""
+        return self._last_inspection_results

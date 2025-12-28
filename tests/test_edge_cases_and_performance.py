@@ -43,7 +43,7 @@ from autonomy.vehicle_state import (
 @pytest.mark.asyncio
 async def test_invalid_decision_parameters():
     """Test that critics handle decisions with invalid parameters gracefully."""
-    orchestrator = CriticOrchestrator(authority_model=AuthorityModel.ESCALATION)
+    orchestrator = CriticOrchestrator(authority_model=AuthorityModel.ESCALATION, enable_llm=False)
 
     # Create decision with missing required parameters
     decision = Decision(

@@ -1,0 +1,67 @@
+# Computer Vision Configuration
+# Settings for camera, detection models, and vision processing
+
+vision:
+  enabled: true
+
+  # Camera configuration
+  camera:
+    type: "simulated"  # simulated | mavlink | opencv | picamera
+    resolution: [1920, 1080]
+    capture_format: "RGB"
+    output_dir: "data/vision/captures"
+    save_images: true
+
+  # Client-side (drone) configuration
+  client:
+    model:
+      type: "mock_yolo"
+      variant: "yolov8n"  # nano variant for speed
+      weights_path: "models/yolo/yolov8n.pt"
+      device: "cpu"
+
+    detection:
+      confidence_threshold: 0.4  # Lower threshold for quick screening
+      suspicious_threshold: 0.3
+
+    capture:
+      interval_s: 2.0  # Capture every 2 seconds
+      max_images_per_inspection: 10
+
+  # Server-side (detailed analysis) configuration
+  server:
+    model:
+      type: "simulated"
+      variant: "detailed"
+      device: "cpu"
+
+    detection:
+      confidence_threshold: 0.7  # Higher threshold for anomaly creation
+      severity_threshold: 0.4
+      confidence_boost: 0.1  # Boost confidence from client detection
+
+    storage:
+      image_dir: "data/vision/server_images"
+      max_storage_gb: 100
+      retention_days: 30
+
+  # Simulation settings (for testing)
+  simulation:
+    enabled: true
+
+    # Probabilistic defect injection
+    defects:
+      crack_probability: 0.10  # 10% chance
+      corrosion_probability: 0.08  # 8% chance
+      structural_damage_probability: 0.03  # 3% chance
+      discoloration_probability: 0.05  # 5% chance
+      vegetation_probability: 0.05  # 5% chance
+      damage_probability: 0.03  # 3% chance
+
+    # Defect severity ranges
+    severity:
+      min: 0.3
+      max: 0.9
+
+    # Server-side detection simulation
+    server_defect_probability: 0.15  # 15% total chance

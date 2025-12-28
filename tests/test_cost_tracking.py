@@ -12,6 +12,7 @@ from datetime import datetime, timedelta
 import pytest
 
 from agent.server.monitoring.cost_tracker import (
+    CallDetails,
     CostTracker,
     estimate_tokens,
     get_cost_tracker,
@@ -57,71 +58,83 @@ def test_cost_estimation_with_prefix():
 def test_record_call(cost_tracker):
     """Test recording individual LLM calls."""
     record = cost_tracker.record_call(
-        model="gpt-4o-mini",
-        context="safety_critic",
-        prompt_tokens=500,
-        completion_tokens=200,
-        latency_ms=150.5,
-        success=True,
+        CallDetails(
+            model="gpt-4o-mini",
+            context="safety_critic",
+            prompt_tokens=500,
+            completion_tokens=200,
+            latency_ms=150.5,
+            success=True,
+        )
     )
 
     assert record.model == "gpt-4o-mini"
     assert record.context == "safety_critic"
-    assert record.prompt_tokens == 500
-    assert record.completion_tokens == 200
-    assert record.total_tokens == 700
-    assert record.latency_ms == 150.5
-    assert record.success is True
-    assert record.error_message is None
-    assert record.estimated_cost > 0
+    assert record.tokens.prompt == 500
+    assert record.tokens.completion == 200
+    assert record.tokens.total == 700
+    assert record.outcome.latency_ms == 150.5
+    assert record.outcome.success is True
+    assert record.outcome.error_message is None
+    assert record.outcome.estimated_cost > 0
 
 
 def test_record_failed_call(cost_tracker):
     """Test recording failed LLM calls."""
     record = cost_tracker.record_call(
-        model="gpt-4o-mini",
-        context="efficiency_critic",
-        prompt_tokens=100,
-        completion_tokens=0,
-        latency_ms=50.0,
-        success=False,
-        error_message="API timeout",
+        CallDetails(
+            model="gpt-4o-mini",
+            context="efficiency_critic",
+            prompt_tokens=100,
+            completion_tokens=0,
+            latency_ms=50.0,
+            success=False,
+            error_message="API timeout",
+        )
     )
 
-    assert record.success is False
-    assert record.error_message == "API timeout"
-    assert record.completion_tokens == 0
+    assert record.outcome.success is False
+    assert record.outcome.error_message == "API timeout"
+    assert record.tokens.completion == 0
 
 
 def test_get_statistics_empty(cost_tracker):
     """Test statistics with no recorded calls."""
     stats = cost_tracker.get_statistics()
 
-    assert stats.total_calls == 0
-    assert stats.successful_calls == 0
-    assert stats.failed_calls == 0
-    assert stats.total_cost == 0.0
-    assert stats.average_latency_ms == 0.0
+    assert stats.counts.total == 0
+    assert stats.counts.successful == 0
+    assert stats.counts.failed == 0
+    assert stats.cost.total_cost == 0.0
+    assert stats.cost.average_latency_ms == 0.0
 
 
 def test_get_statistics(cost_tracker):
     """Test aggregated statistics calculation."""
     # Record multiple calls
-    cost_tracker.record_call("gpt-4o-mini", "safety_critic", 500, 200, 150.0, success=True)
-    cost_tracker.record_call("gpt-4o-mini", "efficiency_critic", 600, 300, 200.0, success=True)
-    cost_tracker.record_call("gpt-4o", "explanation_agent", 1000, 400, 300.0, success=True)
-    cost_tracker.record_call("gpt-4o-mini", "safety_critic", 100, 0, 50.0, success=False)
+    cost_tracker.record_call(
+        CallDetails("gpt-4o-mini", "safety_critic", 500, 200, 150.0, success=True)
+    )
+    cost_tracker.record_call(
+        CallDetails("gpt-4o-mini", "efficiency_critic", 600, 300, 200.0, success=True)
+    )
+    cost_tracker.record_call(
+        CallDetails("gpt-4o", "explanation_agent", 1000, 400, 300.0, success=True)
+    )
+    cost_tracker.record_call(
+        CallDetails("gpt-4o-mini", "safety_critic", 100, 0, 50.0, success=False)
+    )
 
     stats = cost_tracker.get_statistics()
 
-    assert stats.total_calls == 4
-    assert stats.successful_calls == 3
-    assert stats.failed_calls == 1
-    assert stats.total_prompt_tokens == 2200
-    assert stats.total_completion_tokens == 900
-    assert stats.total_tokens == 3100
-    assert stats.total_cost > 0
-    assert stats.average_latency_ms == (150.0 + 200.0 + 300.0 + 50.0) / 4
+    assert stats.counts.total == 4
+    assert stats.counts.successful == 3
+    assert stats.counts.failed == 1
+    assert stats.tokens.prompt == 2200
+    assert stats.tokens.completion == 900
+    assert stats.tokens.total == 3100
+    assert stats.cost.total_cost > 0
+    assert stats.cost.average_latency_ms == (150.0 + 200.0 + 300.0 + 50.0) / 4
 
     # Check model breakdown
     assert stats.calls_by_model["gpt-4o-mini"] == 3
@@ -136,42 +149,42 @@ def test_get_statistics(cost_tracker):
 def test_get_statistics_with_since(cost_tracker):
     """Test filtering statistics by timestamp."""
     # Record a call 2 hours ago (simulated)
-    old_call = cost_tracker.record_call("gpt-4o-mini", "old_context", 100, 50, 100.0)
+    old_call = cost_tracker.record_call(CallDetails("gpt-4o-mini", "old_context", 100, 50, 100.0))
     old_call.timestamp = datetime.now() - timedelta(hours=2)
 
     # Record recent calls
-    cost_tracker.record_call("gpt-4o-mini", "new_context", 200, 100, 150.0)
-    cost_tracker.record_call("gpt-4o-mini", "new_context", 300, 150, 200.0)
+    cost_tracker.record_call(CallDetails("gpt-4o-mini", "new_context", 200, 100, 150.0))
+    cost_tracker.record_call(CallDetails("gpt-4o-mini", "new_context", 300, 150, 200.0))
 
     # Get stats for last hour (should exclude old call)
     since = datetime.now() - timedelta(hours=1)
     stats = cost_tracker.get_statistics(since=since)
 
-    assert stats.total_calls == 2
+    assert stats.counts.total == 2
     assert stats.calls_by_context.get("old_context", 0) == 0
     assert stats.calls_by_context["new_context"] == 2
 
 
 def test_daily_statistics(cost_tracker):
     """Test daily statistics retrieval."""
-    cost_tracker.record_call("gpt-4o-mini", "test", 500, 200, 100.0)
+    cost_tracker.record_call(CallDetails("gpt-4o-mini", "test", 500, 200, 100.0))
 
     stats = cost_tracker.get_daily_statistics()
-    assert stats.total_calls == 1
+    assert stats.counts.total == 1
 
 
 def test_hourly_statistics(cost_tracker):
     """Test hourly statistics retrieval."""
-    cost_tracker.record_call("gpt-4o-mini", "test", 500, 200, 100.0)
+    cost_tracker.record_call(CallDetails("gpt-4o-mini", "test", 500, 200, 100.0))
 
     stats = cost_tracker.get_hourly_statistics()
-    assert stats.total_calls == 1
+    assert stats.counts.total == 1
 
 
 def test_budget_check_under_budget(cost_tracker):
     """Test budget checking when under budget."""
     # Record a small call
-    cost_tracker.record_call("gpt-4o-mini", "test", 100, 50, 100.0)
+    cost_tracker.record_call(CallDetails("gpt-4o-mini", "test", 100, 50, 100.0))
 
     status = cost_tracker.check_budget(timeframe="daily")
 
@@ -189,7 +202,7 @@ def test_budget_check_over_budget():
     tracker = CostTracker(daily_budget=0.001)
 
     # Record expensive call (simulated)
-    tracker.record_call("gpt-4o", "test", 100000, 50000, 1000.0)
+    tracker.record_call(CallDetails("gpt-4o", "test", 100000, 50000, 1000.0))
 
     status = tracker.check_budget(timeframe="daily")
 
@@ -201,7 +214,7 @@ def test_budget_check_over_budget():
 
 def test_budget_check_hourly(cost_tracker):
     """Test hourly budget checking."""
-    cost_tracker.record_call("gpt-4o-mini", "test", 1000, 500, 100.0)
+    cost_tracker.record_call(CallDetails("gpt-4o-mini", "test", 1000, 500, 100.0))
 
     status = cost_tracker.check_budget(timeframe="hourly")
 
@@ -212,7 +225,7 @@ def test_budget_check_hourly(cost_tracker):
 
 def test_statistics_to_dict(cost_tracker):
     """Test statistics serialization to dictionary."""
-    cost_tracker.record_call("gpt-4o-mini", "test", 500, 200, 150.0)
+    cost_tracker.record_call(CallDetails("gpt-4o-mini", "test", 500, 200, 150.0))
 
     stats = cost_tracker.get_statistics()
     stats_dict = stats.to_dict()
@@ -227,9 +240,17 @@ def test_statistics_to_dict(cost_tracker):
 
 def test_export_calls(cost_tracker):
     """Test exporting call records."""
-    cost_tracker.record_call("gpt-4o-mini", "critic1", 500, 200, 150.0, success=True)
+    cost_tracker.record_call(CallDetails("gpt-4o-mini", "critic1", 500, 200, 150.0, success=True))
     cost_tracker.record_call(
-        "gpt-4o", "critic2", 1000, 400, 300.0, success=False, error_message="timeout"
+        CallDetails(
+            "gpt-4o",
+            "critic2",
+            1000,
+            400,
+            300.0,
+            success=False,
+            error_message="timeout",
+        )
     )
 
     exports = cost_tracker.export_calls()
@@ -244,11 +265,11 @@ def test_export_calls(cost_tracker):
 def test_export_calls_with_since(cost_tracker):
     """Test exporting calls with timestamp filter."""
     # Record old call
-    old_record = cost_tracker.record_call("gpt-4o-mini", "old", 100, 50, 100.0)
+    old_record = cost_tracker.record_call(CallDetails("gpt-4o-mini", "old", 100, 50, 100.0))
     old_record.timestamp = datetime.now() - timedelta(hours=2)
 
     # Record new call
-    cost_tracker.record_call("gpt-4o-mini", "new", 200, 100, 150.0)
+    cost_tracker.record_call(CallDetails("gpt-4o-mini", "new", 200, 100, 150.0))
 
     # Export only recent calls
     since = datetime.now() - timedelta(hours=1)
@@ -260,14 +281,14 @@ def test_export_calls_with_since(cost_tracker):
 
 def test_reset(cost_tracker):
     """Test resetting the cost tracker."""
-    cost_tracker.record_call("gpt-4o-mini", "test", 500, 200, 100.0)
-    assert cost_tracker.get_statistics().total_calls == 1
+    cost_tracker.record_call(CallDetails("gpt-4o-mini", "test", 500, 200, 100.0))
+    assert cost_tracker.get_statistics().counts.total == 1
 
     cost_tracker.reset()
 
     stats = cost_tracker.get_statistics()
-    assert stats.total_calls == 0
-    assert stats.total_cost == 0.0
+    assert stats.counts.total == 0
+    assert stats.cost.total_cost == 0.0
 
 
 def test_global_tracker_singleton():
@@ -290,11 +311,11 @@ async def test_track_llm_call_context_manager():
         tracking.set_tokens(prompt_tokens=500, completion_tokens=200)
 
     stats = tracker.get_statistics()
-    assert stats.total_calls == 1
-    assert stats.total_prompt_tokens == 500
-    assert stats.total_completion_tokens == 200
+    assert stats.counts.total == 1
+    assert stats.tokens.prompt == 500
+    assert stats.tokens.completion == 200
     assert stats.calls_by_context["test_context"] == 1
-    assert stats.average_latency_ms > 0
+    assert stats.cost.average_latency_ms > 0
 
 
 @pytest.mark.asyncio
@@ -308,9 +329,9 @@ async def test_track_llm_call_with_error():
             raise ValueError("Simulated API error")
 
     stats = tracker.get_statistics()
-    assert stats.total_calls == 1
-    assert stats.failed_calls == 1
-    assert stats.successful_calls == 0
+    assert stats.counts.total == 1
+    assert stats.counts.failed == 1
+    assert stats.counts.successful == 0
 
     exports = tracker.export_calls()
     assert exports[0]["error_message"] == "Simulated API error"
@@ -331,7 +352,7 @@ def test_concurrent_calls():
 
     def record_multiple():
         for _ in range(10):
-            tracker.record_call("gpt-4o-mini", "concurrent", 100, 50, 100.0)
+            tracker.record_call(CallDetails("gpt-4o-mini", "concurrent", 100, 50, 100.0))
             time.sleep(0.001)
 
     threads = [threading.Thread(target=record_multiple) for _ in range(5)]
@@ -343,16 +364,16 @@ def test_concurrent_calls():
         thread.join()
 
     stats = tracker.get_statistics()
-    assert stats.total_calls == 50  # 5 threads * 10 calls each
+    assert stats.counts.total == 50  # 5 threads * 10 calls each
     assert stats.calls_by_context["concurrent"] == 50
 
 
 def test_cost_breakdown_by_model(cost_tracker):
     """Test cost breakdown by model type."""
     # Record calls with different models
-    cost_tracker.record_call("gpt-4o-mini", "test", 1000, 500, 100.0)
-    cost_tracker.record_call("gpt-4o-mini", "test", 1000, 500, 100.0)
-    cost_tracker.record_call("gpt-4o", "test", 1000, 500, 100.0)
+    cost_tracker.record_call(CallDetails("gpt-4o-mini", "test", 1000, 500, 100.0))
+    cost_tracker.record_call(CallDetails("gpt-4o-mini", "test", 1000, 500, 100.0))
+    cost_tracker.record_call(CallDetails("gpt-4o", "test", 1000, 500, 100.0))
 
     stats = cost_tracker.get_statistics()
 
@@ -369,9 +390,9 @@ def test_average_cost_per_call():
     tracker = CostTracker(daily_budget=1.0)
 
     # Record 3 calls
-    tracker.record_call("gpt-4o-mini", "test", 500, 200, 100.0)
-    tracker.record_call("gpt-4o-mini", "test", 600, 250, 120.0)
-    tracker.record_call("gpt-4o-mini", "test", 400, 150, 90.0)
+    tracker.record_call(CallDetails("gpt-4o-mini", "test", 500, 200, 100.0))
+    tracker.record_call(CallDetails("gpt-4o-mini", "test", 600, 250, 120.0))
+    tracker.record_call(CallDetails("gpt-4o-mini", "test", 400, 150, 90.0))
 
     status = tracker.check_budget(timeframe="daily")
 
@@ -394,19 +415,21 @@ async def test_realistic_usage_scenario():
                 # LLM evaluation (20% of decisions)
                 await asyncio.sleep(0.001)  # Simulate LLM latency
                 tracker.record_call(
-                    model="gpt-4o-mini",
-                    context=f"{critic}_critic",
-                    prompt_tokens=800,
-                    completion_tokens=300,
-                    latency_ms=1500.0,
-                    success=True,
+                    CallDetails(
+                        model="gpt-4o-mini",
+                        context=f"{critic}_critic",
+                        prompt_tokens=800,
+                        completion_tokens=300,
+                        latency_ms=1500.0,
+                        success=True,
+                    )
                 )
 
     stats = tracker.get_statistics()
 
     # 10 decisions * 3 critics * 0.2 LLM rate = 6 LLM calls
-    assert stats.total_calls == 6
-    assert stats.successful_calls == 6
+    assert stats.counts.total == 6
+    assert stats.counts.successful == 6
 
     # Check budget
     status = tracker.check_budget(timeframe="daily")
@@ -414,4 +437,4 @@ async def test_realistic_usage_scenario():
     assert status["on_track"] is True
 
     # Cost should be very low (< $0.01 for 6 calls with small token counts)
-    assert stats.total_cost < 0.01
+    assert stats.cost.total_cost < 0.01

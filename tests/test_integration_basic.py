@@ -11,7 +11,8 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from agent.server.goal_selector import GoalSelector, GoalType
+from agent.server.goal_selector import GoalSelector
+from agent.server.goals import GoalSelectorConfig, GoalType
 from agent.server.risk_evaluator import RiskEvaluator, RiskThresholds
 from agent.server.world_model import WorldModel
 from autonomy.vehicle_state import (
@@ -143,7 +144,7 @@ class TestBasicIntegration:
     async def test_decision_pipeline_integration(self):
         """Test full decision pipeline: world -> risk -> goal."""
         world_model = WorldModel()
-        goal_selector = GoalSelector(battery_return_threshold=30.0)
+        goal_selector = GoalSelector(GoalSelectorConfig(battery_return_threshold=30.0))
 
         thresholds = RiskThresholds(
             battery_warning_percent=TEST_BATTERY_WARNING,

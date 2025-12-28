@@ -296,6 +296,7 @@ class ActionType(str, Enum):
 class DecisionResponse(BaseModel):
     """API response model for agent decisions."""
 
+    decision_id: str = Field(..., description="Unique ID for correlating execution feedback")
     action: ActionType
     parameters: dict[str, Any] = Field(default_factory=dict)
     confidence: float = Field(..., ge=0.0, le=1.0)

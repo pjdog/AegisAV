@@ -16,6 +16,8 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
+_GLOBAL_COST_TRACKER: dict[str, "CostTracker"] = {}
+
 
 # Model pricing (per 1M tokens as of January 2025)
 MODEL_PRICING = {
@@ -26,15 +28,22 @@ MODEL_PRICING = {
 
 
 @dataclass
-class LLMCallRecord:
-    """Record of a single LLM call."""
+class TokenUsage:
+    """Token usage for an LLM call."""
 
-    timestamp: datetime
-    model: str
-    context: str  # e.g., "safety_critic", "explanation_agent"
-    prompt_tokens: int
-    completion_tokens: int
-    total_tokens: int
+    prompt: int
+    completion: int
+
+    @property
+    def total(self) -> int:
+        """Total tokens used."""
+        return self.prompt + self.completion
+
+
+@dataclass
+class CallOutcome:
+    """Outcome details for an LLM call."""
+
     estimated_cost: float
     latency_ms: float
     success: bool
@@ -42,17 +51,62 @@ class LLMCallRecord:
 
 
 @dataclass
+class CallDetails:
+    """Input details for recording an LLM call."""
+
+    model: str
+    context: str  # e.g., "safety_critic", "explanation_agent"
+    prompt_tokens: int
+    completion_tokens: int
+    latency_ms: float
+    success: bool = True
+    error_message: str | None = None
+
+
+@dataclass
+class LLMCallRecord:
+    """Record of a single LLM call."""
+
+    timestamp: datetime
+    model: str
+    context: str
+    tokens: TokenUsage
+    outcome: CallOutcome
+
+
+@dataclass
+class CallCounts:
+    """Aggregate call counts."""
+
+    total: int = 0
+    successful: int = 0
+    failed: int = 0
+
+
+@dataclass
+class TokenTotals:
+    """Aggregate token totals."""
+
+    prompt: int = 0
+    completion: int = 0
+    total: int = 0
+
+
+@dataclass
+class CostTotals:
+    """Aggregate cost totals."""
+
+    total_cost: float = 0.0
+    average_latency_ms: float = 0.0
+
+
+@dataclass
 class CostStatistics:
     """Aggregated cost statistics."""
 
-    total_calls: int = 0
-    successful_calls: int = 0
-    failed_calls: int = 0
-    total_prompt_tokens: int = 0
-    total_completion_tokens: int = 0
-    total_tokens: int = 0
-    total_cost: float = 0.0
-    average_latency_ms: float = 0.0
+    counts: CallCounts = field(default_factory=CallCounts)
+    tokens: TokenTotals = field(default_factory=TokenTotals)
+    cost: CostTotals = field(default_factory=CostTotals)
     calls_by_model: dict[str, int] = field(default_factory=lambda: defaultdict(int))
     calls_by_context: dict[str, int] = field(default_factory=lambda: defaultdict(int))
     cost_by_model: dict[str, float] = field(default_factory=lambda: defaultdict(float))
@@ -61,14 +115,14 @@ class CostStatistics:
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for serialization."""
         return {
-            "total_calls": self.total_calls,
-            "successful_calls": self.successful_calls,
-            "failed_calls": self.failed_calls,
-            "total_prompt_tokens": self.total_prompt_tokens,
-            "total_completion_tokens": self.total_completion_tokens,
-            "total_tokens": self.total_tokens,
-            "total_cost": round(self.total_cost, 4),
-            "average_latency_ms": round(self.average_latency_ms, 2),
+            "total_calls": self.counts.total,
+            "successful_calls": self.counts.successful,
+            "failed_calls": self.counts.failed,
+            "total_prompt_tokens": self.tokens.prompt,
+            "total_completion_tokens": self.tokens.completion,
+            "total_tokens": self.tokens.total,
+            "total_cost": round(self.cost.total_cost, 4),
+            "average_latency_ms": round(self.cost.average_latency_ms, 2),
             "calls_by_model": dict(self.calls_by_model),
             "calls_by_context": dict(self.calls_by_context),
             "cost_by_model": {k: round(v, 4) for k, v in self.cost_by_model.items()},
@@ -123,54 +177,45 @@ class CostTracker:
 
         return input_cost + output_cost
 
-    def record_call(
-        self,
-        model: str,
-        context: str,
-        prompt_tokens: int,
-        completion_tokens: int,
-        latency_ms: float,
-        success: bool = True,
-        error_message: str | None = None,
-    ) -> LLMCallRecord:
+    def record_call(self, details: CallDetails) -> LLMCallRecord:
         """
         Record an LLM call.
 
         Args:
-            model: Model name
-            context: Context of the call (e.g., "safety_critic")
-            prompt_tokens: Number of prompt tokens
-            completion_tokens: Number of completion tokens
-            latency_ms: Latency in milliseconds
-            success: Whether the call succeeded
-            error_message: Error message if failed
+            details: Call details to record
 
         Returns:
             LLMCallRecord for the recorded call
         """
-        total_tokens = prompt_tokens + completion_tokens
-        estimated_cost = self.estimate_cost(model, prompt_tokens, completion_tokens)
+        tokens = TokenUsage(details.prompt_tokens, details.completion_tokens)
+        estimated_cost = self.estimate_cost(
+            details.model, details.prompt_tokens, details.completion_tokens
+        )
 
         record = LLMCallRecord(
             timestamp=datetime.now(),
-            model=model,
-            context=context,
-            prompt_tokens=prompt_tokens,
-            completion_tokens=completion_tokens,
-            total_tokens=total_tokens,
-            estimated_cost=estimated_cost,
-            latency_ms=latency_ms,
-            success=success,
-            error_message=error_message,
+            model=details.model,
+            context=details.context,
+            tokens=tokens,
+            outcome=CallOutcome(
+                estimated_cost=estimated_cost,
+                latency_ms=details.latency_ms,
+                success=details.success,
+                error_message=details.error_message,
+            ),
         )
 
         with self._lock:
             self._calls.append(record)
 
         logger.info(
-            f"LLM call recorded: {context} using {model} - "
-            f"{total_tokens} tokens, ${estimated_cost:.4f}, "
-            f"{latency_ms:.1f}ms, success={success}"
+            "LLM call recorded: %s using %s - %s tokens, $%.4f, %.1fms, success=%s",
+            details.context,
+            details.model,
+            tokens.total,
+            estimated_cost,
+            details.latency_ms,
+            details.success,
         )
 
         return record
@@ -194,27 +239,27 @@ class CostTracker:
             return CostStatistics()
 
         stats = CostStatistics()
-        stats.total_calls = len(calls)
-        stats.successful_calls = sum(1 for c in calls if c.success)
-        stats.failed_calls = sum(1 for c in calls if not c.success)
+        stats.counts.total = len(calls)
+        stats.counts.successful = sum(1 for c in calls if c.outcome.success)
+        stats.counts.failed = sum(1 for c in calls if not c.outcome.success)
 
         total_latency = 0.0
         for call in calls:
-            stats.total_prompt_tokens += call.prompt_tokens
-            stats.total_completion_tokens += call.completion_tokens
-            stats.total_tokens += call.total_tokens
-            stats.total_cost += call.estimated_cost
-            total_latency += call.latency_ms
+            stats.tokens.prompt += call.tokens.prompt
+            stats.tokens.completion += call.tokens.completion
+            stats.tokens.total += call.tokens.total
+            stats.cost.total_cost += call.outcome.estimated_cost
+            total_latency += call.outcome.latency_ms
 
             # Track by model
             stats.calls_by_model[call.model] += 1
-            stats.cost_by_model[call.model] += call.estimated_cost
+            stats.cost_by_model[call.model] += call.outcome.estimated_cost
 
             # Track by context
             stats.calls_by_context[call.context] += 1
-            stats.cost_by_context[call.context] += call.estimated_cost
+            stats.cost_by_context[call.context] += call.outcome.estimated_cost
 
-        stats.average_latency_ms = total_latency / len(calls) if calls else 0.0
+        stats.cost.average_latency_ms = total_latency / len(calls) if calls else 0.0
 
         return stats
 
@@ -249,31 +294,31 @@ class CostTracker:
         else:
             raise ValueError(f"Invalid timeframe: {timeframe}")
 
-        usage_percent = (stats.total_cost / budget * 100) if budget > 0 else 0.0
-        remaining = budget - stats.total_cost
+        usage_percent = (stats.cost.total_cost / budget * 100) if budget > 0 else 0.0
+        remaining = budget - stats.cost.total_cost
 
         status = {
             "timeframe": timeframe,
             "period": period,
             "budget": budget,
-            "spent": stats.total_cost,
+            "spent": stats.cost.total_cost,
             "remaining": remaining,
             "usage_percent": usage_percent,
-            "total_calls": stats.total_calls,
-            "average_cost_per_call": stats.total_cost / stats.total_calls
-            if stats.total_calls > 0
+            "total_calls": stats.counts.total,
+            "average_cost_per_call": stats.cost.total_cost / stats.counts.total
+            if stats.counts.total > 0
             else 0.0,
             "on_track": usage_percent <= 100,
         }
 
         if usage_percent > 100:
             logger.warning(
-                f"Budget exceeded for {timeframe}: ${stats.total_cost:.4f} / ${budget:.4f} "
+                f"Budget exceeded for {timeframe}: ${stats.cost.total_cost:.4f} / ${budget:.4f} "
                 f"({usage_percent:.1f}%)"
             )
         elif usage_percent > 80:
             logger.warning(
-                f"Budget warning for {timeframe}: ${stats.total_cost:.4f} / ${budget:.4f} "
+                f"Budget warning for {timeframe}: ${stats.cost.total_cost:.4f} / ${budget:.4f} "
                 f"({usage_percent:.1f}%)"
             )
 
@@ -306,21 +351,16 @@ class CostTracker:
                 "timestamp": call.timestamp.isoformat(),
                 "model": call.model,
                 "context": call.context,
-                "prompt_tokens": call.prompt_tokens,
-                "completion_tokens": call.completion_tokens,
-                "total_tokens": call.total_tokens,
-                "estimated_cost": round(call.estimated_cost, 6),
-                "latency_ms": round(call.latency_ms, 2),
-                "success": call.success,
-                "error_message": call.error_message,
+                "prompt_tokens": call.tokens.prompt,
+                "completion_tokens": call.tokens.completion,
+                "total_tokens": call.tokens.total,
+                "estimated_cost": round(call.outcome.estimated_cost, 6),
+                "latency_ms": round(call.outcome.latency_ms, 2),
+                "success": call.outcome.success,
+                "error_message": call.outcome.error_message,
             }
             for call in calls
         ]
-
-
-# Global cost tracker instance
-_global_tracker: CostTracker | None = None
-_tracker_lock = Lock()
 
 
 def get_cost_tracker(daily_budget: float = 1.0) -> CostTracker:
@@ -333,13 +373,11 @@ def get_cost_tracker(daily_budget: float = 1.0) -> CostTracker:
     Returns:
         Global CostTracker instance
     """
-    global _global_tracker
-
-    with _tracker_lock:
-        if _global_tracker is None:
-            _global_tracker = CostTracker(daily_budget=daily_budget)
-
-    return _global_tracker
+    tracker = _GLOBAL_COST_TRACKER.get("instance")
+    if tracker is None:
+        tracker = CostTracker(daily_budget=daily_budget)
+        _GLOBAL_COST_TRACKER["instance"] = tracker
+    return tracker
 
 
 @asynccontextmanager
@@ -379,13 +417,15 @@ async def track_llm_call(  # noqa: RUF029
     finally:
         latency_ms = (time.time() - start_time) * 1000
         tracker.record_call(
-            model=model,
-            context=context,
-            prompt_tokens=tracking.prompt_tokens,
-            completion_tokens=tracking.completion_tokens,
-            latency_ms=latency_ms,
-            success=success,
-            error_message=error_message,
+            CallDetails(
+                model=model,
+                context=context,
+                prompt_tokens=tracking.prompt_tokens,
+                completion_tokens=tracking.completion_tokens,
+                latency_ms=latency_ms,
+                success=success,
+                error_message=error_message,
+            )
         )
 
 

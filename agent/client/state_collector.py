@@ -8,6 +8,7 @@ updates for the agent server.
 import asyncio
 import logging
 from dataclasses import dataclass
+from typing import Any
 
 import httpx
 
@@ -149,3 +150,34 @@ class StateCollector:
             return response.status_code == 200
         except Exception:
             return False
+
+    async def send_feedback(self, feedback: dict[str, Any]) -> dict | None:
+        """
+        Send decision execution feedback to the agent server.
+
+        Args:
+            feedback: Feedback payload matching server DecisionFeedback model.
+
+        Returns:
+            Server response dict, or None if failed.
+        """
+        if not self._http_client:
+            self._http_client = httpx.AsyncClient(timeout=self.config.http_timeout_s)
+
+        try:
+            response = await self._http_client.post(
+                f"{self.config.server_url}/feedback",
+                json=feedback,
+            )
+            response.raise_for_status()
+            return response.json()
+
+        except httpx.TimeoutException:
+            logger.warning("Feedback request timed out")
+            return None
+        except httpx.HTTPStatusError as e:
+            logger.error("Feedback server error: %s", e.response.status_code)
+            return None
+        except Exception as e:
+            logger.error("Failed to send feedback: %s", e)
+            return None

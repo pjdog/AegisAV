@@ -20,7 +20,7 @@ from agent.server.models.audit_models import (
     ReasoningStep,
 )
 from agent.server.models.critic_models import EscalationDecision
-from agent.server.monitoring.cost_tracker import estimate_tokens, get_cost_tracker
+from agent.server.monitoring.cost_tracker import CallDetails, estimate_tokens, get_cost_tracker
 from agent.server.risk_evaluator import RiskAssessment
 from agent.server.world_model import WorldSnapshot
 
@@ -312,12 +312,14 @@ Provide a clear, concise explanation suitable for a human operator."""
             completion_tokens = estimate_tokens(llm_response)
 
             cost_tracker.record_call(
-                model=self.llm_model,
-                context="explanation_agent",
-                prompt_tokens=prompt_tokens,
-                completion_tokens=completion_tokens,
-                latency_ms=latency_ms,
-                success=True,
+                CallDetails(
+                    model=self.llm_model,
+                    context="explanation_agent",
+                    prompt_tokens=prompt_tokens,
+                    completion_tokens=completion_tokens,
+                    latency_ms=latency_ms,
+                    success=True,
+                )
             )
 
             return llm_response
@@ -326,13 +328,15 @@ Provide a clear, concise explanation suitable for a human operator."""
             # Track failed call
             latency_ms = (time.time() - start_time) * 1000
             cost_tracker.record_call(
-                model=self.llm_model,
-                context="explanation_agent",
-                prompt_tokens=0,
-                completion_tokens=0,
-                latency_ms=latency_ms,
-                success=False,
-                error_message=str(e),
+                CallDetails(
+                    model=self.llm_model,
+                    context="explanation_agent",
+                    prompt_tokens=0,
+                    completion_tokens=0,
+                    latency_ms=latency_ms,
+                    success=False,
+                    error_message=str(e),
+                )
             )
 
             self.logger.error(f"LLM explanation failed: {e}")

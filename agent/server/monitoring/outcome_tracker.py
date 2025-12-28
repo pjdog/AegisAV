@@ -8,6 +8,7 @@ import json
 import logging
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 from agent.server.decision import Decision
 from agent.server.models.outcome_models import (
@@ -110,22 +111,8 @@ class OutcomeTracker:
         outcome.execution_status = status
         outcome.updated_at = datetime.now()
 
-        # Update fields from kwargs
-        field_mapping = {
-            "battery_consumed": "actual_battery_consumed",
-            "distance_traveled": "actual_distance_traveled",
-            "duration_s": "actual_duration_s",
-            "mission_objective_achieved": "mission_objective_achieved",
-            "asset_inspected": "asset_inspected",
-            "anomaly_detected": "anomaly_detected",
-            "anomaly_resolved": "anomaly_resolved",
-            "errors": "errors",
-            "client_feedback": "client_feedback",
-        }
-
-        for kwarg_key, outcome_field in field_mapping.items():
-            if kwarg_key in kwargs:
-                setattr(outcome, outcome_field, kwargs[kwarg_key])
+        for kwarg_key, value in kwargs.items():
+            self._apply_update(outcome, kwarg_key, value)
 
         # Calculate prediction errors if we have actuals and predictions
         if (
@@ -158,6 +145,38 @@ class OutcomeTracker:
         )
 
         return outcome
+
+    @staticmethod
+    def _apply_update(outcome: DecisionOutcome, key: str, value: Any) -> None:
+        """
+        Apply a single outcome update by key.
+
+        Args:
+            outcome (DecisionOutcome): Outcome instance to update.
+            key (str): Update key from feedback.
+            value (Any): Value to apply.
+        """
+        match key:
+            case "battery_consumed":
+                outcome.actual_battery_consumed = value
+            case "distance_traveled":
+                outcome.actual_distance_traveled = value
+            case "duration_s":
+                outcome.actual_duration_s = value
+            case "mission_objective_achieved":
+                outcome.mission_objective_achieved = value
+            case "asset_inspected":
+                outcome.asset_inspected = value
+            case "anomaly_detected":
+                outcome.anomaly_detected = value
+            case "anomaly_resolved":
+                outcome.anomaly_resolved = value
+            case "errors":
+                outcome.errors = value
+            case "client_feedback":
+                outcome.client_feedback = value
+            case _:
+                return
 
     async def process_feedback(self, feedback: DecisionFeedback) -> DecisionOutcome | None:
         """

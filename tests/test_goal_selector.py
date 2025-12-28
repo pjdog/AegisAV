@@ -6,7 +6,8 @@ from datetime import datetime, timedelta
 
 import pytest
 
-from agent.server.goal_selector import GoalSelector, GoalType
+from agent.server.goal_selector import GoalSelector
+from agent.server.goals import GoalSelectorConfig, GoalType
 from agent.server.world_model import (
     Asset,
     AssetType,
@@ -150,7 +151,8 @@ class TestGoalSelector:
     @pytest.mark.asyncio
     async def test_select_return_on_low_battery(self):
         """Should select RETURN when battery is low."""
-        selector = GoalSelector(battery_return_threshold=30.0)
+        config = GoalSelectorConfig(battery_return_threshold=30.0)
+        selector = GoalSelector(config=config)
         vehicle = create_test_vehicle(battery_percent=25.0)
 
         snapshot = create_test_snapshot(vehicle)
@@ -199,7 +201,8 @@ class TestGoalSelector:
     @pytest.mark.asyncio
     async def test_priority_order(self):
         """Should respect priority order (battery before inspection)."""
-        selector = GoalSelector(battery_return_threshold=30.0)
+        config = GoalSelectorConfig(battery_return_threshold=30.0)
+        selector = GoalSelector(config=config)
         vehicle = create_test_vehicle(battery_percent=25.0)
 
         # Asset needs inspection but battery is low

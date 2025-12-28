@@ -1,112 +1,292 @@
 <div align="center">
 
-# ⚔️ AegisAV
+# AegisAV
 
-### Agentic Supervisory Autonomy for Next-Gen Aerial Intelligence
+### Autonomous Infrastructure Inspection with Explainable AI
 
 [![Python 3.12+](https://img.shields.io/badge/Python-3.12+-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
 [![PydanticAI](https://img.shields.io/badge/Engine-PydanticAI-00ff9d?style=for-the-badge)](https://ai.pydantic.dev/)
-[![Logfire](https://img.shields.io/badge/Observability-Logfire-FF6B35?style=for-the-badge)](https://pydantic.dev/logfire)
-[![Docker Ready](https://img.shields.io/badge/Docker-Ready-2496ED?style=for-the-badge&logo=docker&logoColor=white)](https://www.docker.com/)
-[![SITL Compatible](https://img.shields.io/badge/Simulation-ArduPilot%20SITL-FFB800?style=for-the-badge)](https://ardupilot.org/dev/docs/sitl-simulator-software-in-the-loop.html)
+[![ArduPilot](https://img.shields.io/badge/Flight-ArduPilot%20SITL-FFB800?style=for-the-badge)](https://ardupilot.org/)
+[![AirSim](https://img.shields.io/badge/Rendering-AirSim%20%2B%20Unreal-0E1128?style=for-the-badge)](https://microsoft.github.io/AirSim/)
 [![License MIT](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)](LICENSE)
 
-**Empowering Autonomous Infrastructure & Aerial Monitoring with Explainable AI**
+**AI-powered autonomous drone system for infrastructure monitoring**
 
-[Quick Start](#-quick-start) • [Architecture](#-architecture) • [Dashboard](#-aegis-onyx-dashboard) • [Development](#%EF%B8%8F-developer-setup)
+[Quick Start](#-quick-start) | [Simulation](#-high-fidelity-simulation) | [Architecture](#-architecture) | [Vision System](#-vision-pipeline) | [Dashboard](#-dashboard)
 
 </div>
 
 ---
 
-## 🎯 What is AegisAV?
+## What is AegisAV?
 
-**AegisAV** is a cutting-edge autonomy framework that layers **LLM-powered agentic decision-making** over classical flight control. It demonstrates a **"Supervisor" architecture** where a high-level AI brain manages:
+**AegisAV** is an autonomous drone system designed for **infrastructure inspection** - solar farms, wind turbines, power lines, and electrical substations. It combines:
 
-- 🧠 **Mission Objectives** — Dynamic goal selection and prioritization
-- ⚠️ **Risk-Aware Planning** — Multi-factor safety evaluation
-- 🌍 **Situational Awareness** — Real-time world model maintenance
-
-...while delegating stabilization to battle-tested autopilots like **ArduPilot** and **PX4**.
+- **LLM-Powered Decision Making** - Goals are selected and prioritized by AI agents
+- **Multi-Critic Safety Validation** - Every action is validated by safety, efficiency, and goal-alignment critics
+- **Computer Vision Pipeline** - Defect detection with YOLO-based object detection
+- **Rock-Solid Flight Control** - Built on ArduPilot, the same autopilot used in production drones
+- **High-Fidelity Simulation** - Photorealistic rendering with Unreal Engine + AirSim
 
 ---
 
-## 💎 Aegis Onyx Dashboard
+## Key Features
 
 | Feature | Description |
 |---------|-------------|
-| 🖤 **Onyx Visuals** | Deep-mode interface with glassmorphism and Cyber Blue accents |
-| 📡 **Spatial Awareness** | Real-time "Radar" view of vehicle and assets |
-| 🔍 **Explainable AI** | Live Reasoning Feed exposing the "why" behind every decision |
-| 🤖 **Agentic Toggle** | Switch between LLM planning and rule-based logic in real-time |
-
-Access at `http://localhost:8080/dashboard` after launch.
-
----
-
-## 🧠 Architecture
-
-```
-┌───────────────────────────────────────────────────────────────┐
-│                    DECISION LAYER                             │
-│              (Agent Server • PydanticAI • Logfire)            │
-│   ┌───────────────┐ ┌───────────────┐ ┌───────────────────┐   │
-│   │  World Model  │ │ Goal Selector │ │  Risk Evaluator   │   │
-│   │   (Pydantic)  │ │     (LLM)     │ │  (Multi-Critic)   │   │
-│   └───────────────┘ └───────────────┘ └───────────────────┘   │
-└───────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌───────────────────────────────────────────────────────────────┐
-│                    EXECUTION LAYER                            │
-│                      (Agent Client)                           │
-│   ┌───────────────┐ ┌───────────────┐ ┌───────────────────┐   │
-│   │    Action     │ │     State     │ │ Mission Primitives│   │
-│   │   Executor    │ │   Collector   │ │ (orbit,goto,land) │   │
-│   └───────────────┘ └───────────────┘ └───────────────────┘   │
-└───────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌───────────────────────────────────────────────────────────────┐
-│                     CONTROL LAYER                             │
-│               (ArduPilot SITL / PX4 / Hardware)               │
-│           Physics • Stabilization • Sensor Fusion             │
-└───────────────────────────────────────────────────────────────┘
-```
+| **Autonomous Inspection** | AI selects which assets to inspect based on priority and conditions |
+| **Defect Detection** | Computer vision identifies cracks, corrosion, hot spots, and damage |
+| **Explainable AI** | Every decision includes human-readable reasoning |
+| **Real-Time Dashboard** | Monitor vehicle state, detections, and AI reasoning live |
+| **Production Flight Controller** | Uses ArduPilot SITL - same code that runs on real Pixhawk hardware |
+| **Photorealistic Simulation** | Unreal Engine rendering with AirSim physics |
 
 ---
 
-## 🚀 Quick Start
+## Quick Start
 
-The easiest way to experience AegisAV is via Docker Compose:
+### Option 1: Demo Mode (No External Dependencies)
 
 ```bash
-# Clone the repository
+# Clone and setup
 git clone https://github.com/pjdog/AegisAV.git && cd AegisAV
+uv sync
 
-# (Optional) Set your OpenAI API key for full LLM reasoning
-export OPENAI_API_KEY=your-key-here
-
-# Launch the complete stack
-docker compose up
+# Run the integrated demo
+uv run python examples/demo_integrated_vision.py
 ```
 
-> 💡 **No API key?** AegisAV gracefully falls back to rule-based autonomy.
+This runs a complete inspection simulation with:
+- Simulated camera generating realistic images
+- Vision pipeline detecting defects
+- AI agent making inspection decisions
+- Dashboard available at http://localhost:8000/dashboard
 
-- 🌐 **Dashboard**: http://localhost:8080/dashboard
-- 📊 **API Docs**: http://localhost:8000/docs
+### Option 2: Full Simulation (Recommended)
+
+For the complete high-fidelity experience with photorealistic rendering:
+
+```bash
+# On your desktop machine (requires GPU)
+cd simulation
+chmod +x setup_desktop.sh
+./setup_desktop.sh
+
+# Then run:
+python simulation/run_simulation.py --airsim --sitl
+```
+
+See [Simulation Setup](#-high-fidelity-simulation) for full details.
 
 ---
 
-## 🛠️ Developer Setup
+## High-Fidelity Simulation
 
-This project uses [`uv`](https://github.com/astral-sh/uv) for ultra-fast Python environment management.
+AegisAV includes a complete simulation stack for realistic drone inspection:
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│              UNREAL ENGINE + AIRSIM                                 │
+│         Photorealistic 3D environments (Solar farms, turbines)     │
+│         Real-time camera feeds at 1920x1080                         │
+└─────────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│              ARDUPILOT SITL                                         │
+│         Real flight controller code (same as Pixhawk hardware)     │
+│         MAVLink protocol, GPS, attitude control                    │
+└─────────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│              AEGISAV AGENT                                          │
+│         AI decision making, vision pipeline, anomaly detection     │
+│         FastAPI server with real-time dashboard                    │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+### Hardware Requirements
+
+| Component | Minimum | Recommended |
+|-----------|---------|-------------|
+| GPU | GTX 1070 / RX 5700 | RTX 3080 / RX 6950XT |
+| RAM | 16GB | 32GB+ |
+| Storage | 100GB SSD | 200GB NVMe |
+| CPU | 6-core | 8+ core |
+
+### Simulation Documentation
+
+| Document | Description |
+|----------|-------------|
+| [simulation/README.md](simulation/README.md) | Architecture overview and quick start |
+| [simulation/UNREAL_SETUP_GUIDE.md](simulation/UNREAL_SETUP_GUIDE.md) | Detailed Unreal Engine setup |
+| [simulation/ENVIRONMENTS.md](simulation/ENVIRONMENTS.md) | Infrastructure environment planning |
+
+### Quick Simulation Setup
+
+```bash
+# 1. Run the setup script (installs ArduPilot, AirSim, dependencies)
+./simulation/setup_desktop.sh
+
+# 2. Validate your setup
+python simulation/validate_setup.py
+
+# 3. Start the simulation
+#    Terminal 1: Start Unreal/AirSim
+#    Terminal 2: Start ArduPilot SITL
+#    Terminal 3: Run AegisAV
+python simulation/run_simulation.py --airsim --sitl
+
+# 4. Open dashboard
+open http://localhost:8000/dashboard
+```
+
+---
+
+## Architecture
+
+```
+┌───────────────────────────────────────────────────────────────────┐
+│                       DECISION LAYER                               │
+│                  (Agent Server - PydanticAI)                       │
+│   ┌─────────────┐  ┌─────────────┐  ┌─────────────────────────┐   │
+│   │ World Model │  │Goal Selector│  │    Multi-Critic         │   │
+│   │  (Assets,   │  │    (LLM)    │  │ Safety│Efficiency│Goal  │   │
+│   │  Vehicle)   │  │             │  │ Critic│  Critic  │Align │   │
+│   └─────────────┘  └─────────────┘  └─────────────────────────┘   │
+└───────────────────────────────────────────────────────────────────┘
+         │                   │                      │
+         ▼                   ▼                      ▼
+┌───────────────────────────────────────────────────────────────────┐
+│                       VISION LAYER                                 │
+│   ┌─────────────┐  ┌─────────────┐  ┌─────────────────────────┐   │
+│   │   Camera    │  │    YOLO     │  │    Anomaly Detection    │   │
+│   │   Capture   │→ │  Detector   │→ │   & Classification      │   │
+│   └─────────────┘  └─────────────┘  └─────────────────────────┘   │
+└───────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌───────────────────────────────────────────────────────────────────┐
+│                      EXECUTION LAYER                               │
+│   ┌─────────────┐  ┌─────────────┐  ┌─────────────────────────┐   │
+│   │   Action    │  │    State    │  │   Mission Primitives    │   │
+│   │  Executor   │  │  Collector  │  │  (orbit, goto, land)    │   │
+│   └─────────────┘  └─────────────┘  └─────────────────────────┘   │
+└───────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌───────────────────────────────────────────────────────────────────┐
+│                      CONTROL LAYER                                 │
+│                (ArduPilot SITL / Pixhawk Hardware)                │
+│            Stabilization • Navigation • Sensor Fusion             │
+└───────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## Vision Pipeline
+
+The vision system detects infrastructure defects in real-time:
+
+### Supported Defect Types
+
+| Category | Defects Detected |
+|----------|------------------|
+| **Solar Panels** | Cracks, hot spots, debris, soiling, cell damage |
+| **Wind Turbines** | Blade erosion, lightning damage, ice accumulation |
+| **Power Lines** | Damaged conductors, vegetation encroachment, insulator damage |
+| **Substations** | Corrosion, oil leaks, thermal anomalies |
+
+### Vision Architecture
+
+```
+Camera Frame (1920x1080)
+        │
+        ▼
+┌─────────────────┐
+│  Preprocessing  │  Resize, normalize, color correction
+└─────────────────┘
+        │
+        ▼
+┌─────────────────┐
+│  YOLO Detector  │  Object detection + classification
+└─────────────────┘
+        │
+        ▼
+┌─────────────────┐
+│ Anomaly Filter  │  Severity scoring, false positive reduction
+└─────────────────┘
+        │
+        ▼
+┌─────────────────┐
+│ World Model     │  Update asset states, trigger re-inspection
+└─────────────────┘
+```
+
+### Running Vision Demo
+
+```bash
+# Run vision-only demo
+uv run python examples/demo_integrated_vision.py
+
+# Output includes:
+# - Detected defects with confidence scores
+# - Anomaly classifications
+# - Asset status updates
+```
+
+---
+
+## Dashboard
+
+The Aegis Onyx Dashboard provides real-time monitoring:
+
+| Panel | Description |
+|-------|-------------|
+| **Vehicle State** | Position, altitude, battery, flight mode |
+| **Radar View** | Spatial visualization of vehicle and assets |
+| **Reasoning Feed** | Live AI decision explanations |
+| **Detection Log** | Vision pipeline detections |
+| **Mission Status** | Current goal and progress |
+
+Access at: `http://localhost:8000/dashboard`
+
+---
+
+## Project Structure
+
+```
+AegisAV/
+├── agent/
+│   ├── server/              # Decision layer (FastAPI + PydanticAI)
+│   │   ├── critics/         # Safety, efficiency, goal-alignment validators
+│   │   ├── vision/          # Vision service integration
+│   │   └── monitoring/      # Cost tracking, explanations
+│   └── client/              # Execution layer (action executor)
+├── autonomy/                # Vehicle interface (MAVLink)
+├── vision/                  # Computer vision pipeline
+│   ├── models/              # YOLO detector, anomaly classifier
+│   └── camera/              # Camera capture (simulated + real)
+├── simulation/              # High-fidelity simulation
+│   ├── airsim_bridge.py     # Unreal Engine camera integration
+│   ├── sitl_manager.py      # ArduPilot SITL management
+│   └── run_simulation.py    # Unified simulation runner
+├── frontend/                # Aegis Onyx dashboard (Vite + React)
+├── examples/                # Demo scripts
+├── configs/                 # YAML configurations
+└── tests/                   # Comprehensive test suite
+```
+
+---
+
+## Development
 
 ### Prerequisites
 
-- **uv** — `curl -LsSf https://astral.sh/uv/install.sh | sh`
-- **Node.js** — [nodejs.org](https://nodejs.org/)
-- **ArduPilot SITL** — [Setup Guide](https://ardupilot.org/dev/docs/sitl-simulator-software-in-the-loop.html)
+- **Python 3.12+**
+- **uv** - `curl -LsSf https://astral.sh/uv/install.sh | sh`
+- **Node.js 18+** - For dashboard development
 
 ### Install & Build
 
@@ -114,76 +294,79 @@ This project uses [`uv`](https://github.com/astral-sh/uv) for ultra-fast Python 
 # Sync Python environment
 uv sync
 
-# Build the Onyx Dashboard
+# Build dashboard
 cd frontend && npm install && npm run build && cd ..
 ```
 
-### Run a Mission
+### Run Tests
 
 ```bash
-# Terminal 1: Start realistic SITL simulation
-./scripts/run_sim.sh --realistic
-
-# Terminal 2: Launch the Agent Server
-uv run aegis-server
-
-# Terminal 3: Execute a demo mission
-uv run aegis-demo --scenario anomaly
-```
-
----
-
-## 📊 Observability & Tracing
-
-| Capability | Description |
-|------------|-------------|
-| 💭 **Live Reasoning** | Real-time LLM logic streamed to the dashboard |
-| 📝 **Structured Logs** | Full system logs via the integrated terminal |
-| 🔥 **Deep Tracing** | Production-grade observability with [Logfire](https://pydantic.dev/logfire) |
-
----
-
-## 🧪 Testing
-
-```bash
-# Run the full test suite
+# Full test suite (152 tests)
 uv run pytest
 
-# Run with coverage
-uv run pytest --cov=agent --cov=autonomy
+# With coverage
+uv run pytest --cov=agent --cov=autonomy --cov=vision
 
-# Run specific test modules
+# Specific modules
 uv run pytest tests/test_advanced_decision.py -v
 ```
 
----
+### Start Development Server
 
-## 📁 Project Structure
+```bash
+# Start the agent server
+uv run uvicorn agent.server.main:app --reload --port 8000
 
-```
-AegisAV/
-├── agent/
-│   ├── server/          # Decision layer (PydanticAI agents, critics)
-│   └── client/          # Execution layer (action executor, state collector)
-├── autonomy/            # Vehicle interface (MAVLink, mission primitives)
-├── frontend/            # Aegis Onyx dashboard (Vite + React)
-├── configs/             # YAML configurations (thresholds, agent settings)
-├── scripts/             # SITL launcher, simulation scenarios
-└── tests/               # Comprehensive test suite
+# In another terminal, run a demo
+uv run python examples/demo_integrated_vision.py
 ```
 
 ---
 
-## 📜 License
+## Configuration
 
-**MIT License** — Free for research, competitions, and architectural demonstrations.
+Key configuration files:
 
-> ⚠️ **Disclaimer**: This software is not flight-certified. Intended for simulation and research only.
+| File | Purpose |
+|------|---------|
+| `configs/agent_config.yaml` | Agent behavior, thresholds |
+| `configs/vision_config.yaml` | Vision pipeline settings |
+| `simulation/settings.json` | AirSim camera and vehicle config |
+
+Environment variables:
+
+```bash
+export OPENAI_API_KEY=your-key    # For LLM-powered goal selection
+export AEGIS_LOG_LEVEL=DEBUG      # Logging verbosity
+export AEGIS_MOCK_LLM=true        # Use rule-based fallback
+```
+
+---
+
+## Roadmap
+
+- [x] Core decision engine with multi-critic validation
+- [x] Vision pipeline with defect detection
+- [x] ArduPilot SITL integration
+- [x] AirSim camera bridge
+- [x] Real-time dashboard
+- [ ] Custom Unreal infrastructure environments (Sprint 1-2)
+- [ ] YOLO model training on infrastructure defects
+- [ ] Hardware deployment guide
+- [ ] Multi-vehicle coordination
+
+---
+
+## License
+
+**MIT License** - Free for research, education, and development.
+
+> **Disclaimer**: This software is for simulation and research only. Not certified for actual flight operations.
 
 ---
 
 <div align="center">
 
-Made with 🤖 + ☕ for the future of autonomous systems.
+Built for the future of autonomous infrastructure monitoring.
 
 </div>

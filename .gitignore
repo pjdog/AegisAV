@@ -34,6 +34,7 @@ logs/
 *.log
 install_log.txt
 pymav_test.txt
+data/vision/
 
 # Editor and OS files
 .DS_Store

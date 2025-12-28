@@ -20,7 +20,7 @@ from pydantic import BaseModel, Field
 from pydantic_ai import Agent, RunContext
 from pydantic_ai.models.test import TestModel
 
-from agent.server.goal_selector import Goal, GoalType
+from agent.server.goals import Goal, GoalType
 from agent.server.world_model import Asset, WorldSnapshot
 
 logger = logging.getLogger(__name__)
@@ -80,17 +80,24 @@ class PredictionResult:
 
 
 @dataclass
+class ExperienceOutcome:
+    """Outcome details for a learning experience."""
+
+    outcome: str
+    success: bool
+    reward_signal: float
+    lesson_learned: str
+
+
+@dataclass
 class LearningExperience:
     """Stored learning experience for adaptive behavior."""
 
     timestamp: datetime
     situation_hash: str
     decision_made: str
-    outcome: str
-    success: bool
-    reward_signal: float
     contextual_features: dict[str, Any]
-    lesson_learned: str
+    result: ExperienceOutcome
 
 
 class MissionDecision(BaseModel):
@@ -166,16 +173,16 @@ class BatteryPredictor(PredictiveModel):
     async def predict(self, _context: DecisionContext, world: WorldSnapshot) -> PredictionResult:
         """Predict battery consumption for upcoming actions."""
         current_consumption = self._calculate_current_consumption(world)
-
         # Predict consumption for different action types
-        if hasattr(world, "mission_context") and world.mission_context:
-            action_type = world.mission_context.get("next_action_type")
+        predicted_consumption = current_consumption * 1.2  # Conservative estimate
+        try:
+            mission_context = world.mission_context
+        except AttributeError:
+            mission_context = None
+        if mission_context:
+            action_type = mission_context.get("next_action_type")
             predicted_consumption = self._predict_action_consumption(action_type, world)
-        else:
-            predicted_consumption = current_consumption * 1.2  # Conservative estimate
-
         confidence = self._calculate_prediction_confidence()
-
         return PredictionResult(
             predicted_value=predicted_consumption,
             confidence=confidence,
@@ -191,10 +198,8 @@ class BatteryPredictor(PredictiveModel):
             predicted_consumption = experience.contextual_features.get(
                 "predicted_consumption", actual_consumption
             )
-
             error = actual_consumption - predicted_consumption
             self.consumption_history.append(error)
-
             # Update learning parameters
             self.weather_factors[experience.situation_hash] = error
 
@@ -207,7 +212,6 @@ class BatteryPredictor(PredictiveModel):
     def _predict_action_consumption(self, action_type: str, world: WorldSnapshot) -> float:
         """Predict consumption for specific action type."""
         base_consumption = self._calculate_current_consumption(world)
-
         multipliers = {
             "takeoff": 2.5,
             "orbit": 1.3,
@@ -215,7 +219,6 @@ class BatteryPredictor(PredictiveModel):
             "inspect": 1.2,
             "land": 0.8,
         }
-
         return base_consumption * multipliers.get(action_type, 1.0)
 
     def _estimate_max_flight_time(self) -> float:
@@ -226,10 +229,8 @@ class BatteryPredictor(PredictiveModel):
         """Calculate confidence in prediction."""
         if len(self.consumption_history) < 10:
             return 0.5  # Low confidence with little data
-
         recent_errors = list(self.consumption_history)[-20:]
         variance = np.variance(recent_errors) if recent_errors else 1.0
-
         # Higher confidence with more consistent predictions
         confidence = max(0.1, 1.0 - (variance / 10.0))
         return min(0.9, confidence)
@@ -244,20 +245,21 @@ class WeatherPredictor(PredictiveModel):
 
     async def predict(self, _context: DecisionContext, world: WorldSnapshot) -> PredictionResult:
         """Predict weather changes."""
-        current_weather = getattr(world.environment, "wind_speed_ms", 0)
-
+        current_weather = 0.0
+        if world.environment is not None:
+            try:
+                current_weather = world.environment.wind_speed_ms
+            except AttributeError:
+                logger.warning("world_environment_missing_wind_speed")
         # Simple trend analysis
         if len(self.weather_history) >= 3:
             recent = list(self.weather_history)[-3:]
             trend = np.mean([recent[-1] - recent[-2], recent[-2] - recent[-3]])
         else:
             trend = 0
-
         # Predict conditions in 30 minutes
         predicted_wind = max(0, current_weather + trend * 6)
-
         confidence = 0.7 if abs(trend) < 2 else 0.4
-
         return PredictionResult(
             predicted_value=predicted_wind,
             confidence=confidence,
@@ -271,10 +273,8 @@ class WeatherPredictor(PredictiveModel):
         if "actual_wind_speed" in experience.contextual_features:
             actual_wind = experience.contextual_features["actual_wind_speed"]
             predicted_wind = experience.contextual_features.get("predicted_wind_speed", actual_wind)
-
             error = actual_wind - predicted_wind
             self.weather_history.append(actual_wind)
-
             # Update pattern recognition
             hour = experience.timestamp.hour
             if hour not in self.wind_patterns:
@@ -305,7 +305,6 @@ class GoalHierarchy:
     ) -> list[Goal]:
         """Generate hierarchical plan with sub-goals."""
         plan = []
-
         if primary_goal.goal_type == GoalType.INSPECT_ASSET:
             # Break down inspection into sub-goals
             plan.extend(self._plan_inspection_mission(world, primary_goal))
@@ -315,13 +314,11 @@ class GoalHierarchy:
         elif primary_goal.goal_type == GoalType.ABORT:
             # Plan safe abort sequence
             plan.extend(self._plan_abort_sequence(world, primary_goal))
-
         return plan[: self.max_depth]
 
     def _plan_inspection_mission(self, _world: WorldSnapshot, goal: Goal) -> list[Goal]:
         """Plan detailed inspection mission."""
         sub_goals = []
-
         # 1. Navigation to inspection area
         sub_goals.append(
             Goal(
@@ -331,7 +328,6 @@ class GoalHierarchy:
                 priority=1.0,
             )
         )
-
         # 2. Establish observation orbit
         sub_goals.append(
             Goal(
@@ -341,7 +337,6 @@ class GoalHierarchy:
                 priority=0.9,
             )
         )
-
         # 3. Detailed inspection
         sub_goals.append(
             Goal(
@@ -351,7 +346,6 @@ class GoalHierarchy:
                 priority=0.8,
             )
         )
-
         # 4. Documentation and analysis
         sub_goals.append(
             Goal(
@@ -361,13 +355,11 @@ class GoalHierarchy:
                 priority=0.6,
             )
         )
-
         return sub_goals
 
     def _plan_battery_return(self, _world: WorldSnapshot, _goal: Goal) -> list[Goal]:
         """Plan efficient battery return."""
         sub_goals = []
-
         # 1. Optimize return route
         sub_goals.append(
             Goal(
@@ -376,7 +368,6 @@ class GoalHierarchy:
                 priority=1.0,
             )
         )
-
         # 2. Climbing for efficiency
         sub_goals.append(
             Goal(
@@ -385,7 +376,6 @@ class GoalHierarchy:
                 priority=0.9,
             )
         )
-
         # 3. Return to home
         sub_goals.append(
             Goal(
@@ -394,20 +384,17 @@ class GoalHierarchy:
                 priority=0.8,
             )
         )
-
         return sub_goals
 
     def _plan_abort_sequence(self, _world: WorldSnapshot, _goal: Goal) -> list[Goal]:
         """Plan safe abort sequence."""
         sub_goals = []
-
         # 1. Immediate safety actions
         sub_goals.append(
             Goal(
                 goal_type=GoalType.WAIT, reasoning="Assess current safety conditions", priority=1.0
             )
         )
-
         # 2. Safe landing approach
         sub_goals.append(
             Goal(
@@ -416,12 +403,10 @@ class GoalHierarchy:
                 priority=0.9,
             )
         )
-
         # 3. Emergency landing
         sub_goals.append(
             Goal(goal_type=GoalType.ABORT, reasoning="Execute emergency landing", priority=1.0)
         )
-
         return sub_goals
 
 
@@ -441,13 +426,11 @@ class MetaCognitiveMonitor:
             "outcome": outcome,
             "success": outcome.get("success", False),
         })
-
         # Calculate success rate for recent decisions
         recent_decisions = list(self.decision_history)[-20:]
         if len(recent_decisions) > 0:
             success_rate = sum(1 for d in recent_decisions if d["success"]) / len(recent_decisions)
             return success_rate
-
         return 0.5  # Default neutral quality
 
     async def update_metacognition(
@@ -455,7 +438,6 @@ class MetaCognitiveMonitor:
     ) -> None:
         """Update meta-cognitive state based on feedback."""
         performance_score = await self.analyze_decision_quality(context, feedback)
-
         context.metacognitive_state.update({
             "recent_performance": performance_score,
             "adaptation_level": self._calculate_adaptation_level(performance_score),
@@ -503,7 +485,6 @@ class AdvancedDecisionEngine:
             agent=_create_mission_planner(),
             experience_buffer=deque(maxlen=500),
         )
-
         # Cognitive architecture parameters
         self.cognitive_parameters = {
             "reactive_threshold": 0.1,  # When to use reactive mode
@@ -517,19 +498,16 @@ class AdvancedDecisionEngine:
         self, world: WorldSnapshot, learning_experiences: list[LearningExperience] | None = None
     ) -> tuple[Goal, DecisionContext]:
         """Make advanced agentic decision with PydanticAI."""
-
         # Update learning models if experiences provided
         if learning_experiences:
             for experience in learning_experiences:
                 await self.modules.battery_predictor.update_model(experience)
                 await self.modules.weather_predictor.update_model(experience)
                 self.modules.experience_buffer.append(experience)
-
         # Identify cognitive level
         cognitive_level = self._determine_cognitive_level(world)
         urgency = self._assess_urgency(world)
         confidence_type = self._determine_confidence_type(world, cognitive_level)
-
         context = DecisionContext(
             timestamp=datetime.now(),
             cognitive_level=cognitive_level,
@@ -539,7 +517,6 @@ class AdvancedDecisionEngine:
             learning_weight=self._calculate_learning_weight(cognitive_level),
             metacognitive_state={},
         )
-
         try:
             # Use PydanticAI for decision making
             result = await self.modules.agent.run(
@@ -547,7 +524,6 @@ class AdvancedDecisionEngine:
                 deps=world,
             )
             mission_decision = result.output
-
             # Convert to Goal object
             target_asset = None
             if mission_decision.target_asset_id:
@@ -555,21 +531,17 @@ class AdvancedDecisionEngine:
                     if asset.asset_id == mission_decision.target_asset_id:
                         target_asset = asset
                         break
-
             goal = Goal(
                 goal_type=mission_decision.goal_type,
                 priority=int(mission_decision.priority),
                 reason=mission_decision.reason,
                 target_asset=target_asset,
             )
-
             # Update meta-cognition
             await self.modules.metacognitive_monitor.update_metacognition(
                 context, {"prediction_used": True}
             )
-
             return goal, context
-
         except Exception as e:
             logger.error(f"PydanticAI decision failed: {e}", exc_info=True)
             # Fallback to reactive decision
@@ -579,7 +551,6 @@ class AdvancedDecisionEngine:
     def _determine_cognitive_level(self, world: WorldSnapshot) -> CognitiveLevel:
         """Determine appropriate cognitive level."""
         emergency_level = self._calculate_emergency_level(world)
-
         if emergency_level > 0.8:
             return CognitiveLevel.REACTIVE
         if emergency_level > 0.4:
@@ -591,31 +562,29 @@ class AdvancedDecisionEngine:
     def _calculate_emergency_level(self, world: WorldSnapshot) -> float:
         """Calculate emergency/safety level."""
         factors = []
-
         # Battery emergency
         if world.vehicle.battery.remaining_percent < 20:
             factors.append(1.0 - (world.vehicle.battery.remaining_percent / 20.0))
-
         # GPS emergency
         if world.vehicle.gps and not world.vehicle.gps.has_fix:
             factors.append(0.9)
-
         # Health emergency
         if world.vehicle.health and not world.vehicle.health.is_healthy:
             factors.append(0.7)
-
         # Weather emergency
-        if hasattr(world, "environment"):
-            wind = getattr(world.environment, "wind_speed_ms", 0)
-            if wind > 15:
+        if world.environment is not None:
+            try:
+                wind_speed = world.environment.wind_speed_ms
+            except AttributeError:
+                logger.warning("world_environment_missing_wind_speed")
+                wind_speed = 0
+            if wind_speed > 15:
                 factors.append(0.8)
-
         return max(factors) if factors else 0.0
 
     def _assess_urgency(self, world: WorldSnapshot) -> UrgencyLevel:
         """Assess mission urgency."""
         emergency_score = self._calculate_emergency_level(world)
-
         if emergency_score > 0.7:
             return UrgencyLevel.CRITICAL
         if emergency_score > 0.5:
@@ -633,37 +602,38 @@ class AdvancedDecisionEngine:
         # High confidence in routine situations
         if cognitive_level == CognitiveLevel.PREDICTIVE:
             return ConfidenceType.HIGH
-
         # Lower confidence in emergency situations
         emergency = self._calculate_emergency_level(world)
         if emergency > 0.5:
             return ConfidenceType.LOW
-
         # Medium confidence for deliberative decisions
         if cognitive_level == CognitiveLevel.DELIBERATIVE:
             return ConfidenceType.MEDIUM
-
         return ConfidenceType.MEDIUM
 
     def _identify_uncertainties(self, world: WorldSnapshot) -> list[str]:
         """Identify sources of uncertainty."""
         uncertainties = []
-
         # Sensor uncertainties
         if world.vehicle.gps and world.vehicle.gps.hdop > 2.0:
             uncertainties.append("gps_accuracy_low")
-
         if world.vehicle.battery.remaining_percent < 30:
             uncertainties.append("battery_degradation_uncertain")
-
         # Environmental uncertainties
-        if hasattr(world, "environment"):
+        if world.environment is not None:
             env = world.environment
-            if hasattr(env, "visibility_m") and env.visibility_m < 1000:
+            try:
+                visibility_m = env.visibility_m
+            except AttributeError:
+                visibility_m = None
+            if visibility_m is not None and visibility_m < 1000:
                 uncertainties.append("reduced_visibility")
-            if hasattr(env, "wind_gusts_ms") and env.wind_gusts_ms > 5:
+            try:
+                wind_gusts_ms = env.wind_gusts_ms
+            except AttributeError:
+                wind_gusts_ms = None
+            if wind_gusts_ms is not None and wind_gusts_ms > 5:
                 uncertainties.append("wind_turbulence")
-
         return uncertainties
 
     def _calculate_learning_weight(self, cognitive_level: CognitiveLevel) -> float:
@@ -682,14 +652,12 @@ class AdvancedDecisionEngine:
         """Make immediate reactive decision."""
         # Prioritize safety above all else
         emergency = self._calculate_emergency_level(world)
-
         if emergency > 0.7:
             return Goal(
                 goal_type=GoalType.ABORT,
                 reason=f"Emergency abort (severity: {emergency:.2f})",
                 priority=100,
             )
-
         # Simple reactive rules
         if world.vehicle.battery.remaining_percent < 25:
             return Goal(
@@ -697,7 +665,6 @@ class AdvancedDecisionEngine:
                 reason="Low battery - immediate return required",
                 priority=90,
             )
-
         # Default wait
         return Goal(goal_type=GoalType.WAIT, reason="No immediate action required", priority=10)
 
@@ -709,13 +676,11 @@ class AdvancedDecisionEngine:
         weather_prediction: PredictionResult,
     ) -> Goal:
         """Make deliberative decision with planning."""
-
         # Consider predictions in decision making
         if battery_prediction.confidence > 0.6:
             battery_risk = "Battery prediction indicates adequate power"
         else:
             battery_risk = "Battery prediction indicates power concern"
-
         # Multi-criteria decision making
         criteria = {
             "safety": self._evaluate_safety(world),
@@ -725,7 +690,6 @@ class AdvancedDecisionEngine:
             if weather_prediction
             else 1.0,
         }
-
         # Weighted decision
         weights = {
             "safety": 0.4,
@@ -734,7 +698,6 @@ class AdvancedDecisionEngine:
             "weather_suitability": 0.1,
         }
         score = sum(value * weights[key] for key, value in criteria.items())
-
         # Select action based on score
         if criteria["safety"] < 0.5:
             return Goal(
@@ -762,25 +725,19 @@ class AdvancedDecisionEngine:
         _weather_prediction: PredictionResult,
     ) -> Goal:
         """Make reflective decision with meta-cognition."""
-
         # Analyze recent performance
         recent_performance = self.modules.metacognitive_monitor.decision_history
-
         # Get insights from past decisions
         similar_situations = self._find_similar_situations(world)
         insights = self._extract_insights(similar_situations)
-
         # Reflective decision with learning integration
         confidence_adjustment = context.metacognitive_state.get("confidence_adjustment", 1.0)
-
         if len(recent_performance) > 10:
             success_rate = sum(1 for d in list(recent_performance)[-10:] if d["success"]) / 10
             if success_rate < 0.7:
                 # Be more cautious if recent performance is poor
                 confidence_adjustment *= 0.8
-
         reason = f"Reflective decision with insights: {insights} (adj: {confidence_adjustment:.2f})"
-
         # Make decision with adjusted confidence
         if world.vehicle.battery.remaining_percent < 25 * confidence_adjustment:
             return Goal(
@@ -802,7 +759,6 @@ class AdvancedDecisionEngine:
         weather_prediction: PredictionResult,
     ) -> Goal:
         """Make predictive decision with anticipatory planning."""
-
         # Use predictions to optimize future decisions
         # Anticipate future conditions
         future_battery_risk = (
@@ -811,7 +767,6 @@ class AdvancedDecisionEngine:
         future_weather_risk = (
             weather_prediction.predicted_value > 12.0 if weather_prediction else False
         )
-
         # Proactive decision making
         if future_battery_risk and future_weather_risk:
             reason = (
@@ -851,21 +806,17 @@ class AdvancedDecisionEngine:
     def _evaluate_safety(self, world: WorldSnapshot) -> float:
         """Evaluate safety of current situation."""
         safety_score = 1.0
-
         # Battery safety
         if world.vehicle.battery.remaining_percent < 20:
             safety_score -= 0.4
         elif world.vehicle.battery.remaining_percent < 30:
             safety_score -= 0.2
-
         # GPS safety
         if world.vehicle.gps and not world.vehicle.gps.has_fix:
             safety_score -= 0.5
-
         # Vehicle health
         if world.vehicle.health and not world.vehicle.health.is_healthy:
             safety_score -= 0.3
-
         return max(0.0, safety_score)
 
     def _evaluate_efficiency(
@@ -873,43 +824,38 @@ class AdvancedDecisionEngine:
     ) -> float:
         """Evaluate operational efficiency."""
         efficiency = 0.8  # Base efficiency
-
         # Adjust based on battery prediction
         if battery_prediction and battery_prediction.confidence > 0.6:
             efficiency += 0.1
         elif battery_prediction and battery_prediction.confidence < 0.4:
             efficiency -= 0.2
-
         # Altitude efficiency
         if world.vehicle.position.altitude_agl and world.vehicle.position.altitude_agl > 50:
             efficiency -= 0.1  # Less efficient at high altitude
-
         return max(0.0, efficiency)
 
     def _evaluate_mission_progress(self, world: WorldSnapshot) -> float:
         """Evaluate mission progress."""
-        if not hasattr(world, "mission") or not world.mission:
+        try:
+            mission = world.mission
+        except AttributeError:
+            mission = None
+        if not mission:
             return 0.5  # Neutral if no mission
-
-        mission = world.mission
         if mission.assets_total == 0:
             return 0.0
-
         progress = mission.assets_inspected / mission.assets_total
         return progress
 
     def _find_similar_situations(self, world: WorldSnapshot) -> list[dict[str, Any]]:
         """Find similar past situations."""
         similar_situations = []
-
         # Extract current world features for comparison
         current_features = self._extract_world_features(world)
-
         # Simple similarity matching based on key parameters
         for experience in self.modules.experience_buffer:
             if self._situation_similarity(experience.contextual_features, current_features) > 0.7:
                 similar_situations.append(experience.contextual_features)
-
         return similar_situations[-5:]  # Return 5 most similar
 
     def _extract_world_features(self, world: WorldSnapshot) -> dict[str, Any]:
@@ -927,30 +873,25 @@ class AdvancedDecisionEngine:
     def _situation_similarity(self, features1: dict[str, Any], features2: dict[str, Any]) -> float:
         """Calculate similarity between two situations."""
         similarities = []
-
         # Battery similarity
         if "battery_percent" in features1 and "battery_percent" in features2:
             batt_diff = abs(features1["battery_percent"] - features2["battery_percent"])
             similarities.append(1.0 - (batt_diff / 100.0))
-
         # GPS similarity
         if "gps_fix" in features1 and "gps_fix" in features2:
             if features1.get("gps_fix") == features2.get("gps_fix"):
                 similarities.append(0.8)
             else:
                 similarities.append(0.2)
-
         return sum(similarities) / len(similarities) if similarities else 0.0
 
     def _extract_insights(self, similar_situations: list[dict[str, Any]]) -> str:
         """Extract insights from similar situations."""
         if not similar_situations:
             return "No similar past situations"
-
         # Analyze outcomes in similar situations
         outcomes = [s.get("success", False) for s in similar_situations]
         success_rate = sum(outcomes) / len(outcomes)
-
         if success_rate > 0.8:
             return f"Similar situations had {success_rate:.0%} success rate"
         if success_rate < 0.5:
@@ -958,14 +899,12 @@ class AdvancedDecisionEngine:
         return f"Similar situations had mixed success rate ({success_rate:.0%})"
 
 
-# Example usage and integration
 async def create_advanced_decision_engine() -> AdvancedDecisionEngine:
     """Factory function to create advanced decision engine."""
     await asyncio.sleep(0)
     return AdvancedDecisionEngine()
 
 
-# Integration with existing decision system
 class EnhancedGoalSelector:
     """Enhanced goal selector using advanced decision engine."""
 
@@ -980,10 +919,8 @@ class EnhancedGoalSelector:
         """Select goal using advanced agentic decision making."""
         if not self.advanced_engine:
             await self.initialize()
-
         # Use advanced decision engine
         goal, context = await self.advanced_engine.make_advanced_decision(world)
-
         # Log the decision context for explainability
         logger.info(
             "advanced_decision_made",
@@ -993,5 +930,4 @@ class EnhancedGoalSelector:
             urgency=context.urgency_level.value,
             reasoning=goal.reasoning,
         )
-
         return goal

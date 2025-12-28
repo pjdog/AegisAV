@@ -57,18 +57,32 @@ class CallbackRegistry:
 
 
 @dataclass
-class TelemetryCache:
-    """Cached telemetry values for building VehicleState."""
+class TelemetryCore:
+    """Core telemetry values for building VehicleState."""
 
-    last_position: Position | None = None
-    last_velocity: Velocity | None = None
-    last_attitude: Attitude | None = None
-    last_battery: BatteryState | None = None
-    last_gps: GPSState | None = None
+    position: Position | None = None
+    velocity: Velocity | None = None
+    attitude: Attitude | None = None
+    battery: BatteryState | None = None
+    gps: GPSState | None = None
+
+
+@dataclass
+class TelemetryStatus:
+    """Operational status derived from telemetry."""
+
     last_heartbeat: datetime | None = None
     armed: bool = False
     mode: FlightMode = FlightMode.UNKNOWN
     home_position: Position | None = None
+
+
+@dataclass
+class TelemetryCache:
+    """Cached telemetry values for building VehicleState."""
+
+    core: TelemetryCore = field(default_factory=TelemetryCore)
+    status: TelemetryStatus = field(default_factory=TelemetryStatus)
 
 
 @dataclass
@@ -349,25 +363,33 @@ class MAVLinkInterface:
             VehicleState if sufficient data available, None otherwise
         """
         if not all([
-            self._telemetry.last_position,
-            self._telemetry.last_velocity,
-            self._telemetry.last_attitude,
-            self._telemetry.last_battery,
+            self._telemetry.core.position,
+            self._telemetry.core.velocity,
+            self._telemetry.core.attitude,
+            self._telemetry.core.battery,
         ]):
             return None
 
         return VehicleState(
             timestamp=datetime.now(),
-            position=self._telemetry.last_position,
-            velocity=self._telemetry.last_velocity,
-            attitude=self._telemetry.last_attitude,
-            battery=self._telemetry.last_battery,
-            mode=self._telemetry.mode,
-            armed=self._telemetry.armed,
-            in_air=self._telemetry.armed and (self._telemetry.last_position.altitude_agl > 0.5),
-            gps=self._telemetry.last_gps or GPSState(0, 0, 99.9, 99.9),
-            health=VehicleHealth(True, True, True, True, True),  # Simplified
-            home_position=self._telemetry.home_position,
+            position=self._telemetry.core.position,
+            velocity=self._telemetry.core.velocity,
+            attitude=self._telemetry.core.attitude,
+            battery=self._telemetry.core.battery,
+            mode=self._telemetry.status.mode,
+            armed=self._telemetry.status.armed,
+            in_air=self._telemetry.status.armed
+            and (self._telemetry.core.position.altitude_agl > 0.5),
+            gps=self._telemetry.core.gps
+            or GPSState(fix_type=0, satellites_visible=0, hdop=99.9, vdop=99.9),
+            health=VehicleHealth(
+                sensors_healthy=True,
+                gps_healthy=True,
+                battery_healthy=True,
+                motors_healthy=True,
+                ekf_healthy=True,
+            ),
+            home_position=self._telemetry.status.home_position,
         )
 
     def _set_state(self, state: ConnectionState) -> None:
@@ -409,8 +431,10 @@ class MAVLinkInterface:
                 )
 
                 # Check for heartbeat timeout
-                if self._telemetry.last_heartbeat:
-                    elapsed = (datetime.now() - self._telemetry.last_heartbeat).total_seconds()
+                if self._telemetry.status.last_heartbeat:
+                    elapsed = (
+                        datetime.now() - self._telemetry.status.last_heartbeat
+                    ).total_seconds()
                     if elapsed > 5.0 and self._state == ConnectionState.CONNECTED:
                         logger.warning("Heartbeat timeout")
                         self._set_state(ConnectionState.LOST)
@@ -442,8 +466,10 @@ class MAVLinkInterface:
 
     def _process_heartbeat(self, msg) -> None:
         """Process HEARTBEAT message."""
-        self._telemetry.last_heartbeat = datetime.now()
-        self._telemetry.armed = (msg.base_mode & mavutil.mavlink.MAV_MODE_FLAG_SAFETY_ARMED) != 0
+        self._telemetry.status.last_heartbeat = datetime.now()
+        self._telemetry.status.armed = (
+            msg.base_mode & mavutil.mavlink.MAV_MODE_FLAG_SAFETY_ARMED
+        ) != 0
 
         # Get mode name
         mode_mapping = self._connection.mode_mapping() if self._connection else {}
@@ -453,21 +479,21 @@ class MAVLinkInterface:
                 mode_name = name
                 break
 
-        self._telemetry.mode = FlightMode.from_string(mode_name or "UNKNOWN")
+        self._telemetry.status.mode = FlightMode.from_string(mode_name or "UNKNOWN")
 
         if self._state == ConnectionState.LOST:
             self._set_state(ConnectionState.CONNECTED)
 
     def _process_global_position(self, msg) -> None:
         """Process GLOBAL_POSITION_INT message."""
-        self._telemetry.last_position = Position(
+        self._telemetry.core.position = Position(
             latitude=msg.lat / 1e7,
             longitude=msg.lon / 1e7,
             altitude_msl=msg.alt / 1000,
             altitude_agl=msg.relative_alt / 1000,
         )
 
-        self._telemetry.last_velocity = Velocity(
+        self._telemetry.core.velocity = Velocity(
             north=msg.vx / 100,
             east=msg.vy / 100,
             down=msg.vz / 100,
@@ -489,7 +515,7 @@ class MAVLinkInterface:
 
     def _process_attitude(self, msg) -> None:
         """Process ATTITUDE message."""
-        self._telemetry.last_attitude = Attitude(
+        self._telemetry.core.attitude = Attitude(
             roll=msg.roll,
             pitch=msg.pitch,
             yaw=msg.yaw,
@@ -497,7 +523,7 @@ class MAVLinkInterface:
 
     def _process_sys_status(self, msg) -> None:
         """Process SYS_STATUS message."""
-        self._telemetry.last_battery = BatteryState(
+        self._telemetry.core.battery = BatteryState(
             voltage=msg.voltage_battery / 1000,
             current=msg.current_battery / 100 if msg.current_battery >= 0 else 0,
             remaining_percent=msg.battery_remaining if msg.battery_remaining >= 0 else 0,
@@ -505,7 +531,7 @@ class MAVLinkInterface:
 
     def _process_gps_raw(self, msg) -> None:
         """Process GPS_RAW_INT message."""
-        self._telemetry.last_gps = GPSState(
+        self._telemetry.core.gps = GPSState(
             fix_type=msg.fix_type,
             satellites_visible=msg.satellites_visible,
             hdop=msg.eph / 100 if msg.eph != 65535 else 99.9,
@@ -514,7 +540,7 @@ class MAVLinkInterface:
 
     def _process_home_position(self, msg) -> None:
         """Process HOME_POSITION message."""
-        self._telemetry.home_position = Position(
+        self._telemetry.status.home_position = Position(
             latitude=msg.latitude / 1e7,
             longitude=msg.longitude / 1e7,
             altitude_msl=msg.altitude / 1000,

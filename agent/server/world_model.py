@@ -338,6 +338,31 @@ class WorldModel:
             assets_total=len(self._assets),
         )
 
+    def update_asset_status(self, asset_id: str, status: AssetStatus) -> bool:
+        """Update an asset status by asset ID.
+
+        Args:
+            asset_id (str): Asset identifier.
+            status (AssetStatus): New status to apply.
+
+        Returns:
+            bool: True if the asset was found and updated.
+        """
+        for asset in self._assets:
+            if asset.asset_id == asset_id:
+                asset.status = status
+                return True
+        return False
+
+    def get_anomaly_assets(self) -> list[str]:
+        """
+        Get asset IDs with active anomalies.
+
+        Returns:
+            List of asset IDs that have unresolved anomalies
+        """
+        return [a.asset_id for a in self._anomalies if not a.resolved]
+
     def get_snapshot(self) -> WorldSnapshot | None:
         """
         Get an immutable snapshot of current world state.

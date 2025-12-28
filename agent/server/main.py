@@ -19,10 +19,11 @@ try:
     import logfire
 except ImportError:  # pragma: no cover - optional dependency
     logfire = None
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import Depends, FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
 from agent.api_models import ActionType, DecisionResponse, HealthResponse, VehicleStateRequest
+from agent.server.auth import APIKeyAuth, AuthConfig
 from agent.server.critics import AuthorityModel, CriticOrchestrator
 from agent.server.dashboard import add_dashboard_routes
 from agent.server.decision import Decision
@@ -31,6 +32,7 @@ from agent.server.goal_selector import GoalSelector
 from agent.server.goals import Goal, GoalType
 from agent.server.models import DecisionFeedback
 from agent.server.monitoring import OutcomeTracker
+from agent.server.persistence import RedisConfig, create_store
 from agent.server.risk_evaluator import RiskAssessment, RiskEvaluator, RiskThresholds
 from agent.server.vision.vision_service import VisionService, VisionServiceConfig
 from agent.server.world_model import DockStatus, WorldModel
@@ -86,6 +88,10 @@ class ServerState:
         # Phase 3: Vision system
         self.vision_service = None  # Initialized in lifespan if enabled
         self.vision_enabled = False
+
+        # Phase 4: Persistence (Redis)
+        self.store = None  # Initialized in lifespan
+        self.persistence_enabled = False
 
     def load_config(self, config_path: Path) -> None:
         """Load configuration from YAML file."""
@@ -219,6 +225,21 @@ async def lifespan(_app: FastAPI):
     else:
         logger.info("vision_config_not_found", message="Vision system disabled")
 
+    # Initialize Redis persistence
+    try:
+        server_state.store = create_store(RedisConfig())
+        connected = await server_state.store.connect()
+        if connected:
+            server_state.persistence_enabled = True
+            logger.info("persistence_initialized", type="redis")
+        else:
+            logger.warning("persistence_fallback", type="in_memory")
+    except Exception as e:
+        logger.warning("persistence_init_failed", error=str(e), fallback="in_memory")
+        from agent.server.persistence import InMemoryStore
+        server_state.store = InMemoryStore()
+        await server_state.store.connect()
+
     server_state.current_run_id = server_state.decision_logger.start_run()
     logger.info("server_started")
 
@@ -228,6 +249,10 @@ async def lifespan(_app: FastAPI):
     if server_state.vision_service:
         await server_state.vision_service.shutdown()
         logger.info("vision_service_shutdown")
+
+    if server_state.store:
+        await server_state.store.disconnect()
+        logger.info("persistence_shutdown")
 
     server_state.decision_logger.end_run()
     logger.info("server_stopped")
@@ -242,6 +267,9 @@ app = FastAPI(
 
 # Dashboard routes
 add_dashboard_routes(app, server_state.log_dir)
+
+# API Authentication
+auth_handler = APIKeyAuth(AuthConfig.from_env())
 
 
 @app.websocket("/ws")
@@ -346,6 +374,34 @@ async def health_check() -> HealthResponse:
         last_state_update=last_update,
         decisions_made=server_state.decisions_made,
     )
+
+
+@app.get("/api/storage/stats")
+async def get_storage_stats(auth: dict = Depends(auth_handler)) -> dict:
+    """Get storage statistics (requires API key)."""
+    if server_state.store:
+        stats = await server_state.store.get_stats()
+        stats["persistence_enabled"] = server_state.persistence_enabled
+        return stats
+    return {"connected": False, "persistence_enabled": False}
+
+
+@app.get("/api/storage/anomalies")
+async def get_stored_anomalies(limit: int = 50, auth: dict = Depends(auth_handler)) -> dict:
+    """Get recent anomalies from storage."""
+    if server_state.store:
+        anomalies = await server_state.store.get_recent_anomalies(limit=limit)
+        return {"anomalies": anomalies, "count": len(anomalies)}
+    return {"anomalies": [], "count": 0}
+
+
+@app.get("/api/storage/missions")
+async def get_stored_missions(limit: int = 20, auth: dict = Depends(auth_handler)) -> dict:
+    """Get recent missions from storage."""
+    if server_state.store:
+        missions = await server_state.store.get_recent_missions(limit=limit)
+        return {"missions": missions, "count": len(missions)}
+    return {"missions": [], "count": 0}
 
 
 @app.post("/api/execution_event")

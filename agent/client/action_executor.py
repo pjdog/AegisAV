@@ -215,6 +215,9 @@ class ActionExecutor:
         dwell_time = parameters.get("dwell_time_s", 30)
         asset_id = parameters.get("asset_id", "unknown")
 
+        # Clear previous inspection results to avoid stale feedback payloads
+        self._last_inspection_results = None
+
         # Start vision capture if enabled
         vision_task = None
         if self.vision_client and self.vision_client.enabled:
@@ -244,6 +247,7 @@ class ActionExecutor:
                 )
             except Exception as e:
                 logger.error(f"Vision capture failed: {e}")
+                self._last_inspection_results = None
                 # Continue anyway - vision failure shouldn't fail the inspection
 
         return result

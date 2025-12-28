@@ -7,7 +7,7 @@ from agent.server.goals import Goal, GoalType
 from agent.server.decision import Decision, ActionType
 from agent.server.risk_evaluator import RiskAssessment, RiskLevel, RiskFactor
 from metrics.logger import DecisionLogEntry
-from autonomy.vehicle_state import Position, VehicleState, VehicleMode
+from autonomy.vehicle_state import Position, VehicleState, FlightMode
 from agent.server.world_model import Asset, AssetType, WorldSnapshot
 
 def test_relative_pos():

@@ -657,9 +657,10 @@ const SettingsPanel = ({ onClose }: { onClose: () => void }) => {
       const resp = await fetch("/api/config/generate-api-key", { method: "POST" });
       if (resp.ok) {
         const data = await resp.json();
+        const savedSuffix = data.saved ? "saved to config" : "save to config";
         setMessage({
           type: "success",
-          text: `New API Key: ${data.api_key.slice(0, 16)}... (save this!)`,
+          text: `New API Key: ${data.api_key.slice(0, 16)}... (${savedSuffix})`,
         });
         loadConfig();
       }

@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
 import SettingsPanel from "./SettingsPanel";
 import SpatialView from "./SpatialView";
+import logo from "../assets/aegis_logo.svg";
 
 type RunSummary = {
   total: number;
@@ -662,6 +662,8 @@ const Dashboard = () => {
     }
   };
 
+  import logo from "../assets/aegis_logo.svg";
+
   useEffect(() => {
     loadRun();
     const timer = window.setInterval(loadRun, 5000);
@@ -672,7 +674,7 @@ const Dashboard = () => {
     <main className="dashboard-shell">
       <header className="dashboard-hero">
         <div style={{ marginRight: "24px" }}>
-          <img src="/aegis_logo.svg" alt="AegisAV Shield" width="64" height="64" />
+          <img src={logo} alt="AegisAV Shield" width="64" height="64" />
         </div>
         <div>
           <p className="eyebrow">Aegis Onyx Interface</p>

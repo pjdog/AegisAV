@@ -212,6 +212,7 @@ class ConfigManager:
         if self.config.auth.enabled and not self.config.auth.api_key:
             self.config.auth.api_key = secrets.token_hex(32)
             self.logger.info("Auto-generated API key")
+            self.save()
 
         self._loaded = True
         return self.config
@@ -333,12 +334,15 @@ class ConfigManager:
 
         return errors
 
-    def generate_api_key(self) -> str:
+    def generate_api_key(self) -> tuple[str, bool]:
         """Generate a new API key and save it."""
         new_key = secrets.token_hex(32)
         self.config.auth.api_key = new_key
         self.config.auth.enabled = True
-        return new_key
+        saved = self.save()
+        if not saved:
+            self.logger.warning("Generated API key but failed to save config")
+        return new_key, saved
 
     def _apply_dict(self, data: dict) -> None:
         """Apply a dict to the current config."""
@@ -390,6 +394,11 @@ class ConfigManager:
                     self.update_section(section, current)
                 except Exception as e:
                     self.logger.warning(f"Failed to apply env var {env_var}: {e}")
+
+        api_key_env = os.environ.get("AEGIS_API_KEY")
+        auth_enabled_env = os.environ.get("AEGIS_AUTH_ENABLED")
+        if api_key_env and auth_enabled_env is None:
+            self.config.auth.enabled = True
 
     def _parse_bool(self, value: str) -> bool:
         """Parse boolean from string."""

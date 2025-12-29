@@ -79,6 +79,17 @@ class SimulatedWorld:
 
 
 @dataclass
+class InspectionState:
+    """Track inspection progress for a drone."""
+
+    target_asset_id: str | None = None
+    inspecting: bool = False
+    inspection_start_time: float = 0.0
+    inspection_duration: float = 5.0  # seconds to complete inspection
+    assets_inspected: list[str] = field(default_factory=list)
+
+
+@dataclass
 class DroneInstance:
     """A single drone in the simulation."""
 
@@ -87,8 +98,9 @@ class DroneInstance:
     controller: SimpleFlightController
     target_position: np.ndarray | None = None
     target_yaw: float = 0.0
-    mode: str = "IDLE"  # IDLE, GUIDED, RTL, LAND
+    mode: str = "IDLE"  # IDLE, GUIDED, RTL, LAND, INSPECT
     current_goal: str | None = None
+    inspection: InspectionState = field(default_factory=InspectionState)
 
 
 class LightweightSim:
@@ -138,9 +150,18 @@ class LightweightSim:
         # WebSocket connections for visualization
         self._ws_connections: list[Any] = []
 
+        # Scenario info (set externally by server)
+        self._scenario_info: dict | None = None
+
         # State history for replay/analysis
         self._state_history: list[dict] = []
         self._max_history = 10000
+
+        # Event callbacks for inspection events
+        self._event_callbacks: list[callable] = []
+
+        # Track global inspection state
+        self._inspected_assets: set[str] = set()
 
         logger.info("LightweightSim initialized")
 
@@ -248,7 +269,7 @@ class LightweightSim:
             # Compute motor command based on mode
             if drone.mode == "IDLE" or not drone.physics.state.armed:
                 command = MotorCommand(throttle=np.zeros(4), armed=False)
-            elif drone.mode in ("GUIDED", "RTL", "LAND"):
+            elif drone.mode in ("GUIDED", "RTL", "LAND", "INSPECT"):
                 if drone.target_position is not None:
                     command = drone.controller.compute_command(
                         drone.physics.state,
@@ -262,6 +283,80 @@ class LightweightSim:
 
             # Step physics
             drone.physics.step(command, dt)
+
+            # Check for inspection logic
+            self._check_inspection_progress(drone)
+
+    def _check_inspection_progress(self, drone: DroneInstance) -> None:
+        """Check and update inspection progress for a drone."""
+        if drone.mode != "INSPECT" or not drone.inspection.target_asset_id:
+            return
+
+        asset = self.world.assets.get(drone.inspection.target_asset_id)
+        if not asset:
+            return
+
+        # Check if drone has arrived at inspection position
+        current_pos = drone.physics.state.position
+        target_pos = drone.target_position
+        if target_pos is None:
+            return
+
+        distance = np.linalg.norm(current_pos - target_pos)
+        arrival_threshold = 2.0  # meters
+
+        if distance < arrival_threshold:
+            if not drone.inspection.inspecting:
+                # Start inspection
+                drone.inspection.inspecting = True
+                drone.inspection.inspection_start_time = self._sim_time
+                self._emit_event({
+                    "type": "inspection_started",
+                    "drone_id": drone.drone_id,
+                    "asset_id": drone.inspection.target_asset_id,
+                    "timestamp": self._sim_time,
+                })
+                logger.info(f"Drone {drone.drone_id} started inspecting {asset.asset_id}")
+            else:
+                # Check if inspection complete
+                elapsed = self._sim_time - drone.inspection.inspection_start_time
+                if elapsed >= drone.inspection.inspection_duration:
+                    # Complete inspection
+                    drone.inspection.inspecting = False
+                    drone.inspection.assets_inspected.append(asset.asset_id)
+                    self._inspected_assets.add(asset.asset_id)
+
+                    self._emit_event({
+                        "type": "inspection_complete",
+                        "drone_id": drone.drone_id,
+                        "asset_id": asset.asset_id,
+                        "has_anomaly": asset.has_anomaly,
+                        "anomaly_severity": asset.anomaly_severity,
+                        "timestamp": self._sim_time,
+                    })
+                    logger.info(f"Drone {drone.drone_id} completed inspection of {asset.asset_id}")
+
+                    # Reset inspection state
+                    drone.inspection.target_asset_id = None
+                    drone.mode = "GUIDED"
+                    drone.current_goal = "IDLE"
+
+    def _emit_event(self, event: dict) -> None:
+        """Emit an event to all registered callbacks."""
+        for callback in self._event_callbacks:
+            try:
+                callback(event)
+            except Exception as e:
+                logger.error(f"Event callback error: {e}")
+
+    def register_event_callback(self, callback: callable) -> None:
+        """Register a callback for simulation events."""
+        self._event_callbacks.append(callback)
+
+    def unregister_event_callback(self, callback: callable) -> None:
+        """Unregister an event callback."""
+        if callback in self._event_callbacks:
+            self._event_callbacks.remove(callback)
 
     async def _broadcast_loop(self) -> None:
         """Broadcast state to connected clients."""
@@ -282,7 +377,7 @@ class LightweightSim:
 
             # Broadcast to WebSocket clients
             if self._ws_connections:
-                message = json.dumps({
+                msg_data = {
                     "type": "state_update",
                     "sim_time": self._sim_time,
                     "drones": states,
@@ -291,10 +386,18 @@ class LightweightSim:
                             "position": a.position.tolist(),
                             "type": a.asset_type,
                             "has_anomaly": a.has_anomaly,
+                            "inspected": aid in self._inspected_assets,
                         }
                         for aid, a in self.world.assets.items()
                     },
-                })
+                    "inspection": {
+                        "inspected_count": len(self._inspected_assets),
+                        "total_assets": len(self.world.assets),
+                    },
+                }
+                if self._scenario_info:
+                    msg_data["scenario"] = self._scenario_info
+                message = json.dumps(msg_data)
                 for ws in self._ws_connections[:]:
                     try:
                         await ws.send_text(message)
@@ -324,6 +427,11 @@ class LightweightSim:
             "crashed": state.crashed,
             "mode": drone.mode,
             "current_goal": drone.current_goal,
+            "inspection": {
+                "inspecting": drone.inspection.inspecting,
+                "target_asset": drone.inspection.target_asset_id,
+                "assets_inspected": len(drone.inspection.assets_inspected),
+            },
         }
 
     # =========================================================================
@@ -428,6 +536,59 @@ class LightweightSim:
 
         logger.info(f"Drone {drone_id} returning to launch")
         return True
+
+    def inspect_asset(self, drone_id: str, asset_id: str) -> bool:
+        """Command drone to inspect an asset.
+
+        Args:
+            drone_id: Drone identifier
+            asset_id: Asset to inspect
+
+        Returns:
+            True if command accepted
+        """
+        if drone_id not in self.drones:
+            return False
+        if asset_id not in self.world.assets:
+            return False
+
+        drone = self.drones[drone_id]
+        asset = self.world.assets[asset_id]
+
+        # Set target to asset position at inspection altitude
+        inspection_alt = asset.inspection_altitude_m
+        drone.target_position = np.array([
+            asset.position[0],
+            asset.position[1],
+            -inspection_alt,  # NED: negative is up
+        ])
+        drone.mode = "INSPECT"
+        drone.current_goal = f"INSPECT:{asset_id}"
+        drone.inspection.target_asset_id = asset_id
+        drone.inspection.inspecting = False
+
+        logger.info(f"Drone {drone_id} tasked to inspect {asset_id} at alt {inspection_alt}m")
+        return True
+
+    def get_inspection_status(self) -> dict:
+        """Get global inspection status.
+
+        Returns:
+            Dictionary with inspection state
+        """
+        drone_status = {}
+        for drone_id, drone in self.drones.items():
+            drone_status[drone_id] = {
+                "inspecting": drone.inspection.inspecting,
+                "target_asset": drone.inspection.target_asset_id,
+                "assets_inspected": drone.inspection.assets_inspected.copy(),
+            }
+
+        return {
+            "inspected_assets": list(self._inspected_assets),
+            "total_assets": len(self.world.assets),
+            "drones": drone_status,
+        }
 
     def get_vehicle_state(self, drone_id: str) -> VehicleState | None:
         """Get vehicle state (AirSim-compatible API).
@@ -548,6 +709,10 @@ class LightweightSim:
         self._real_time_factor = max(0.1, min(10.0, factor))
         logger.info(f"Real-time factor set to {self._real_time_factor}x")
 
+    def set_scenario_info(self, info: dict | None) -> None:
+        """Set scenario info to include in state broadcasts."""
+        self._scenario_info = info
+
     def register_websocket(self, websocket: Any) -> None:
         """Register a WebSocket connection for state broadcasts."""
         self._ws_connections.append(websocket)
@@ -558,6 +723,17 @@ class LightweightSim:
         if websocket in self._ws_connections:
             self._ws_connections.remove(websocket)
             logger.info(f"WebSocket unregistered, total: {len(self._ws_connections)}")
+
+    async def broadcast_message(self, message: dict) -> None:
+        """Broadcast a message to all connected WebSocket clients."""
+        if not self._ws_connections:
+            return
+        for ws in list(self._ws_connections):
+            try:
+                await ws.send_json(message)
+            except Exception:
+                # Connection might be closed
+                pass
 
     @property
     def is_running(self) -> bool:

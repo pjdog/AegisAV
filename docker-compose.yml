@@ -5,6 +5,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.server
+    depends_on:
+      - redis
     ports:
       - "8080:8080"
     volumes:
@@ -12,6 +14,9 @@ services:
     environment:
       - OPENAI_API_KEY=${OPENAI_API_KEY:-mock}
       - LOGFIRE_TOKEN=${LOGFIRE_TOKEN:-}
+      - AEGIS_REDIS_ENABLED=true
+      - AEGIS_REDIS_HOST=redis
+      - AEGIS_REDIS_PORT=6379
     networks:
       - aegis-net
 
@@ -27,6 +32,19 @@ services:
     networks:
       - aegis-net
 
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    networks:
+      - aegis-net
+
 networks:
   aegis-net:
     driver: bridge
+
+volumes:
+  redis-data:

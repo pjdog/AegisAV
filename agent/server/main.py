@@ -31,7 +31,7 @@ from agent.edge_config import (
     available_edge_profiles,
     default_edge_compute_config,
 )
-from agent.server.auth import APIKeyAuth, AuthConfig
+from agent.server.auth import APIKeyAuth, get_auth_config
 from agent.server.config_manager import get_config_manager
 from agent.server.critics import AuthorityModel, CriticOrchestrator
 from agent.server.dashboard import add_dashboard_routes
@@ -343,11 +343,19 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
     if config.redis.enabled:
         # Redis is explicitly enabled - fail loudly if it doesn't work
         try:
+            telemetry_ttl = max(0, int(config.redis.telemetry_ttl_hours) * 3600)
+            detection_ttl = max(0, int(config.redis.detection_ttl_days) * 86400)
+            anomaly_ttl = max(0, int(config.redis.anomaly_ttl_days) * 86400)
+            mission_ttl = max(0, int(config.redis.mission_ttl_days) * 86400)
             redis_config = RedisConfig(
                 host=config.redis.host,
                 port=config.redis.port,
                 db=config.redis.db,
                 password=config.redis.password,
+                telemetry_ttl=telemetry_ttl,
+                detection_ttl=detection_ttl,
+                anomaly_ttl=anomaly_ttl,
+                mission_ttl=mission_ttl,
             )
             server_state.store = create_store(redis_config)
             connected = await server_state.store.connect()
@@ -413,7 +421,7 @@ if overlay_dir.exists():
     logger.info("overlay_mounted", path=str(overlay_dir))
 
 # API Authentication
-auth_handler = APIKeyAuth(AuthConfig.from_env())
+auth_handler = APIKeyAuth(config_provider=get_auth_config)
 
 
 @app.websocket("/ws")
@@ -863,11 +871,12 @@ async def generate_api_key(_auth: dict = Depends(auth_handler)) -> dict:
         Dictionary with generated API key and instructions.
     """
     config_manager = get_config_manager()
-    new_key = config_manager.generate_api_key()
+    new_key, saved = config_manager.generate_api_key()
     return {
         "status": "generated",
         "api_key": new_key,
-        "note": "Save this key securely. Use /api/config/save to persist.",
+        "saved": saved,
+        "note": "Saved to config file." if saved else "Use /api/config/save to persist.",
     }
 
 

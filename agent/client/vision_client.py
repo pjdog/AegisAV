@@ -65,11 +65,14 @@ class VisionClientConfig:
     Attributes:
         capture_interval_s (float): Seconds between captures.
         max_captures_per_inspection (int): Maximum captures per inspection.
+        simulated_inference_delay_ms (int): Extra delay per capture to simulate
+            constrained edge compute.
         enabled (bool): Whether the vision client is enabled.
     """
 
     capture_interval_s: float = 2.0
     max_captures_per_inspection: int = 10
+    simulated_inference_delay_ms: int = 0
     enabled: bool = True
 
 
@@ -124,6 +127,10 @@ class VisionClient:
         self.detector = detector
         self.image_manager = image_manager
         self._initialized = False
+
+    @property
+    def enabled(self) -> bool:
+        return bool(self.config.enabled)
 
     async def initialize(self) -> bool:
         """
@@ -218,6 +225,9 @@ class VisionClient:
                     results.best_detection_image = detection.image_path
 
                 results.max_severity = max(results.max_severity, detection.max_severity)
+
+            if self.config.simulated_inference_delay_ms > 0:
+                await asyncio.sleep(self.config.simulated_inference_delay_ms / 1000)
 
             capture_count += 1
 

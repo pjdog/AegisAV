@@ -14,6 +14,7 @@ from pathlib import Path
 import structlog
 import uvicorn
 import yaml
+from pydantic import ValidationError
 
 try:
     import logfire
@@ -23,7 +24,14 @@ from fastapi import Depends, FastAPI, HTTPException, WebSocket, WebSocketDisconn
 from fastapi.middleware.cors import CORSMiddleware
 
 from agent.api_models import ActionType, DecisionResponse, HealthResponse, VehicleStateRequest
+from agent.edge_config import (
+    EdgeComputeProfile,
+    apply_edge_compute_update,
+    available_edge_profiles,
+    default_edge_compute_config,
+)
 from agent.server.auth import APIKeyAuth, AuthConfig
+from agent.server.config_manager import get_config_manager
 from agent.server.critics import AuthorityModel, CriticOrchestrator
 from agent.server.dashboard import add_dashboard_routes
 from agent.server.decision import Decision
@@ -88,6 +96,9 @@ class ServerState:
         # Phase 3: Vision system
         self.vision_service = None  # Initialized in lifespan if enabled
         self.vision_enabled = False
+
+        # Edge compute simulation profile (client reads this config)
+        self.edge_config = default_edge_compute_config(EdgeComputeProfile.SBC_CPU)
 
         # Phase 4: Persistence (Redis)
         self.store = None  # Initialized in lifespan
@@ -198,6 +209,7 @@ async def lifespan(_app: FastAPI):
 
         vision_enabled = vision_config.get("vision", {}).get("enabled", False)
         if vision_enabled:
+            # Vision is explicitly enabled - fail loudly if it doesn't work
             try:
                 vision_service_config = VisionServiceConfig(
                     confidence_threshold=vision_config.get("vision", {})
@@ -220,25 +232,48 @@ async def lifespan(_app: FastAPI):
                 logger.info("vision_service_initialized")
 
             except Exception as e:
-                logger.error("vision_service_init_failed", error=str(e))
-                server_state.vision_enabled = False
-    else:
-        logger.info("vision_config_not_found", message="Vision system disabled")
-
-    # Initialize Redis persistence
-    try:
-        server_state.store = create_store(RedisConfig())
-        connected = await server_state.store.connect()
-        if connected:
-            server_state.persistence_enabled = True
-            logger.info("persistence_initialized", type="redis")
+                raise RuntimeError(
+                    f"Vision system initialization failed: {e}. "
+                    "Set vision.enabled=false in config to disable vision."
+                ) from e
         else:
-            logger.warning("persistence_fallback", type="in_memory")
-    except Exception as e:
-        logger.warning("persistence_init_failed", error=str(e), fallback="in_memory")
-        from agent.server.persistence import InMemoryStore
+            logger.info("vision_config_disabled", message="Vision system disabled in config")
+    else:
+        logger.info("vision_config_not_found", message="Vision config file not found, vision disabled")
+
+    # Initialize persistence based on config
+    config = get_config_manager().config
+    if config.redis.enabled:
+        # Redis is explicitly enabled - fail loudly if it doesn't work
+        try:
+            redis_config = RedisConfig(
+                host=config.redis.host,
+                port=config.redis.port,
+                db=config.redis.db,
+                password=config.redis.password,
+            )
+            server_state.store = create_store(redis_config)
+            connected = await server_state.store.connect()
+            if connected:
+                server_state.persistence_enabled = True
+                logger.info("persistence_initialized", type="redis", host=config.redis.host)
+            else:
+                raise RuntimeError(
+                    f"Redis connection failed to {config.redis.host}:{config.redis.port}. "
+                    "Set redis.enabled=false in config to use in-memory storage."
+                )
+        except Exception as e:
+            raise RuntimeError(
+                f"Redis persistence failed: {e}. "
+                "Set redis.enabled=false in config to use in-memory storage."
+            ) from e
+    else:
+        # Redis disabled - use in-memory (this is expected, not a fallback)
+        from agent.server.persistence import InMemoryStore  # noqa: PLC0415
         server_state.store = InMemoryStore()
         await server_state.store.connect()
+        server_state.persistence_enabled = False
+        logger.info("persistence_initialized", type="in_memory", reason="redis_disabled")
 
     server_state.current_run_id = server_state.decision_logger.start_run()
     logger.info("server_started")
@@ -302,6 +337,28 @@ async def update_agent_config(config: dict):
     enabled = config.get("use_advanced_engine", True)
     await server_state.goal_selector.orchestrate(enabled)
     return {"status": "success", "use_advanced_engine": enabled}
+
+
+@app.get("/api/config/edge")
+async def get_edge_config():
+    """Return the current edge compute simulation configuration."""
+    return {
+        "edge_config": server_state.edge_config.model_dump(mode="json"),
+        "profiles": available_edge_profiles(),
+    }
+
+
+@app.post("/api/config/edge")
+async def update_edge_config(config: dict):
+    """Update edge compute simulation configuration (supports partial updates)."""
+    try:
+        server_state.edge_config = apply_edge_compute_update(server_state.edge_config, config)
+    except ValidationError as e:
+        raise HTTPException(status_code=422, detail=e.errors()) from e
+    except (TypeError, ValueError) as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+    return {"status": "success", "edge_config": server_state.edge_config.model_dump(mode="json")}
 
 
 if logfire:
@@ -377,7 +434,7 @@ async def health_check() -> HealthResponse:
 
 
 @app.get("/api/storage/stats")
-async def get_storage_stats(auth: dict = Depends(auth_handler)) -> dict:
+async def get_storage_stats(_auth: dict = Depends(auth_handler)) -> dict:
     """Get storage statistics (requires API key)."""
     if server_state.store:
         stats = await server_state.store.get_stats()
@@ -387,7 +444,7 @@ async def get_storage_stats(auth: dict = Depends(auth_handler)) -> dict:
 
 
 @app.get("/api/storage/anomalies")
-async def get_stored_anomalies(limit: int = 50, auth: dict = Depends(auth_handler)) -> dict:
+async def get_stored_anomalies(limit: int = 50, _auth: dict = Depends(auth_handler)) -> dict:
     """Get recent anomalies from storage."""
     if server_state.store:
         anomalies = await server_state.store.get_recent_anomalies(limit=limit)
@@ -396,12 +453,158 @@ async def get_stored_anomalies(limit: int = 50, auth: dict = Depends(auth_handle
 
 
 @app.get("/api/storage/missions")
-async def get_stored_missions(limit: int = 20, auth: dict = Depends(auth_handler)) -> dict:
+async def get_stored_missions(limit: int = 20, _auth: dict = Depends(auth_handler)) -> dict:
     """Get recent missions from storage."""
     if server_state.store:
         missions = await server_state.store.get_recent_missions(limit=limit)
         return {"missions": missions, "count": len(missions)}
     return {"missions": [], "count": 0}
+
+
+# Configuration API Endpoints
+@app.get("/api/config")
+async def get_all_config(_auth: dict = Depends(auth_handler)) -> dict:
+    """Get complete configuration."""
+    config_manager = get_config_manager()
+    return {
+        "config": config_manager.get_all(),
+        "config_file": str(config_manager.config_file),
+        "loaded": config_manager._loaded,
+    }
+
+
+@app.get("/api/config/{section}")
+async def get_config_section(section: str, _auth: dict = Depends(auth_handler)) -> dict:
+    """Get a specific configuration section."""
+    config_manager = get_config_manager()
+    section_data = config_manager.get_section(section)
+
+    if section_data is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Unknown configuration section: {section}. "
+            f"Valid sections: server, redis, auth, vision, simulation, agent, dashboard",
+        )
+
+    return {"section": section, "config": section_data}
+
+
+@app.put("/api/config/{section}")
+async def update_config_section(
+    section: str, values: dict, _auth: dict = Depends(auth_handler)
+) -> dict:
+    """Update a configuration section."""
+    config_manager = get_config_manager()
+
+    # Validate section exists
+    if not hasattr(config_manager.config, section):
+        raise HTTPException(
+            status_code=404,
+            detail=f"Unknown configuration section: {section}",
+        )
+
+    # Update section
+    success = config_manager.update_section(section, values)
+    if not success:
+        raise HTTPException(status_code=400, detail="Failed to update configuration")
+
+    # Validate new config
+    errors = config_manager.validate()
+    if errors:
+        # Roll back by reloading
+        config_manager.load()
+        raise HTTPException(
+            status_code=400,
+            detail=f"Configuration validation failed: {', '.join(errors)}",
+        )
+
+    return {
+        "status": "updated",
+        "section": section,
+        "config": config_manager.get_section(section),
+    }
+
+
+@app.post("/api/config/save")
+async def save_config(_auth: dict = Depends(auth_handler)) -> dict:
+    """Save current configuration to file."""
+    config_manager = get_config_manager()
+
+    # Validate before saving
+    errors = config_manager.validate()
+    if errors:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Configuration validation failed: {', '.join(errors)}",
+        )
+
+    success = config_manager.save()
+    if not success:
+        raise HTTPException(status_code=500, detail="Failed to save configuration")
+
+    return {"status": "saved", "path": str(config_manager.config_file)}
+
+
+@app.post("/api/config/reload")
+async def reload_config(_auth: dict = Depends(auth_handler)) -> dict:
+    """Reload configuration from file."""
+    config_manager = get_config_manager()
+    config_manager.load()
+    return {"status": "reloaded", "config": config_manager.get_all()}
+
+
+@app.post("/api/config/reset/{section}")
+async def reset_config_section(section: str, _auth: dict = Depends(auth_handler)) -> dict:
+    """Reset a configuration section to defaults."""
+    config_manager = get_config_manager()
+
+    success = config_manager.reset_section(section)
+    if not success:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Unknown configuration section: {section}",
+        )
+
+    return {
+        "status": "reset",
+        "section": section,
+        "config": config_manager.get_section(section),
+    }
+
+
+@app.post("/api/config/reset")
+async def reset_all_config(_auth: dict = Depends(auth_handler)) -> dict:
+    """Reset all configuration to defaults."""
+    config_manager = get_config_manager()
+    config_manager.reset_all()
+    return {"status": "reset", "config": config_manager.get_all()}
+
+
+@app.get("/api/config/validate")
+async def validate_config(_auth: dict = Depends(auth_handler)) -> dict:
+    """Validate current configuration."""
+    config_manager = get_config_manager()
+    errors = config_manager.validate()
+    return {"valid": len(errors) == 0, "errors": errors}
+
+
+@app.post("/api/config/generate-api-key")
+async def generate_api_key(_auth: dict = Depends(auth_handler)) -> dict:
+    """Generate a new API key."""
+    config_manager = get_config_manager()
+    new_key = config_manager.generate_api_key()
+    return {
+        "status": "generated",
+        "api_key": new_key,
+        "note": "Save this key securely. Use /api/config/save to persist.",
+    }
+
+
+@app.get("/api/config/env-template")
+async def get_env_template() -> dict:
+    """Get environment variable template."""
+    config_manager = get_config_manager()
+    return {"template": config_manager.export_env_template()}
 
 
 @app.post("/api/execution_event")

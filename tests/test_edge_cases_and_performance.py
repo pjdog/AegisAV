@@ -97,6 +97,7 @@ async def test_invalid_decision_parameters():
 
 
 @pytest.mark.asyncio
+@pytest.mark.allow_error_logs
 async def test_none_values_in_world_snapshot():
     """Test handling of None/missing values in world snapshot."""
     orchestrator = CriticOrchestrator(authority_model=AuthorityModel.ESCALATION)
@@ -324,6 +325,7 @@ async def test_outcome_tracker_performance():
 
 
 @pytest.mark.asyncio
+@pytest.mark.allow_error_logs
 async def test_extreme_risk_values():
     """Test handling of extreme risk values (0.0, 1.0)."""
     orchestrator = CriticOrchestrator(authority_model=AuthorityModel.ESCALATION)

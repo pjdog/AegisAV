@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import SettingsPanel from "./SettingsPanel";
 import SpatialView from "./SpatialView";
 
 type RunSummary = {
@@ -54,6 +55,28 @@ type RunData = {
   risk_series: SeriesPoint[];
   battery_series: SeriesPoint[];
   recent: RecentEntry[];
+};
+
+type EdgeComputeConfig = {
+  profile: string;
+  vision_enabled: boolean;
+  capture_interval_s: number;
+  max_captures_per_inspection: number;
+  simulated_inference_delay_ms: number;
+  client_confidence_threshold: number;
+  anomaly_gate: {
+    mode: string;
+    min_confidence: number;
+    min_severity: number;
+    n?: number | null;
+    m?: number | null;
+    min_severity_override?: number | null;
+  };
+  uplink: {
+    summary_only: boolean;
+    send_images: boolean;
+    max_images: number;
+  };
 };
 
 const LogViewer = ({ logs }: { logs: LogEntry[] }) => {
@@ -150,6 +173,9 @@ const Dashboard = () => {
   const [status, setStatus] = useState<string>("Initializing");
   const [lastUpdated, setLastUpdated] = useState<string>("--");
   const [useAdvancedEngine, setUseAdvancedEngine] = useState<boolean>(true);
+  const [showSettings, setShowSettings] = useState<boolean>(false);
+  const [edgeConfig, setEdgeConfig] = useState<EdgeComputeConfig | null>(null);
+  const [edgeProfiles, setEdgeProfiles] = useState<string[]>([]);
 
   const loadRun = useCallback(async () => {
     try {
@@ -170,6 +196,12 @@ const Dashboard = () => {
       const configResp = await fetch("/api/config/agent");
       const configData = await configResp.json();
       setUseAdvancedEngine(configData.use_advanced_engine);
+
+      // Load edge compute config
+      const edgeResp = await fetch("/api/config/edge");
+      const edgeData = await edgeResp.json();
+      setEdgeConfig(edgeData.edge_config ?? null);
+      setEdgeProfiles(edgeData.profiles ?? []);
 
       // Load live logs
       const logsResp = await fetch("/api/logs");
@@ -196,6 +228,20 @@ const Dashboard = () => {
     }
   };
 
+  const updateEdgeProfile = async (profile: string) => {
+    try {
+      const resp = await fetch("/api/config/edge", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ profile }),
+      });
+      const data = await resp.json();
+      setEdgeConfig(data.edge_config ?? null);
+    } catch (error) {
+      console.error("Failed to update edge profile", error);
+    }
+  };
+
   useEffect(() => {
     loadRun();
     const timer = window.setInterval(loadRun, 5000);
@@ -218,6 +264,26 @@ const Dashboard = () => {
             <span className="meta-value">{useAdvancedEngine ? "LLM ACTIVE" : "RULES ONLY"}</span>
           </div>
           <div className="hero-card">
+            <span className="meta-label">Edge Compute</span>
+            <select
+              className="meta-select"
+              value={edgeConfig?.profile ?? ""}
+              onChange={(e) => updateEdgeProfile(e.target.value)}
+              disabled={!edgeProfiles.length}
+            >
+              {(edgeProfiles.length ? edgeProfiles : [edgeConfig?.profile ?? ""]).map((p) => (
+                <option key={p} value={p}>
+                  {p}
+                </option>
+              ))}
+            </select>
+            <span className="meta-sub">
+              {edgeConfig
+                ? `${edgeConfig.max_captures_per_inspection} caps • ${edgeConfig.simulated_inference_delay_ms}ms`
+                : "--"}
+            </span>
+          </div>
+          <div className="hero-card">
             <span className="meta-label">Mission ID</span>
             <span className="meta-value">{runId ?? "--"}</span>
           </div>
@@ -231,8 +297,13 @@ const Dashboard = () => {
             <span className="meta-label">Last Sync</span>
             <span className="meta-value">{lastUpdated}</span>
           </div>
+          <button className="settings-btn" onClick={() => setShowSettings(true)} title="Settings">
+            ⚙
+          </button>
         </div>
       </header>
+
+      {showSettings && <SettingsPanel onClose={() => setShowSettings(false)} />}
 
       <section className="grid">
         <article className="card primary">

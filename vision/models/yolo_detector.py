@@ -13,8 +13,6 @@ import time
 from pathlib import Path
 from typing import Any
 
-import numpy as np
-
 from vision.data_models import (
     BoundingBox,
     Detection,

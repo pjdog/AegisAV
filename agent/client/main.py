@@ -14,10 +14,14 @@ from pathlib import Path
 from typing import Any
 
 import yaml
+from pydantic import ValidationError
 
 from agent.client.action_executor import ActionExecutor, ExecutionState
+from agent.client.edge_policy import apply_edge_config_to_vision_client
+from agent.client.feedback import build_feedback
 from agent.client.state_collector import CollectorConfig, StateCollector
 from agent.client.vision_client import VisionClient, VisionClientConfig
+from agent.edge_config import EdgeComputeConfig, EdgeComputeProfile, default_edge_compute_config
 from autonomy.mavlink_interface import MAVLinkConfig, MAVLinkInterface
 from vision.camera.simulated import DefectConfig, SimulatedCamera, SimulatedCameraConfig
 from vision.image_manager import ImageManager
@@ -56,9 +60,27 @@ class AgentClient:
         self.state_collector = StateCollector(self.mavlink, collector_config)
         self.vision_client = vision_client
         self.action_executor = ActionExecutor(self.mavlink, vision_client=vision_client)
+        self.edge_config: EdgeComputeConfig = default_edge_compute_config(EdgeComputeProfile.SBC_CPU)
 
         self._running = False
         self._shutdown_event = asyncio.Event()
+
+    async def _refresh_edge_config(self) -> None:
+        payload = await self.state_collector.get_edge_config()
+        if not payload or not isinstance(payload, dict):
+            return
+
+        edge_payload = payload.get("edge_config")
+        if not isinstance(edge_payload, dict):
+            return
+
+        try:
+            self.edge_config = EdgeComputeConfig.model_validate(edge_payload)
+        except ValidationError:
+            return
+
+        if self.vision_client:
+            apply_edge_config_to_vision_client(self.vision_client, self.edge_config)
 
     async def connect(self) -> bool:
         """Connect to vehicle and verify server."""
@@ -72,6 +94,9 @@ class AgentClient:
         logger.info("Checking agent server...")
         if not await self.state_collector.check_server_health():
             logger.warning("Agent server not responding, will retry during operation")
+
+        # Pull current edge-compute profile (best-effort)
+        await self._refresh_edge_config()
 
         # Initialize optional client-side vision
         if self.vision_client:
@@ -99,9 +124,18 @@ class AgentClient:
         logger.info("Agent client running")
 
         try:
+            last_edge_refresh = 0.0
+            loop_time = asyncio.get_running_loop().time
+
             async for decision in self.state_collector.run():
                 if not self._running:
                     break
+
+                # Periodically refresh edge config from server
+                now = loop_time()
+                if now - last_edge_refresh >= 5.0:
+                    await self._refresh_edge_config()
+                    last_edge_refresh = now
 
                 # Execute the decision (including wait/none for outcome tracking)
                 result = await self.action_executor.execute(decision)
@@ -112,7 +146,12 @@ class AgentClient:
                     logger.info("Action completed in %.1fs", result.duration_s)
 
                 # Send feedback to server to close the loop
-                feedback = _build_feedback(decision, result, self.action_executor)
+                feedback = build_feedback(
+                    decision=decision,
+                    result=result,
+                    inspection_results=self.action_executor.get_last_inspection_results(),
+                    edge=self.edge_config,
+                )
                 if feedback.get("decision_id") and feedback["decision_id"] != "unknown":
                     await self.state_collector.send_feedback(feedback)
 
@@ -230,75 +269,6 @@ def _build_vision_client(vision_config: dict[str, Any]) -> VisionClient | None:
         image_manager=image_manager,
         config=vision_client_config,
     )
-
-
-def _build_feedback(
-    decision: dict[str, Any],
-    result: Any,
-    action_executor: ActionExecutor,
-) -> dict[str, Any]:
-    # Map execution result to server-side ExecutionStatus enum values
-    status = "failed"
-    if result.state == ExecutionState.COMPLETED:
-        status = "success"
-    elif result.state == ExecutionState.ABORTED:
-        status = "aborted"
-
-    decision_id = decision.get("decision_id", "unknown")
-    action = decision.get("action", "none")
-    parameters = decision.get("parameters", {}) if isinstance(decision.get("parameters"), dict) else {}
-
-    feedback: dict[str, Any] = {
-        "decision_id": decision_id,
-        "status": status,
-        "duration_s": getattr(result, "duration_s", None),
-        "mission_objective_achieved": status == "success" and action != "abort",
-        "asset_inspected": parameters.get("asset_id") if action == "inspect" else None,
-        "anomaly_detected": False,
-        "errors": [result.message] if result.state == ExecutionState.FAILED and result.message else [],
-        "notes": result.message or None,
-    }
-
-    # Attach inspection vision payload if available
-    if action == "inspect":
-        inspection_results = action_executor.get_last_inspection_results()
-        asset_id = parameters.get("asset_id")
-        if inspection_results and (asset_id is None or inspection_results.asset_id == asset_id):
-            defect_detections = [d for d in inspection_results.detections if d.detected_defects]
-            best_detection = None
-            if defect_detections:
-                best_detection = max(defect_detections, key=lambda d: d.max_confidence)
-            elif inspection_results.detections:
-                best_detection = max(inspection_results.detections, key=lambda d: d.max_confidence)
-
-            best_image_path = best_detection.image_path if best_detection else None
-            best_capture = None
-            if best_image_path:
-                best_capture = next(
-                    (c for c in inspection_results.captures if c.image_path == best_image_path),
-                    None,
-                )
-
-            vehicle_state = None
-            if best_capture and isinstance(best_capture.metadata, dict):
-                vehicle_state = best_capture.metadata.get("vehicle_state")
-
-            anomaly_detected = inspection_results.defects_detected > 0
-            feedback["anomaly_detected"] = anomaly_detected
-            feedback["inspection_data"] = {
-                "asset_id": inspection_results.asset_id,
-                "vehicle_state": vehicle_state,
-                "vision": {
-                    "summary": inspection_results.to_dict(),
-                    "best_image_path": str(best_image_path) if best_image_path else None,
-                    "best_detection": (
-                        best_detection.model_dump(mode="json") if best_detection else None
-                    ),
-                    "vehicle_state": vehicle_state,
-                },
-            }
-
-    return feedback
 
 
 async def async_main(args: argparse.Namespace) -> None:

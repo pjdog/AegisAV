@@ -5,7 +5,6 @@ Provides persistent storage for AegisAV using Redis.
 Stores assets, anomalies, inspection history, and mission state.
 """
 
-import asyncio
 import json
 import logging
 from datetime import datetime, timedelta
@@ -767,8 +766,9 @@ class InMemoryStore:
         return False
 
     async def add_detection(
-        self, asset_id: str, detection: BaseModel | dict, timestamp: datetime | None = None
+        self, asset_id: str, detection: BaseModel | dict, _timestamp: datetime | None = None
     ) -> bool:
+        """Add detection. Note: timestamp is ignored in memory store."""
         data = detection.model_dump() if isinstance(detection, BaseModel) else detection
         if asset_id not in self._detections:
             self._detections[asset_id] = []
@@ -776,8 +776,9 @@ class InMemoryStore:
         return True
 
     async def get_detections_for_asset(
-        self, asset_id: str, limit: int = 50, since: datetime | None = None
+        self, asset_id: str, limit: int = 50, _since: datetime | None = None
     ) -> list[dict]:
+        """Get detections. Note: since filter is ignored in memory store."""
         return self._detections.get(asset_id, [])[:limit]
 
     async def add_telemetry(self, vehicle_id: str, telemetry: dict) -> bool:
@@ -790,8 +791,9 @@ class InMemoryStore:
         return True
 
     async def get_telemetry(
-        self, vehicle_id: str, since: datetime | None = None, limit: int = 100
+        self, vehicle_id: str, _since: datetime | None = None, limit: int = 100
     ) -> list[dict]:
+        """Get telemetry. Note: since filter is ignored in memory store."""
         return self._telemetry.get(vehicle_id, [])[-limit:]
 
     async def get_latest_telemetry(self, vehicle_id: str) -> dict | None:

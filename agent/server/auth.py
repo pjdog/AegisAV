@@ -5,8 +5,6 @@ Simple API key authentication for the AegisAV server.
 Supports both header-based and query parameter authentication.
 """
 
-import hashlib
-import hmac
 import logging
 import os
 import secrets
@@ -264,8 +262,7 @@ def require_auth(
 
 
 # Optional authentication - doesn't fail if no key provided
-async def optional_auth(
-    request: Request,
+def optional_auth(
     api_key_header: str | None = Security(api_key_header),
     api_key_query: str | None = Security(api_key_query),
 ) -> dict:

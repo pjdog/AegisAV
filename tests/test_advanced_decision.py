@@ -105,6 +105,7 @@ async def test_advanced_decision_low_battery_mock(mock_world_snapshot):
 
 
 @pytest.mark.asyncio
+@pytest.mark.allow_error_logs
 async def test_advanced_decision_fallback(mock_world_snapshot):
     """Verify fallback behavior when the LLM decision fails."""
     # Test fallback if agent fails

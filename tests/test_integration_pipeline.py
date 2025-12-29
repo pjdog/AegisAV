@@ -199,6 +199,7 @@ async def test_normal_decision_approved_by_critics(good_world_snapshot, low_risk
 
 
 @pytest.mark.asyncio
+@pytest.mark.allow_error_logs
 async def test_decision_blocked_by_low_battery(low_battery_vehicle_state, high_risk):
     """Test that critics block unsafe decision with low battery."""
     # Setup
@@ -365,6 +366,7 @@ async def test_feedback_for_unknown_decision():
 
 
 @pytest.mark.asyncio
+@pytest.mark.allow_error_logs
 async def test_advisory_mode_always_approves():
     """Test that ADVISORY mode never blocks decisions."""
     orchestrator = CriticOrchestrator(authority_model=AuthorityModel.ADVISORY)

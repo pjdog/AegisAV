@@ -3,11 +3,13 @@ Integration test configuration and fixtures.
 """
 
 import asyncio
+import logging
 import sys
 import tempfile
 from collections.abc import Generator
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -282,3 +284,76 @@ def integration_test_setup():
 # Ensure directories exist
 for directory in [TEST_CONFIG_DIR, TEST_DATA_DIR, TEST_LOGS_DIR]:
     directory.mkdir(exist_ok=True)
+
+
+class ErrorLogCapture(logging.Handler):
+    """Handler that captures ERROR and above log records."""
+
+    def __init__(self):
+        super().__init__(level=logging.ERROR)
+        self.records: list[logging.LogRecord] = []
+
+    def emit(self, record: logging.LogRecord) -> None:
+        self.records.append(record)
+
+    def clear(self) -> None:
+        self.records.clear()
+
+    def get_errors(self) -> list[dict[str, Any]]:
+        """Return captured errors as dicts for assertion messages."""
+        return [
+            {
+                "level": record.levelname,
+                "logger": record.name,
+                "message": record.getMessage(),
+                "filename": record.filename,
+                "lineno": record.lineno,
+            }
+            for record in self.records
+        ]
+
+
+@pytest.fixture(autouse=True)
+def fail_on_error_logs(request):
+    """
+    Fixture that fails tests if any ERROR level logs are emitted.
+
+    This helps catch silent failures where code logs an error but continues
+    to return a fallback value instead of raising an exception.
+
+    To skip this check for a specific test, mark it with:
+        @pytest.mark.allow_error_logs
+    """
+    # Skip if test is marked to allow error logs
+    if request.node.get_closest_marker("allow_error_logs"):
+        yield
+        return
+
+    # Install the error capture handler
+    handler = ErrorLogCapture()
+    root_logger = logging.getLogger()
+    root_logger.addHandler(handler)
+
+    yield handler
+
+    # Remove handler
+    root_logger.removeHandler(handler)
+
+    # Check for errors
+    errors = handler.get_errors()
+    if errors:
+        error_details = "\n".join(
+            f"  [{e['level']}] {e['logger']}: {e['message']} ({e['filename']}:{e['lineno']})"
+            for e in errors
+        )
+        pytest.fail(
+            f"Test emitted {len(errors)} error log(s):\n{error_details}\n\n"
+            "If this error is expected, mark the test with @pytest.mark.allow_error_logs"
+        )
+
+
+# Register the custom marker
+def pytest_configure(config):
+    config.addinivalue_line(
+        "markers", "allow_error_logs: mark test to allow ERROR level log messages"
+    )

@@ -151,6 +151,30 @@ class StateCollector:
         except Exception:
             return False
 
+    async def get_edge_config(self) -> dict | None:
+        """
+        Fetch the edge compute simulation configuration from the server.
+
+        Returns:
+            Response dict from `/api/config/edge`, or None if failed.
+        """
+        if not self._http_client:
+            self._http_client = httpx.AsyncClient(timeout=self.config.http_timeout_s)
+
+        try:
+            response = await self._http_client.get(f"{self.config.server_url}/api/config/edge")
+            response.raise_for_status()
+            return response.json()
+        except httpx.TimeoutException:
+            logger.warning("Edge config request timed out")
+            return None
+        except httpx.HTTPStatusError as e:
+            logger.error("Edge config server error: %s", e.response.status_code)
+            return None
+        except Exception as e:
+            logger.error("Failed to fetch edge config: %s", e)
+            return None
+
     async def send_feedback(self, feedback: dict[str, Any]) -> dict | None:
         """
         Send decision execution feedback to the agent server.

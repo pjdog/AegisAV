@@ -267,6 +267,7 @@ async def test_llm_evaluation_with_concerns(good_world_snapshot, borderline_risk
 
 
 @pytest.mark.asyncio
+@pytest.mark.allow_error_logs
 async def test_llm_fallback_on_error(good_world_snapshot, borderline_risk):
     """Test that system falls back to classical evaluation if LLM fails."""
     critic = SafetyCritic(llm_model="gpt-4o-mini")
@@ -420,6 +421,7 @@ async def test_explanation_agent_llm_explanation(good_world_snapshot, borderline
 
 
 @pytest.mark.asyncio
+@pytest.mark.allow_error_logs
 async def test_explanation_agent_fallback_on_llm_failure(good_world_snapshot, borderline_risk):
     """Test explanation agent falls back gracefully if LLM fails."""
     agent = ExplanationAgent(llm_model="gpt-4o-mini")

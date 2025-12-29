@@ -54,3 +54,9 @@ secrets.*
 *.pfx
 *.jks
 *.keystore
+
+# Configuration files with secrets
+# Keep template files, exclude actual configs
+configs/aegis_config.yaml
+!configs/aegis_config.*.yaml
+.env

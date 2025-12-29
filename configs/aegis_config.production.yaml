@@ -1,0 +1,85 @@
+# AegisAV Production Configuration
+# Use this as a template for production deployments
+#
+# Copy to aegis_config.yaml and customize:
+#   cp aegis_config.production.yaml aegis_config.yaml
+
+config_version: "1.0.0"
+
+# Server Settings (production hardened)
+server:
+  host: "0.0.0.0"
+  port: 8080
+  log_level: "WARNING"  # Reduce logging in production
+  cors_origins:
+    - "https://your-domain.com"  # Restrict CORS to your domain
+
+# Redis Persistence (required for production)
+redis:
+  enabled: true
+  host: "redis"           # Use hostname in Docker/K8s
+  port: 6379
+  db: 0
+  password: null          # Set via AEGIS_REDIS_PASSWORD env var
+
+  # Production TTL settings
+  telemetry_ttl_hours: 24
+  detection_ttl_days: 30
+  anomaly_ttl_days: 90
+  mission_ttl_days: 365
+
+# API Authentication (required for production)
+auth:
+  enabled: true
+  api_key: null           # Set via AEGIS_API_KEY env var
+  rate_limit_per_minute: 60
+
+  public_endpoints:
+    - "/health"
+    - "/docs"
+    - "/openapi.json"
+
+# Vision System (GPU-accelerated)
+vision:
+  enabled: true
+  use_real_detector: true
+  model_path: "yolov8m.pt"  # Medium model for better accuracy
+  device: "cuda"            # Use GPU
+  confidence_threshold: 0.6
+  iou_threshold: 0.5
+  image_size: 1280          # Higher resolution
+
+  camera_resolution:
+    - 3840
+    - 2160                  # 4K capture
+  save_images: true
+  image_output_dir: "/data/vision/captures"
+
+# Simulation Settings (disabled in production)
+simulation:
+  enabled: false
+  airsim_enabled: false
+  sitl_enabled: false
+
+# Agent Decision-Making
+agent:
+  use_llm: true
+  llm_model: "gpt-4o"       # Use full GPT-4o for production
+
+  # Conservative safety thresholds
+  battery_warning_percent: 40.0
+  battery_critical_percent: 25.0
+  wind_warning_ms: 6.0
+  wind_abort_ms: 10.0
+
+  decision_interval_seconds: 0.5
+  max_decisions_per_mission: 5000
+
+# Dashboard UI Settings
+dashboard:
+  refresh_rate_ms: 2000
+  map_provider: "mapbox"
+  show_telemetry: true
+  show_vision: true
+  show_reasoning: true
+  theme: "dark"

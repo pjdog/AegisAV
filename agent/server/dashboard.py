@@ -3,13 +3,13 @@ Dashboard routes for monitoring agent activity.
 """
 
 import json
+import math
 from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-import math
 
 
 def _load_entries(run_file: Path) -> list[dict[str, Any]]:
@@ -122,7 +122,7 @@ def _recent(entries: list[dict[str, Any]], limit: int = 12) -> list[dict[str, An
                     "x": rel["x"],
                     "y": rel["y"],
                 })
-        
+
         item["spatial_context"] = spatial_context
         items.append(item)
     return items

@@ -1,0 +1,87 @@
+# AegisAV Development Configuration
+# Optimized for local development and testing
+#
+# Copy to aegis_config.yaml:
+#   cp aegis_config.development.yaml aegis_config.yaml
+
+config_version: "1.0.0"
+
+# Server Settings (development friendly)
+server:
+  host: "0.0.0.0"
+  port: 8080
+  log_level: "DEBUG"      # Verbose logging for debugging
+  cors_origins:
+    - "*"                 # Allow all origins in dev
+
+# Redis Persistence (optional in dev)
+redis:
+  enabled: false          # Use in-memory store for quick testing
+  host: "localhost"
+  port: 6379
+  db: 0
+
+  telemetry_ttl_hours: 1
+  detection_ttl_days: 1
+  anomaly_ttl_days: 7
+  mission_ttl_days: 7
+
+# API Authentication (disabled in dev)
+auth:
+  enabled: false
+  rate_limit_per_minute: 1000
+
+  public_endpoints:
+    - "/"                 # All endpoints public in dev
+
+# Vision System (mock detector for fast iteration)
+vision:
+  enabled: true
+  use_real_detector: false  # Use mock detector (no GPU needed)
+  model_path: "yolov8n.pt"
+  device: "cpu"
+  confidence_threshold: 0.3   # Lower threshold to see more detections
+  iou_threshold: 0.4
+  image_size: 640
+
+  camera_resolution:
+    - 1280
+    - 720               # Lower resolution for faster processing
+  save_images: true
+  image_output_dir: "data/vision/captures"
+
+# Simulation Settings (enabled for dev)
+simulation:
+  enabled: true
+  airsim_enabled: true
+  airsim_host: "127.0.0.1"
+  airsim_vehicle_name: "Drone1"
+  sitl_enabled: true
+  ardupilot_path: "~/ardupilot"
+  sitl_speedup: 2.0       # Run simulation faster
+
+  home_latitude: 37.7749
+  home_longitude: -122.4194
+  home_altitude: 0.0
+
+# Agent Decision-Making
+agent:
+  use_llm: false          # Disable LLM for faster iteration (rules only)
+  llm_model: "gpt-4o-mini"
+
+  battery_warning_percent: 30.0
+  battery_critical_percent: 15.0
+  wind_warning_ms: 8.0
+  wind_abort_ms: 12.0
+
+  decision_interval_seconds: 0.5
+  max_decisions_per_mission: 100
+
+# Dashboard UI Settings
+dashboard:
+  refresh_rate_ms: 500    # Faster refresh for dev
+  map_provider: "openstreetmap"
+  show_telemetry: true
+  show_vision: true
+  show_reasoning: true
+  theme: "dark"

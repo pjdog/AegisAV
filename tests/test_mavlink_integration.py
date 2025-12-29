@@ -142,6 +142,7 @@ class TestMAVLinkInterface:
         mock_mavlink_connection.mav.set_position_target_global_int_send.assert_called()
 
     @pytest.mark.asyncio
+    @pytest.mark.allow_error_logs
     async def test_connection_timeout_handling(self):
         """Test handling of connection timeouts and reconnection."""
         with patch("pymavlink.mavutil.mavlink_connection") as mock_conn_func:

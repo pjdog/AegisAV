@@ -57,6 +57,36 @@ FORCE_PYTHON_DEPS=${FORCE_PYTHON_DEPS:-false}
 FORCE_ARDUPILOT=${FORCE_ARDUPILOT:-false}
 FORCE_AIRSIM=${FORCE_AIRSIM:-false}
 
+# CLI defaults (non-interactive)
+RUN_INTERACTIVE="false"
+CLEANUP="false"
+USE_DOCKER="true"
+INSTALL_DEPS="true"
+UPDATE_ARDUPILOT="false"
+
+SERVER_HOST="0.0.0.0"
+SERVER_PORT=8000
+REDIS_ENABLED="true"
+REDIS_HOST="localhost"
+REDIS_PORT=6379
+VISION_ENABLED="true"
+USE_REAL_DETECTOR="false"
+VISION_DEVICE="auto"
+YOLO_MODEL="yolov8n.pt"
+CONFIDENCE_THRESHOLD=0.5
+SIM_ENABLED="true"
+AIRSIM_ENABLED="true"
+AIRSIM_HOST="127.0.0.1"
+SITL_ENABLED="true"
+ARDUPILOT_PATH="~/ardupilot"
+SITL_SPEEDUP=1.0
+HOME_LAT=37.7749
+HOME_LON="-122.4194"
+HOME_ADDRESS="${HOME_ADDRESS:-}"
+USE_LLM="true"
+LLM_MODEL="gpt-4o-mini"
+AUTH_ENABLED="false"
+
 ensure_state_dir() { mkdir -p "$STATE_DIR"; }
 mark_done() { ensure_state_dir; touch "$1"; }
 
@@ -92,6 +122,303 @@ try:
 except Exception:
     sys.exit(1)
 PY
+}
+
+docker_available() {
+    command -v docker &> /dev/null && docker compose version &> /dev/null
+}
+
+setup_docker_compose() {
+    echo ""
+    echo "============================================================"
+    echo "  Docker Compose Setup"
+    echo "============================================================"
+    echo ""
+
+    if ! docker_available; then
+        print_warning "Docker Compose not available."
+        print_info "Install Docker Desktop (Windows) or Docker Engine + compose plugin (Linux), then re-run."
+        return 0
+    fi
+
+    print_info "Building and starting containers..."
+    docker compose up -d --build
+    print_status "Docker Compose services started"
+}
+
+usage() {
+    cat << 'EOF'
+Usage: ./simulation/setup_desktop.sh [options]
+
+Core options:
+  -h, --help                 Show this help text
+  --cleanup                  Stop containers and remove generated setup artifacts
+  --interactive              Run interactive prompts (overrides CLI defaults)
+
+Setup toggles:
+  --docker / --no-docker      Enable/disable Docker Compose setup (default: enabled)
+  --install-deps / --no-install-deps
+                             Enable/disable dependency installs (default: enabled)
+  --update-ardupilot         Update existing ArduPilot checkout before build
+  --no-update-ardupilot      Skip ArduPilot update (default)
+
+Config overrides:
+  --server-host HOST          Server bind host (default: 0.0.0.0)
+  --server-port PORT          Server port (default: 8000)
+  --redis / --no-redis         Enable/disable Redis persistence (default: enabled)
+  --redis-host HOST           Redis host (default: localhost)
+  --redis-port PORT           Redis port (default: 6379)
+  --vision / --no-vision       Enable/disable vision pipeline (default: enabled)
+  --real-detector             Use real YOLO detector
+  --mock-detector             Use mock detector
+  --vision-device DEVICE       auto|cpu|cuda (default: auto)
+  --yolo-model MODEL           YOLO model path (default: yolov8n.pt)
+  --confidence FLOAT           Detection confidence threshold (default: 0.5)
+  --sim / --no-sim             Enable/disable simulation (default: enabled)
+  --airsim / --no-airsim       Enable/disable AirSim integration (default: enabled)
+  --airsim-host HOST           AirSim host (default: 127.0.0.1)
+  --sitl / --no-sitl           Enable/disable ArduPilot SITL (default: enabled)
+  --ardupilot-path PATH         ArduPilot path (default: ~/ardupilot)
+  --sitl-speedup FLOAT          SITL speedup (default: 1.0)
+  --home-address "ADDRESS"      Geocode address to home lat/lon
+  --home-lat LAT                Home latitude (default: 37.7749)
+  --home-lon LON                Home longitude (default: -122.4194)
+  --llm / --no-llm              Enable/disable LLM decisions (default: enabled)
+  --llm-model MODEL             LLM model (default: gpt-4o-mini)
+  --auth / --no-auth            Enable/disable API auth (default: disabled)
+
+Examples:
+  ./simulation/setup_desktop.sh --no-install-deps --docker
+  ./simulation/setup_desktop.sh --home-address "Austin, TX" --redis-host redis
+EOF
+}
+
+require_arg() {
+    local flag="$1"
+    local value="${2:-}"
+    if [ -z "$value" ] || [[ "$value" == -* ]]; then
+        print_error "Missing value for $flag"
+        exit 1
+    fi
+}
+
+apply_home_address() {
+    if [ -n "${HOME_ADDRESS:-}" ]; then
+        print_info "Geocoding HOME_ADDRESS..."
+        GEO_RESULT=$(geocode_address "$HOME_ADDRESS" || true)
+        if [ -n "$GEO_RESULT" ]; then
+            HOME_LAT=$(echo "$GEO_RESULT" | awk '{print $1}')
+            HOME_LON=$(echo "$GEO_RESULT" | awk '{print $2}')
+            print_status "Home set to lat=${HOME_LAT}, lon=${HOME_LON}"
+        else
+            print_warning "HOME_ADDRESS lookup failed; using existing lat/lon."
+        fi
+    fi
+}
+
+cleanup_setup() {
+    echo ""
+    echo "============================================================"
+    echo "  Cleanup"
+    echo "============================================================"
+    echo ""
+
+    if docker_available; then
+        print_info "Stopping Docker Compose services..."
+        docker compose down --volumes --remove-orphans
+    fi
+
+    print_info "Removing generated setup artifacts..."
+    rm -f "$AEGISAV_DIR/.env" \
+        "$AEGISAV_DIR/start_simulation.sh" \
+        "$AEGISAV_DIR/start_server.sh" \
+        "$AEGISAV_DIR/start_airsim.bat"
+    rm -f "$AEGISAV_DIR/configs/aegis_config.yaml"
+    rm -rf "$STATE_DIR"
+
+    print_status "Cleanup complete"
+}
+
+parse_args() {
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            -h|--help)
+                usage
+                exit 0
+                ;;
+            --cleanup)
+                CLEANUP="true"
+                shift
+                ;;
+            --interactive)
+                RUN_INTERACTIVE="true"
+                shift
+                ;;
+            --docker)
+                USE_DOCKER="true"
+                shift
+                ;;
+            --no-docker)
+                USE_DOCKER="false"
+                shift
+                ;;
+            --install-deps)
+                INSTALL_DEPS="true"
+                shift
+                ;;
+            --no-install-deps)
+                INSTALL_DEPS="false"
+                shift
+                ;;
+            --update-ardupilot)
+                UPDATE_ARDUPILOT="true"
+                shift
+                ;;
+            --no-update-ardupilot)
+                UPDATE_ARDUPILOT="false"
+                shift
+                ;;
+            --server-host)
+                require_arg "$1" "$2"
+                SERVER_HOST="$2"
+                shift 2
+                ;;
+            --server-port)
+                require_arg "$1" "$2"
+                SERVER_PORT="$2"
+                shift 2
+                ;;
+            --redis)
+                REDIS_ENABLED="true"
+                shift
+                ;;
+            --no-redis)
+                REDIS_ENABLED="false"
+                shift
+                ;;
+            --redis-host)
+                require_arg "$1" "$2"
+                REDIS_HOST="$2"
+                shift 2
+                ;;
+            --redis-port)
+                require_arg "$1" "$2"
+                REDIS_PORT="$2"
+                shift 2
+                ;;
+            --vision)
+                VISION_ENABLED="true"
+                shift
+                ;;
+            --no-vision)
+                VISION_ENABLED="false"
+                shift
+                ;;
+            --real-detector)
+                USE_REAL_DETECTOR="true"
+                shift
+                ;;
+            --mock-detector)
+                USE_REAL_DETECTOR="false"
+                shift
+                ;;
+            --vision-device)
+                require_arg "$1" "$2"
+                VISION_DEVICE="$2"
+                shift 2
+                ;;
+            --yolo-model)
+                require_arg "$1" "$2"
+                YOLO_MODEL="$2"
+                shift 2
+                ;;
+            --confidence)
+                require_arg "$1" "$2"
+                CONFIDENCE_THRESHOLD="$2"
+                shift 2
+                ;;
+            --sim)
+                SIM_ENABLED="true"
+                shift
+                ;;
+            --no-sim)
+                SIM_ENABLED="false"
+                shift
+                ;;
+            --airsim)
+                AIRSIM_ENABLED="true"
+                shift
+                ;;
+            --no-airsim)
+                AIRSIM_ENABLED="false"
+                shift
+                ;;
+            --airsim-host)
+                require_arg "$1" "$2"
+                AIRSIM_HOST="$2"
+                shift 2
+                ;;
+            --sitl)
+                SITL_ENABLED="true"
+                shift
+                ;;
+            --no-sitl)
+                SITL_ENABLED="false"
+                shift
+                ;;
+            --ardupilot-path)
+                require_arg "$1" "$2"
+                ARDUPILOT_PATH="$2"
+                shift 2
+                ;;
+            --sitl-speedup)
+                require_arg "$1" "$2"
+                SITL_SPEEDUP="$2"
+                shift 2
+                ;;
+            --home-address)
+                require_arg "$1" "$2"
+                HOME_ADDRESS="$2"
+                shift 2
+                ;;
+            --home-lat)
+                require_arg "$1" "$2"
+                HOME_LAT="$2"
+                shift 2
+                ;;
+            --home-lon)
+                require_arg "$1" "$2"
+                HOME_LON="$2"
+                shift 2
+                ;;
+            --llm)
+                USE_LLM="true"
+                shift
+                ;;
+            --no-llm)
+                USE_LLM="false"
+                shift
+                ;;
+            --llm-model)
+                require_arg "$1" "$2"
+                LLM_MODEL="$2"
+                shift 2
+                ;;
+            --auth)
+                AUTH_ENABLED="true"
+                shift
+                ;;
+            --no-auth)
+                AUTH_ENABLED="false"
+                shift
+                ;;
+            *)
+                print_error "Unknown option: $1"
+                usage
+                exit 1
+                ;;
+        esac
+    done
 }
 
 # Detect environment
@@ -228,9 +555,9 @@ interactive_config() {
 
     # Redis settings
     echo ""
-    print_prompt "Enable Redis persistence? (y/N):"
+    print_prompt "Enable Redis persistence? (Y/n):"
     read -r REDIS_ENABLED
-    if [[ $REDIS_ENABLED =~ ^[Yy]$ ]]; then
+    if [[ ! $REDIS_ENABLED =~ ^[Nn]$ ]]; then
         REDIS_ENABLED="true"
         print_prompt "Redis host (default: localhost):"
         read -r REDIS_HOST
@@ -670,15 +997,13 @@ install_ardupilot() {
 
     if [ -d "$ARDUPILOT_DIR" ]; then
         print_warning "ArduPilot already exists at $ARDUPILOT_DIR"
-        print_prompt "Update existing installation? (y/N):"
-        read -r UPDATE_ARDUPILOT
-        if [[ $UPDATE_ARDUPILOT =~ ^[Yy]$ ]]; then
+        if [[ "$UPDATE_ARDUPILOT" == "true" ]]; then
             print_info "Updating ArduPilot repo and submodules..."
             cd "$ARDUPILOT_DIR"
             git pull
             git submodule update --init --recursive
         else
-            print_info "Skipping ArduPilot update."
+            print_info "Skipping ArduPilot update (use --update-ardupilot to update)."
         fi
     else
         print_info "Cloning ArduPilot (large repo, may take a while)..."
@@ -1016,6 +1341,12 @@ print_summary() {
     echo "GPU: $GPU_NAME ($GPU_TYPE)"
     echo "Vision device: $VISION_DEVICE"
     echo ""
+    if [[ "$USE_DOCKER" == "true" ]]; then
+        echo "Docker Compose:"
+        echo "  docker compose ps"
+        echo "  docker compose logs -f"
+        echo ""
+    fi
 
     if [[ "$OS" == "wsl" ]]; then
         echo "WSL2 Setup Instructions:"
@@ -1053,58 +1384,25 @@ print_summary() {
 
 # Main execution
 main() {
+    parse_args "$@"
+
+    if [[ "$CLEANUP" == "true" ]]; then
+        cleanup_setup
+        exit 0
+    fi
+
     detect_environment
 
-    echo ""
-    print_prompt "Run interactive configuration? (Y/n):"
-    read -r RUN_INTERACTIVE
-
-    if [[ ! $RUN_INTERACTIVE =~ ^[Nn]$ ]]; then
+    if [[ "$RUN_INTERACTIVE" == "true" ]]; then
         interactive_config
     else
-        # Use defaults
-        SERVER_HOST="0.0.0.0"
-        SERVER_PORT=8000
-        REDIS_ENABLED="false"
-        REDIS_HOST="localhost"
-        REDIS_PORT=6379
-        VISION_ENABLED="true"
-        USE_REAL_DETECTOR="false"
-        VISION_DEVICE="auto"
-        YOLO_MODEL="yolov8n.pt"
-        CONFIDENCE_THRESHOLD=0.5
-        SIM_ENABLED="true"
-        AIRSIM_ENABLED="true"
-        AIRSIM_HOST="127.0.0.1"
-        SITL_ENABLED="true"
-        ARDUPILOT_PATH="~/ardupilot"
-        SITL_SPEEDUP=1.0
-        HOME_LAT=37.7749
-        HOME_LON="-122.4194"
-        if [ -n "${HOME_ADDRESS:-}" ]; then
-            print_info "Geocoding HOME_ADDRESS..."
-            GEO_RESULT=$(geocode_address "$HOME_ADDRESS" || true)
-            if [ -n "$GEO_RESULT" ]; then
-                HOME_LAT=$(echo "$GEO_RESULT" | awk '{print $1}')
-                HOME_LON=$(echo "$GEO_RESULT" | awk '{print $2}')
-                print_status "Home set to lat=${HOME_LAT}, lon=${HOME_LON}"
-            else
-                print_warning "HOME_ADDRESS lookup failed; using default lat/lon."
-            fi
-        fi
-        USE_LLM="true"
-        LLM_MODEL="gpt-4o-mini"
-        AUTH_ENABLED="false"
+        apply_home_address
     fi
 
     generate_config
     generate_env_file
 
-    echo ""
-    print_prompt "Install dependencies and simulation tools? (Y/n):"
-    read -r INSTALL_DEPS
-
-    if [[ ! $INSTALL_DEPS =~ ^[Nn]$ ]]; then
+    if [[ "$INSTALL_DEPS" == "true" ]]; then
         install_dependencies
         install_python_deps
         install_ardupilot
@@ -1112,6 +1410,9 @@ main() {
     fi
 
     create_scripts
+    if [[ "$USE_DOCKER" == "true" ]]; then
+        setup_docker_compose
+    fi
     verify_airsim_running
     print_summary
 }

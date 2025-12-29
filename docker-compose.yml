@@ -1,6 +1,15 @@
 version: '3.8'
 
 services:
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    networks:
+      - aegis-net
+
   aegis-server:
     build:
       context: .
@@ -12,8 +21,13 @@ services:
     environment:
       - OPENAI_API_KEY=${OPENAI_API_KEY:-mock}
       - LOGFIRE_TOKEN=${LOGFIRE_TOKEN:-}
+      - AEGIS_REDIS_ENABLED=true
+      - AEGIS_REDIS_HOST=redis
+      - AEGIS_REDIS_PORT=6379
     networks:
       - aegis-net
+    depends_on:
+      - redis
 
   aegis-client:
     build:
@@ -30,3 +44,6 @@ services:
 networks:
   aegis-net:
     driver: bridge
+
+volumes:
+  redis-data:

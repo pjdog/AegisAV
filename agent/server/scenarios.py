@@ -275,7 +275,6 @@ def create_normal_operations_scenario() -> Scenario:
 
 def create_battery_cascade_scenario() -> Scenario:
     """Multiple drones experience battery issues requiring coordinated response."""
-    now = datetime.now()
     return Scenario(
         scenario_id="battery_cascade_001",
         name="Battery Cascade Emergency",

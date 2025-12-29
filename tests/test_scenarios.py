@@ -4,8 +4,6 @@ Tests for the multi-drone simulation scenarios module.
 
 from datetime import datetime, timedelta
 
-import pytest
-
 from agent.server.scenarios import (
     PRELOADED_SCENARIOS,
     DroneState,
@@ -26,7 +24,6 @@ from agent.server.scenarios import (
     get_scenario,
     get_scenarios_by_category,
     get_scenarios_by_difficulty,
-    initialize_preloaded_scenarios,
     register_scenario,
 )
 

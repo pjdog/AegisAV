@@ -4,25 +4,21 @@ Tests for the scenario runner module.
 
 import asyncio
 import tempfile
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
 
 import pytest
 
 from agent.server.scenario_runner import (
     DroneSimState,
-    ScenarioRunState,
     ScenarioRunner,
+    ScenarioRunState,
 )
 from agent.server.scenarios import (
     DroneState,
-    EnvironmentConditions,
     Scenario,
     ScenarioCategory,
-    ScenarioEvent,
-    SimulatedAsset,
     SimulatedDrone,
-    get_scenario,
 )
 
 
@@ -112,7 +108,7 @@ class TestScenarioRunner:
         """Test that world models are initialized for each drone."""
         await runner.load_scenario("normal_ops_001")
 
-        for drone_id, drone_state in runner.run_state.drone_states.items():
+        for _drone_id, drone_state in runner.run_state.drone_states.items():
             assert drone_state.world_model is not None
             # World model should have dock set
             assert drone_state.world_model._dock is not None
@@ -133,7 +129,7 @@ class TestScenarioRunner:
 
         # Run with very fast time scale and short duration
         runner.run_state.scenario.duration_minutes = 0.1  # 6 seconds simulated
-        result = await runner.run(time_scale=100.0, max_duration_s=5)
+        await runner.run(time_scale=100.0, max_duration_s=5)
 
         assert runner.run_state.elapsed_seconds > 0
         assert len(runner.run_state.decision_log) > 0
@@ -391,7 +387,7 @@ class TestScenarioRunnerRiskCalculation:
         """Test risk level string conversion."""
         await runner.load_scenario("normal_ops_001")
 
-        ds = list(runner.run_state.drone_states.values())[0]
+        ds = next(iter(runner.run_state.drone_states.values()))
 
         # Healthy drone should have low risk
         level = runner._risk_level(ds)

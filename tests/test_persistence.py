@@ -3,17 +3,17 @@ Tests for persistence layer (InMemoryStore and RedisStore with mocks).
 """
 
 from datetime import datetime, timedelta
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from pydantic import BaseModel
 
 from agent.server.persistence import (
+    REDIS_AVAILABLE,
     InMemoryStore,
     RedisConfig,
     RedisStore,
     create_store,
-    REDIS_AVAILABLE,
 )
 
 

@@ -39,10 +39,60 @@ print_error() { echo -e "${RED}[✗]${NC} $1"; }
 print_info() { echo -e "${BLUE}[i]${NC} $1"; }
 print_prompt() { echo -e "${CYAN}[?]${NC} $1"; }
 
+# Verbose install logging (set VERBOSE_INSTALL=false to disable)
+VERBOSE_INSTALL=${VERBOSE_INSTALL:-true}
+enable_install_trace() { if [[ "$VERBOSE_INSTALL" == "true" ]]; then set -x; fi; }
+disable_install_trace() { if [[ "$VERBOSE_INSTALL" == "true" ]]; then set +x; fi; }
+
 # Configuration defaults
 CONFIG_FILE=""
 AEGISAV_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 CONFIG_DIR="$AEGISAV_DIR/configs"
+STATE_DIR="$AEGISAV_DIR/.setup_state"
+
+# Install caching controls (set FORCE_REINSTALL=true to bypass all caches)
+FORCE_REINSTALL=${FORCE_REINSTALL:-false}
+FORCE_SYSTEM_DEPS=${FORCE_SYSTEM_DEPS:-false}
+FORCE_PYTHON_DEPS=${FORCE_PYTHON_DEPS:-false}
+FORCE_ARDUPILOT=${FORCE_ARDUPILOT:-false}
+FORCE_AIRSIM=${FORCE_AIRSIM:-false}
+
+ensure_state_dir() { mkdir -p "$STATE_DIR"; }
+mark_done() { ensure_state_dir; touch "$1"; }
+
+geocode_address() {
+    local address="$1"
+    if [ -z "$address" ]; then
+        return 1
+    fi
+
+    python3 - "$address" << 'PY'
+import json
+import sys
+import urllib.parse
+import urllib.request
+
+address = sys.argv[1].strip()
+if not address:
+    sys.exit(1)
+
+url = "https://nominatim.openstreetmap.org/search?format=json&limit=1&q=" + urllib.parse.quote(address)
+req = urllib.request.Request(url, headers={"User-Agent": "AegisAV-Setup/1.0"})
+
+try:
+    with urllib.request.urlopen(req, timeout=10) as resp:
+        data = json.loads(resp.read().decode("utf-8"))
+    if not data:
+        sys.exit(1)
+    lat = data[0].get("lat")
+    lon = data[0].get("lon")
+    if not lat or not lon:
+        sys.exit(1)
+    print(f"{lat} {lon}")
+except Exception:
+    sys.exit(1)
+PY
+}
 
 # Detect environment
 detect_environment() {
@@ -52,7 +102,7 @@ detect_environment() {
     # Check if running in WSL
     if grep -qEi "(Microsoft|WSL)" /proc/version 2>/dev/null; then
         OS="wsl"
-        WINDOWS_USER=$(cmd.exe /c "echo %USERNAME%" 2>/dev/null | tr -d '\r')
+        WINDOWS_USER=$(cmd.exe /c "echo %USERNAME%" </dev/null 2>/dev/null | tr -d '\r')
         print_status "Detected Windows Subsystem for Linux (WSL2)"
         print_info "Windows user: $WINDOWS_USER"
     elif [[ "$OSTYPE" == "linux-gnu"* ]]; then
@@ -73,37 +123,77 @@ detect_environment() {
     GPU_TYPE="none"
     GPU_NAME=""
 
-    if command -v nvidia-smi &> /dev/null; then
-        GPU_TYPE="nvidia"
-        GPU_NAME=$(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | head -1 || echo "Unknown NVIDIA")
-        print_status "NVIDIA GPU detected: $GPU_NAME"
-
-        # Check CUDA version
-        if command -v nvcc &> /dev/null; then
-            CUDA_VERSION=$(nvcc --version | grep "release" | sed 's/.*release //' | sed 's/,.*//')
-            print_info "CUDA version: $CUDA_VERSION"
+    if [[ "$OS" == "wsl" ]]; then
+        WSL_GPU_PASSTHROUGH="false"
+        if [ -e "/dev/dxg" ]; then
+            WSL_GPU_PASSTHROUGH="true"
+            print_status "WSL GPU passthrough device detected (/dev/dxg)"
+        else
+            print_warning "WSL GPU passthrough device not found (/dev/dxg)"
+            print_info "GPU acceleration may be disabled in WSL"
         fi
-    elif [ -d "/dev/dri" ]; then
-        # Check for AMD GPU
-        if lspci 2>/dev/null | grep -i "vga\|3d\|display" | grep -i "AMD\|ATI" > /dev/null; then
-            GPU_TYPE="amd"
-            GPU_NAME=$(lspci 2>/dev/null | grep -i "vga\|3d\|display" | grep -i "AMD\|ATI" | head -1 | sed 's/.*: //')
-            print_status "AMD GPU detected: $GPU_NAME"
 
-            # Check ROCm
-            if command -v rocm-smi &> /dev/null; then
-                ROCM_VERSION=$(rocm-smi --showversion 2>/dev/null | grep "ROCm" || echo "Unknown")
-                print_info "ROCm: $ROCM_VERSION"
+        WINDOWS_GPU_LIST=$(powershell.exe -NoProfile -Command "Get-CimInstance Win32_VideoController | Select-Object -ExpandProperty Name" </dev/null 2>/dev/null | tr -d '\r')
+        if [ -n "$WINDOWS_GPU_LIST" ]; then
+            WINDOWS_GPU_NAME=$(echo "$WINDOWS_GPU_LIST" | grep -Ev -i "Virtual|Remote|Basic Display|Hyper-V|VMware|DisplayLink|Virtual Desktop Monitor" | head -1)
+            if [ -z "$WINDOWS_GPU_NAME" ]; then
+                WINDOWS_GPU_NAME=$(echo "$WINDOWS_GPU_LIST" | head -1)
+            fi
+
+            GPU_NAME="$WINDOWS_GPU_NAME"
+            if echo "$GPU_NAME" | grep -qi "NVIDIA"; then
+                GPU_TYPE="nvidia"
+            elif echo "$GPU_NAME" | grep -qiE "AMD|Radeon"; then
+                GPU_TYPE="amd"
             else
-                print_warning "ROCm not installed. GPU acceleration may be limited."
+                GPU_TYPE="unknown"
+            fi
+            print_status "Windows GPU detected: $GPU_NAME"
+        fi
+    fi
+
+    if [[ "$GPU_TYPE" == "none" ]] || [[ "$GPU_TYPE" == "unknown" ]]; then
+        if command -v nvidia-smi &> /dev/null; then
+            GPU_TYPE="nvidia"
+            GPU_NAME=$(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | head -1 || echo "Unknown NVIDIA")
+            print_status "NVIDIA GPU detected: $GPU_NAME"
+
+            # Check CUDA version
+            if command -v nvcc &> /dev/null; then
+                CUDA_VERSION=$(nvcc --version | grep "release" | sed 's/.*release //' | sed 's/,.*//')
+                print_info "CUDA version: $CUDA_VERSION"
+            fi
+        elif [ -d "/dev/dri" ]; then
+            # Check for AMD GPU
+            if lspci 2>/dev/null | grep -i "vga\|3d\|display" | grep -i "AMD\|ATI" > /dev/null; then
+                GPU_TYPE="amd"
+                GPU_NAME=$(lspci 2>/dev/null | grep -i "vga\|3d\|display" | grep -i "AMD\|ATI" | head -1 | sed 's/.*: //')
+                print_status "AMD GPU detected: $GPU_NAME"
+
+                # Check ROCm
+                if command -v rocm-smi &> /dev/null; then
+                    ROCM_VERSION=$(rocm-smi --showversion 2>/dev/null | grep "ROCm" || echo "Unknown")
+                    print_info "ROCm: $ROCM_VERSION"
+                else
+                    print_warning "ROCm not installed. GPU acceleration may be limited."
+                fi
+            else
+                GPU_TYPE="intel"
+                GPU_NAME="Intel Integrated"
+                print_warning "Intel/Integrated GPU detected. Using CPU for ML inference."
             fi
         else
-            GPU_TYPE="intel"
-            GPU_NAME="Intel Integrated"
-            print_warning "Intel/Integrated GPU detected. Using CPU for ML inference."
+            if [[ "$OS" == "wsl" ]] && [[ "$WSL_GPU_PASSTHROUGH" == "true" ]]; then
+                print_warning "WSL GPU passthrough detected but GPU name not found. Using CPU for ML inference."
+            else
+                print_warning "No GPU detected. Using CPU for ML inference."
+            fi
         fi
-    else
-        print_warning "No GPU detected. Using CPU for ML inference."
+    fi
+
+    if [[ "$OS" == "wsl" ]] && [[ "$GPU_TYPE" == "amd" ]]; then
+        print_warning "AMD GPU detected via Windows. WSL GPU support for AMD is limited."
+        print_info "If /dev/dxg is missing, update Windows GPU drivers and WSL."
     fi
 
     # Check memory
@@ -239,13 +329,29 @@ interactive_config() {
             SITL_SPEEDUP=1.0
         fi
 
-        print_prompt "Home latitude (default: 37.7749):"
-        read -r HOME_LAT
-        HOME_LAT=${HOME_LAT:-37.7749}
+        print_prompt "Home address (optional, press Enter to skip):"
+        read -r HOME_ADDRESS
+        if [ -n "$HOME_ADDRESS" ]; then
+            print_info "Geocoding address..."
+            GEO_RESULT=$(geocode_address "$HOME_ADDRESS" || true)
+            if [ -n "$GEO_RESULT" ]; then
+                HOME_LAT=$(echo "$GEO_RESULT" | awk '{print $1}')
+                HOME_LON=$(echo "$GEO_RESULT" | awk '{print $2}')
+                print_status "Home set to lat=${HOME_LAT}, lon=${HOME_LON}"
+            else
+                print_warning "Address lookup failed; falling back to lat/lon."
+            fi
+        fi
 
-        print_prompt "Home longitude (default: -122.4194):"
-        read -r HOME_LON
-        HOME_LON=${HOME_LON:-"-122.4194"}
+        if [ -z "$HOME_LAT" ] || [ -z "$HOME_LON" ]; then
+            print_prompt "Home latitude (default: 37.7749):"
+            read -r HOME_LAT
+            HOME_LAT=${HOME_LAT:-37.7749}
+
+            print_prompt "Home longitude (default: -122.4194):"
+            read -r HOME_LON
+            HOME_LON=${HOME_LON:-"-122.4194"}
+        fi
     else
         SIM_ENABLED="false"
         AIRSIM_ENABLED="false"
@@ -427,31 +533,57 @@ install_dependencies() {
     echo ""
 
     if [[ "$OS" == "linux" ]] || [[ "$OS" == "wsl" ]]; then
-        print_info "Installing system packages..."
-        sudo apt-get update
-        sudo apt-get install -y \
-            git \
-            gitk \
-            git-gui \
-            python3-dev \
-            python3-pip \
-            python3-venv \
-            python3-matplotlib \
-            python3-lxml \
-            build-essential \
-            ccache \
-            gawk \
-            libffi-dev \
-            libxml2-dev \
-            libxslt1-dev \
-            screen \
-            socat \
-            redis-server \
-            ffmpeg \
-            libsm6 \
+        local system_marker="$STATE_DIR/system_deps.done"
+        local system_packages=(
+            git
+            gitk
+            git-gui
+            python3-dev
+            python3-pip
+            python3-venv
+            python3-matplotlib
+            python3-lxml
+            build-essential
+            ccache
+            gawk
+            libffi-dev
+            libxml2-dev
+            libxslt1-dev
+            screen
+            socat
+            redis-server
+            ffmpeg
+            libsm6
             libxext6
+        )
 
-        print_status "System dependencies installed"
+        local missing_packages=()
+        if command -v dpkg &> /dev/null; then
+            for pkg in "${system_packages[@]}"; do
+                if ! dpkg -s "$pkg" &> /dev/null; then
+                    missing_packages+=("$pkg")
+                fi
+            done
+        fi
+
+        if [[ "$FORCE_REINSTALL" != "true" ]] && [[ "$FORCE_SYSTEM_DEPS" != "true" ]] && [ -f "$system_marker" ] && [ "${#missing_packages[@]}" -eq 0 ]; then
+            print_status "System dependencies already installed; skipping (set FORCE_SYSTEM_DEPS=true to reinstall)."
+        else
+            enable_install_trace
+            print_info "Installing system packages..."
+            print_info "apt-get update can take a few minutes..."
+            sudo apt-get update
+            print_info "apt-get install can take several minutes..."
+            if [[ "$FORCE_REINSTALL" == "true" ]] || [[ "$FORCE_SYSTEM_DEPS" == "true" ]] || [ "${#missing_packages[@]}" -eq 0 ]; then
+                sudo apt-get install -y "${system_packages[@]}"
+            else
+                sudo apt-get install -y "${missing_packages[@]}"
+            fi
+
+            print_status "System dependencies installed"
+            mark_done "$system_marker"
+            disable_install_trace
+        fi
 
         # WSL-specific: Install GPU support
         if [[ "$OS" == "wsl" ]]; then
@@ -477,18 +609,34 @@ install_dependencies() {
 
         # Install PyTorch with GPU support
         echo ""
-        print_info "Installing PyTorch..."
+        local torch_marker="$STATE_DIR/torch.done"
+        local torch_installed="false"
+        if python3 -c "import torch" &> /dev/null; then
+            torch_installed="true"
+        fi
 
-        if [ "$GPU_TYPE" == "nvidia" ]; then
-            pip3 install torch torchvision --index-url https://download.pytorch.org/whl/cu121
-            print_status "PyTorch with CUDA support installed"
-        elif [ "$GPU_TYPE" == "amd" ]; then
-            # ROCm support
-            pip3 install torch torchvision --index-url https://download.pytorch.org/whl/rocm5.6
-            print_status "PyTorch with ROCm support installed"
+        if [[ "$FORCE_REINSTALL" != "true" ]] && [ "$torch_installed" == "true" ] && [ -f "$torch_marker" ]; then
+            print_status "PyTorch already installed; skipping (set FORCE_REINSTALL=true to reinstall)."
         else
-            pip3 install torch torchvision
-            print_status "PyTorch (CPU) installed"
+            enable_install_trace
+            print_info "Installing PyTorch..."
+
+            if [ "$GPU_TYPE" == "nvidia" ]; then
+                print_info "Installing NVIDIA CUDA PyTorch wheels..."
+                pip3 install torch torchvision --index-url https://download.pytorch.org/whl/cu121
+                print_status "PyTorch with CUDA support installed"
+            elif [ "$GPU_TYPE" == "amd" ]; then
+                # ROCm support
+                print_info "Installing AMD ROCm PyTorch wheels..."
+                pip3 install torch torchvision --index-url https://download.pytorch.org/whl/rocm5.6
+                print_status "PyTorch with ROCm support installed"
+            else
+                print_info "Installing CPU PyTorch wheels..."
+                pip3 install torch torchvision
+                print_status "PyTorch (CPU) installed"
+            fi
+            mark_done "$torch_marker"
+            disable_install_trace
         fi
     fi
 }
@@ -507,17 +655,33 @@ install_ardupilot() {
     echo ""
 
     ARDUPILOT_DIR=$(eval echo "$ARDUPILOT_PATH")
+    enable_install_trace
+    local ardupilot_marker="$STATE_DIR/ardupilot.done"
+    local ardupilot_build_marker="$STATE_DIR/ardupilot_build.done"
+    local copter_binary="$ARDUPILOT_DIR/build/sitl/bin/arducopter"
+
+    if [ -d "$ARDUPILOT_DIR" ] && [ -f "$copter_binary" ] && [[ "$FORCE_REINSTALL" != "true" ]] && [[ "$FORCE_ARDUPILOT" != "true" ]]; then
+        print_status "ArduPilot SITL already built; skipping (set FORCE_ARDUPILOT=true to rebuild)."
+        mark_done "$ardupilot_marker"
+        mark_done "$ardupilot_build_marker"
+        disable_install_trace
+        return
+    fi
 
     if [ -d "$ARDUPILOT_DIR" ]; then
         print_warning "ArduPilot already exists at $ARDUPILOT_DIR"
         print_prompt "Update existing installation? (y/N):"
         read -r UPDATE_ARDUPILOT
         if [[ $UPDATE_ARDUPILOT =~ ^[Yy]$ ]]; then
+            print_info "Updating ArduPilot repo and submodules..."
             cd "$ARDUPILOT_DIR"
             git pull
             git submodule update --init --recursive
+        else
+            print_info "Skipping ArduPilot update."
         fi
     else
+        print_info "Cloning ArduPilot (large repo, may take a while)..."
         git clone --recurse-submodules https://github.com/ArduPilot/ardupilot.git "$ARDUPILOT_DIR"
         print_status "ArduPilot cloned"
     fi
@@ -525,6 +689,7 @@ install_ardupilot() {
     cd "$ARDUPILOT_DIR"
 
     if [[ "$OS" == "linux" ]] || [[ "$OS" == "wsl" ]]; then
+        print_info "Installing ArduPilot build prerequisites..."
         Tools/environment_install/install-prereqs-ubuntu.sh -y
         . ~/.profile 2>/dev/null || true
     fi
@@ -534,6 +699,9 @@ install_ardupilot() {
     ./waf copter
 
     print_status "ArduPilot SITL built successfully"
+    mark_done "$ardupilot_marker"
+    mark_done "$ardupilot_build_marker"
+    disable_install_trace
 }
 
 # Install AirSim
@@ -550,42 +718,54 @@ install_airsim() {
     echo ""
 
     AIRSIM_DIR="$HOME/AirSim"
+    local airsim_marker="$STATE_DIR/airsim.done"
+    local settings_marker="$STATE_DIR/airsim_settings.done"
 
     if [[ "$OS" == "wsl" ]]; then
-        print_info "AirSim for WSL2 setup..."
-        print_warning "AirSim must run on Windows side for GPU rendering"
-        echo ""
-        echo "To set up AirSim on Windows:"
-        echo "  1. Download AirSim from: https://github.com/Microsoft/AirSim/releases"
-        echo "  2. Extract to C:\\Users\\$WINDOWS_USER\\AirSim"
-        echo "  3. Use Windows path in WSL: /mnt/c/Users/$WINDOWS_USER/AirSim"
-        echo ""
-
-        # Create Windows-compatible AirSim settings
         AIRSIM_SETTINGS_DIR="/mnt/c/Users/$WINDOWS_USER/Documents/AirSim"
-        mkdir -p "$AIRSIM_SETTINGS_DIR"
     else
-        if [ -d "$AIRSIM_DIR" ]; then
-            print_warning "AirSim already exists at $AIRSIM_DIR"
-        else
-            git clone https://github.com/Microsoft/AirSim.git "$AIRSIM_DIR"
-            print_status "AirSim cloned"
-        fi
-
-        cd "$AIRSIM_DIR"
-
-        if [[ "$OS" == "linux" ]]; then
-            ./setup.sh
-            ./build.sh
-            print_status "AirSim built"
-        fi
-
         AIRSIM_SETTINGS_DIR="$HOME/Documents/AirSim"
-        mkdir -p "$AIRSIM_SETTINGS_DIR"
+    fi
+    mkdir -p "$AIRSIM_SETTINGS_DIR"
+
+    if [[ "$FORCE_REINSTALL" != "true" ]] && [[ "$FORCE_AIRSIM" != "true" ]] && [ -f "$airsim_marker" ]; then
+        print_status "AirSim already configured; skipping install (set FORCE_AIRSIM=true to reinstall)."
+    else
+        enable_install_trace
+        if [[ "$OS" == "wsl" ]]; then
+            print_info "AirSim for WSL2 setup..."
+            print_warning "AirSim must run on Windows side for GPU rendering"
+            echo ""
+            echo "To set up AirSim on Windows:"
+            echo "  1. Download AirSim from: https://github.com/Microsoft/AirSim/releases"
+            echo "  2. Extract to C:\\Users\\$WINDOWS_USER\\AirSim"
+            echo "  3. Use Windows path in WSL: /mnt/c/Users/$WINDOWS_USER/AirSim"
+            echo ""
+        else
+            if [ -d "$AIRSIM_DIR" ]; then
+                print_warning "AirSim already exists at $AIRSIM_DIR"
+            else
+                print_info "Cloning AirSim (large repo, may take a while)..."
+                git clone https://github.com/Microsoft/AirSim.git "$AIRSIM_DIR"
+                print_status "AirSim cloned"
+            fi
+
+            cd "$AIRSIM_DIR"
+
+            if [[ "$OS" == "linux" ]]; then
+                print_info "Building AirSim (this can take 10+ minutes)..."
+                ./setup.sh
+                ./build.sh
+                print_status "AirSim built"
+            fi
+        fi
+        mark_done "$airsim_marker"
+        disable_install_trace
     fi
 
     # Generate AirSim settings
-    cat > "$AIRSIM_SETTINGS_DIR/settings.json" << 'EOF'
+    if [[ "$FORCE_REINSTALL" == "true" ]] || [[ "$FORCE_AIRSIM" == "true" ]] || [ ! -f "$AIRSIM_SETTINGS_DIR/settings.json" ]; then
+        cat > "$AIRSIM_SETTINGS_DIR/settings.json" << 'EOF'
 {
   "SettingsVersion": 1.2,
   "SimMode": "Multirotor",
@@ -649,7 +829,11 @@ install_airsim() {
 }
 EOF
 
-    print_status "AirSim settings configured at $AIRSIM_SETTINGS_DIR/settings.json"
+        print_status "AirSim settings configured at $AIRSIM_SETTINGS_DIR/settings.json"
+        mark_done "$settings_marker"
+    else
+        print_status "AirSim settings already present; skipping (set FORCE_AIRSIM=true to regenerate)."
+    fi
 }
 
 # Install Python dependencies
@@ -661,11 +845,32 @@ install_python_deps() {
     echo ""
 
     cd "$AEGISAV_DIR"
+    enable_install_trace
+    local python_marker="$STATE_DIR/python_deps.done"
+    local deps_changed="false"
+
+    if [ -f "$python_marker" ]; then
+        if [ -f "pyproject.toml" ] && [ "pyproject.toml" -nt "$python_marker" ]; then
+            deps_changed="true"
+        fi
+        if [ -f "uv.lock" ] && [ "uv.lock" -nt "$python_marker" ]; then
+            deps_changed="true"
+        fi
+    fi
+
+    if [[ "$FORCE_REINSTALL" != "true" ]] && [[ "$FORCE_PYTHON_DEPS" != "true" ]] && [ -f "$python_marker" ] && [ "$deps_changed" == "false" ]; then
+        print_status "Python dependencies up to date; skipping (set FORCE_PYTHON_DEPS=true to reinstall)."
+        disable_install_trace
+        return
+    fi
 
     # Install main dependencies
     if [ -f "pyproject.toml" ]; then
         print_info "Installing AegisAV dependencies with uv..."
-        pip3 install uv
+        if ! command -v uv &> /dev/null; then
+            pip3 install uv
+        fi
+        print_info "Running uv sync (can take a few minutes)..."
         uv sync
         print_status "AegisAV dependencies installed"
     else
@@ -674,15 +879,22 @@ install_python_deps() {
     fi
 
     # Install additional simulation dependencies
+    print_info "Installing simulation Python packages..."
+    print_info "Installing msgpack-rpc-python first (required by airsim setup)..."
+    pip3 install msgpack-rpc-python
+    print_info "Installing backports.ssl_match_hostname for legacy tornado compatibility..."
+    pip3 install backports.ssl_match_hostname
     pip3 install \
         airsim \
         pymavlink \
         MAVProxy \
-        msgpack-rpc-python \
         opencv-python \
-        Pillow
+        Pillow \
+        pexpect
 
     print_status "Python dependencies installed"
+    mark_done "$python_marker"
+    disable_install_trace
 }
 
 # Create convenience scripts
@@ -747,6 +959,46 @@ cd %USERPROFILE%\\AirSim\\AirSimNH
 start AirSimNH.exe -ResX=1920 -ResY=1080 -windowed
 EOF
         print_status "Created start_airsim.bat (run from Windows)"
+    fi
+}
+
+# Verify AirSim is running and reachable
+verify_airsim_running() {
+    if [[ "$AIRSIM_ENABLED" != "true" ]]; then
+        return
+    fi
+
+    echo ""
+    echo "============================================================"
+    echo "  Verifying AirSim Runtime"
+    echo "============================================================"
+    echo ""
+    print_info "Checking AirSim RPC on 127.0.0.1:41451..."
+
+    if python3 - << 'PY'
+import socket
+import sys
+
+host = "127.0.0.1"
+port = 41451
+s = socket.socket()
+s.settimeout(1.0)
+try:
+    s.connect((host, port))
+except Exception:
+    sys.exit(1)
+finally:
+    s.close()
+PY
+    then
+        print_status "AirSim RPC reachable"
+    else
+        print_warning "AirSim RPC not reachable"
+        if [[ "$OS" == "wsl" ]]; then
+            print_info "Start AirSim on Windows: run start_airsim.bat, then re-run this check."
+        else
+            print_info "Start AirSim (Unreal) and try again."
+        fi
     fi
 }
 
@@ -829,6 +1081,17 @@ main() {
         SITL_SPEEDUP=1.0
         HOME_LAT=37.7749
         HOME_LON="-122.4194"
+        if [ -n "${HOME_ADDRESS:-}" ]; then
+            print_info "Geocoding HOME_ADDRESS..."
+            GEO_RESULT=$(geocode_address "$HOME_ADDRESS" || true)
+            if [ -n "$GEO_RESULT" ]; then
+                HOME_LAT=$(echo "$GEO_RESULT" | awk '{print $1}')
+                HOME_LON=$(echo "$GEO_RESULT" | awk '{print $2}')
+                print_status "Home set to lat=${HOME_LAT}, lon=${HOME_LON}"
+            else
+                print_warning "HOME_ADDRESS lookup failed; using default lat/lon."
+            fi
+        fi
         USE_LLM="true"
         LLM_MODEL="gpt-4o-mini"
         AUTH_ENABLED="false"
@@ -849,6 +1112,7 @@ main() {
     fi
 
     create_scripts
+    verify_airsim_running
     print_summary
 }
 

@@ -48,6 +48,11 @@ class GoalSelector:
     """
 
     def __init__(self, config: GoalSelectorConfig | None = None) -> None:
+        """Initialize the GoalSelector.
+
+        Args:
+            config: Goal selector configuration. Uses defaults if None.
+        """
         self.config = config or GoalSelectorConfig()
         self.anomaly_revisit_interval = timedelta(
             minutes=self.config.anomaly_revisit_interval_minutes
@@ -128,7 +133,14 @@ class GoalSelector:
         return goal
 
     def _check_abort_conditions(self, world: WorldSnapshot) -> Goal | None:
-        """Check for conditions that require immediate abort."""
+        """Check for conditions that require immediate abort.
+
+        Args:
+            world: Current world snapshot.
+
+        Returns:
+            Goal if abort condition detected, None otherwise.
+        """
         # Critical battery
         if world.vehicle.battery.remaining_percent < 15:
             return Goal(
@@ -170,14 +182,25 @@ class GoalSelector:
         return None
 
     async def orchestrate(self, enabled: bool) -> None:
-        """Toggle the advanced engine at runtime and initialize if needed."""
+        """Toggle the advanced engine at runtime and initialize if needed.
+
+        Args:
+            enabled: Whether to enable the advanced decision engine.
+        """
         self.use_advanced_engine = enabled
         if enabled and not self.advanced_engine:
             await self.initialize()
         logger.info(f"Advanced engine orchestrated: {enabled}")
 
     def _check_battery(self, world: WorldSnapshot) -> Goal | None:
-        """Check if battery level requires return."""
+        """Check if battery level requires return.
+
+        Args:
+            world: Current world snapshot.
+
+        Returns:
+            Goal if battery return needed, None otherwise.
+        """
         battery_percent = world.vehicle.battery.remaining_percent
 
         # Critical - must return immediately
@@ -202,7 +225,14 @@ class GoalSelector:
         return None
 
     def _check_weather(self, world: WorldSnapshot) -> Goal | None:
-        """Check if weather requires return."""
+        """Check if weather requires return.
+
+        Args:
+            world: Current world snapshot.
+
+        Returns:
+            Goal if weather return needed, None otherwise.
+        """
         if not world.environment.is_flyable:
             reasons = []
             if world.environment.wind_speed_ms >= 12:
@@ -221,7 +251,14 @@ class GoalSelector:
         return None
 
     def _check_anomalies(self, world: WorldSnapshot) -> Goal | None:
-        """Check for anomalies needing re-inspection."""
+        """Check for anomalies needing re-inspection.
+
+        Args:
+            world: Current world snapshot.
+
+        Returns:
+            Goal if anomaly inspection needed, None otherwise.
+        """
         anomaly_assets = world.get_anomaly_assets()
 
         for asset in anomaly_assets:
@@ -242,7 +279,14 @@ class GoalSelector:
         return None
 
     def _check_inspections(self, world: WorldSnapshot) -> Goal | None:
-        """Check for assets needing routine inspection."""
+        """Check for assets needing routine inspection.
+
+        Args:
+            world: Current world snapshot.
+
+        Returns:
+            Goal if asset inspection needed, None otherwise.
+        """
         pending_assets = world.get_pending_assets()
 
         if pending_assets:

@@ -126,6 +126,7 @@ class VisionClient:
 
     @property
     def enabled(self) -> bool:
+        """Check if the vision client is enabled."""
         return bool(self.config.enabled)
 
     async def initialize(self) -> bool:

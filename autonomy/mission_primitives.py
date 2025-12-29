@@ -81,6 +81,12 @@ class MissionPrimitives:
         mavlink: MAVLinkInterface,
         config: PrimitiveConfig | None = None,
     ) -> None:
+        """Initialize the MissionPrimitives.
+
+        Args:
+            mavlink: MAVLink interface for sending commands.
+            config: Configuration for primitive execution. Uses defaults if not provided.
+        """
         self.mavlink = mavlink
         self.config = config or PrimitiveConfig()
         self._abort_requested = False

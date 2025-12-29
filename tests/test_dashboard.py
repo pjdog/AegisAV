@@ -5,23 +5,14 @@ Tests for dashboard routes and functionality.
 import asyncio
 import json
 import tempfile
-from datetime import datetime
 from pathlib import Path
 
+import httpx
 import pytest
+import pytest_asyncio
 from fastapi import FastAPI
-from fastapi.testclient import TestClient
 
-from agent.server.dashboard import (
-    _action_counts,
-    _calculate_relative_pos,
-    _list_runs,
-    _load_entries,
-    _recent,
-    _series,
-    _summarize,
-    add_dashboard_routes,
-)
+from agent.server import dashboard as dashboard_module
 
 
 class TestDashboardHelpers:
@@ -29,20 +20,22 @@ class TestDashboardHelpers:
 
     def test_calculate_relative_pos_same_location(self):
         """Test relative position calculation for same location."""
-        result = _calculate_relative_pos(37.7749, -122.4194, 37.7749, -122.4194)
+        result = dashboard_module._calculate_relative_pos(
+            37.7749, -122.4194, 37.7749, -122.4194
+        )
         assert result["x"] == pytest.approx(0.0, abs=0.01)
         assert result["y"] == pytest.approx(0.0, abs=0.01)
 
     def test_calculate_relative_pos_north(self):
         """Test relative position calculation for point to the north."""
         # 1 degree north should be ~111km
-        result = _calculate_relative_pos(37.0, -122.0, 38.0, -122.0)
+        result = dashboard_module._calculate_relative_pos(37.0, -122.0, 38.0, -122.0)
         assert result["x"] == pytest.approx(0.0, abs=1.0)
         assert result["y"] == pytest.approx(111111, rel=0.01)
 
     def test_calculate_relative_pos_east(self):
         """Test relative position calculation for point to the east."""
-        result = _calculate_relative_pos(37.0, -122.0, 37.0, -121.0)
+        result = dashboard_module._calculate_relative_pos(37.0, -122.0, 37.0, -121.0)
         # At 37 degrees latitude, 1 degree longitude is about 88km
         assert result["x"] > 80000
         assert result["y"] == pytest.approx(0.0, abs=1.0)
@@ -53,7 +46,7 @@ class TestDashboardHelpers:
             f.write("")
             temp_path = Path(f.name)
 
-        entries = _load_entries(temp_path)
+        entries = dashboard_module._load_entries(temp_path)
         assert entries == []
         temp_path.unlink()
 
@@ -66,7 +59,7 @@ class TestDashboardHelpers:
             f.write('{"action": "RETURN", "risk_score": 0.8}\n')
             temp_path = Path(f.name)
 
-        entries = _load_entries(temp_path)
+        entries = dashboard_module._load_entries(temp_path)
         assert len(entries) == 3
         assert entries[0]["action"] == "INSPECT"
         assert entries[1]["action"] == "WAIT"
@@ -75,13 +68,13 @@ class TestDashboardHelpers:
 
     def test_load_entries_nonexistent_file(self):
         """Test loading entries from non-existent file returns empty list."""
-        entries = _load_entries(Path("/nonexistent/path.jsonl"))
+        entries = dashboard_module._load_entries(Path("/nonexistent/path.jsonl"))
         assert entries == []
 
     def test_list_runs_empty_dir(self):
         """Test listing runs from empty directory."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            runs = _list_runs(Path(tmpdir))
+            runs = dashboard_module._list_runs(Path(tmpdir))
             assert runs == []
 
     def test_list_runs_with_files(self):
@@ -92,7 +85,7 @@ class TestDashboardHelpers:
             (log_dir / "decisions_20240102_120000.jsonl").touch()
             (log_dir / "other_file.txt").touch()  # Should be ignored
 
-            runs = _list_runs(log_dir)
+            runs = dashboard_module._list_runs(log_dir)
             assert len(runs) == 2
             assert "20240101_120000" in runs
             assert "20240102_120000" in runs
@@ -101,7 +94,7 @@ class TestDashboardHelpers:
 
     def test_summarize_empty_entries(self):
         """Test summarize with empty entries."""
-        summary = _summarize([])
+        summary = dashboard_module._summarize([])
         assert summary["total"] == 0
         assert summary["avg_risk"] == 0.0
         assert summary["max_risk"] == 0.0
@@ -115,7 +108,7 @@ class TestDashboardHelpers:
             {"risk_score": 0.4, "timestamp": "2024-01-01T12:01:00"},
             {"risk_score": 0.6, "timestamp": "2024-01-01T12:02:00"},
         ]
-        summary = _summarize(entries)
+        summary = dashboard_module._summarize(entries)
         assert summary["total"] == 3
         assert summary["avg_risk"] == pytest.approx(0.4, abs=0.01)
         assert summary["max_risk"] == 0.6
@@ -128,7 +121,7 @@ class TestDashboardHelpers:
             {"timestamp": "T1", "risk_score": 0.3, "battery_percent": 80},
             {"timestamp": "T2", "risk_score": 0.5, "battery_percent": 75},
         ]
-        risk_series, battery_series = _series(entries)
+        risk_series, battery_series = dashboard_module._series(entries)
 
         assert len(risk_series) == 2
         assert len(battery_series) == 2
@@ -143,7 +136,7 @@ class TestDashboardHelpers:
             {"action": "WAIT"},
             {"action": "RETURN"},
         ]
-        counts = _action_counts(entries)
+        counts = dashboard_module._action_counts(entries)
 
         # Convert to dict for easier testing
         count_dict = {c["action"]: c["count"] for c in counts}
@@ -154,7 +147,7 @@ class TestDashboardHelpers:
     def test_recent_limits_entries(self):
         """Test recent limits entries to specified amount."""
         entries = [{"action": f"action_{i}"} for i in range(20)]
-        recent = _recent(entries, limit=5)
+        recent = dashboard_module._recent(entries, limit=5)
 
         assert len(recent) == 5
         # Should be in reverse order (most recent first)
@@ -171,7 +164,7 @@ class TestDashboardHelpers:
                 ],
             }
         ]
-        recent = _recent(entries)
+        recent = dashboard_module._recent(entries)
 
         assert len(recent) == 1
         assert len(recent[0]["spatial_context"]) == 1
@@ -187,55 +180,64 @@ class TestDashboardRoutes:
         app = FastAPI()
         log_dir = tmp_path / "logs"
         log_dir.mkdir()
-        add_dashboard_routes(app, log_dir)
+        dashboard_module.add_dashboard_routes(app, log_dir)
         return app, log_dir
 
-    @pytest.fixture
-    def client(self, app_with_dashboard):
-        """Create test client."""
+    @pytest_asyncio.fixture
+    async def client(self, app_with_dashboard):
+        """Create async test client."""
         app, _ = app_with_dashboard
-        return TestClient(app)
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            yield client
 
-    def test_dashboard_route_no_build(self, app_with_dashboard):
+    @pytest.mark.asyncio
+    async def test_dashboard_route_no_build(self, app_with_dashboard):
         """Test dashboard route when build is missing."""
         app, _ = app_with_dashboard
-        client = TestClient(app)
-        response = client.get("/dashboard")
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.get("/dashboard")
         # Should return either HTML file or missing message
         assert response.status_code == 200
 
-    def test_list_runs_empty(self, client):
+    @pytest.mark.asyncio
+    async def test_list_runs_empty(self, client):
         """Test listing runs when empty."""
-        response = client.get("/api/dashboard/runs")
+        response = await client.get("/api/dashboard/runs")
         assert response.status_code == 200
         data = response.json()
         assert data["runs"] == []
         assert data["latest"] is None
 
-    def test_list_runs_with_data(self, app_with_dashboard):
+    @pytest.mark.asyncio
+    async def test_list_runs_with_data(self, app_with_dashboard):
         """Test listing runs with data."""
         app, log_dir = app_with_dashboard
-        client = TestClient(app)
+        transport = httpx.ASGITransport(app=app)
 
         # Create some run files
         (log_dir / "decisions_run1.jsonl").write_text('{"action": "WAIT"}\n')
         (log_dir / "decisions_run2.jsonl").write_text('{"action": "INSPECT"}\n')
 
-        response = client.get("/api/dashboard/runs")
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.get("/api/dashboard/runs")
         assert response.status_code == 200
         data = response.json()
         assert len(data["runs"]) == 2
         assert data["latest"] is not None
 
-    def test_run_data_not_found(self, client):
+    @pytest.mark.asyncio
+    async def test_run_data_not_found(self, client):
         """Test getting run data for non-existent run."""
-        response = client.get("/api/dashboard/run/nonexistent")
+        response = await client.get("/api/dashboard/run/nonexistent")
         assert response.status_code == 404
 
-    def test_run_data_success(self, app_with_dashboard):
+    @pytest.mark.asyncio
+    async def test_run_data_success(self, app_with_dashboard):
         """Test getting run data successfully."""
         app, log_dir = app_with_dashboard
-        client = TestClient(app)
+        transport = httpx.ASGITransport(app=app)
 
         # Create run file with entries
         run_file = log_dir / "decisions_test_run.jsonl"
@@ -245,7 +247,8 @@ class TestDashboardRoutes:
         ]
         run_file.write_text("\n".join(json.dumps(e) for e in entries))
 
-        response = client.get("/api/dashboard/run/test_run")
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.get("/api/dashboard/run/test_run")
         assert response.status_code == 200
         data = response.json()
 
@@ -266,17 +269,20 @@ class TestScenarioRoutes:
         app = FastAPI()
         log_dir = tmp_path / "logs"
         log_dir.mkdir()
-        add_dashboard_routes(app, log_dir)
+        dashboard_module.add_dashboard_routes(app, log_dir)
         return app
 
-    @pytest.fixture
-    def client(self, app_with_scenarios):
-        """Create test client."""
-        return TestClient(app_with_scenarios)
+    @pytest_asyncio.fixture
+    async def client(self, app_with_scenarios):
+        """Create async test client."""
+        transport = httpx.ASGITransport(app=app_with_scenarios)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            yield client
 
-    def test_list_scenarios(self, client):
+    @pytest.mark.asyncio
+    async def test_list_scenarios(self, client):
         """Test listing all scenarios."""
-        response = client.get("/api/dashboard/scenarios")
+        response = await client.get("/api/dashboard/scenarios")
         assert response.status_code == 200
         data = response.json()
 
@@ -287,9 +293,10 @@ class TestScenarioRoutes:
         assert data["total"] >= 7  # At least 7 preloaded scenarios
         assert len(data["scenarios"]) == data["total"]
 
-    def test_list_scenarios_by_category(self, client):
+    @pytest.mark.asyncio
+    async def test_list_scenarios_by_category(self, client):
         """Test filtering scenarios by category."""
-        response = client.get("/api/dashboard/scenarios?category=battery_critical")
+        response = await client.get("/api/dashboard/scenarios?category=battery_critical")
         assert response.status_code == 200
         data = response.json()
 
@@ -297,24 +304,27 @@ class TestScenarioRoutes:
         for scenario in data["scenarios"]:
             assert scenario["category"] == "battery_critical"
 
-    def test_list_scenarios_invalid_category(self, client):
+    @pytest.mark.asyncio
+    async def test_list_scenarios_invalid_category(self, client):
         """Test filtering with invalid category."""
-        response = client.get("/api/dashboard/scenarios?category=invalid_category")
+        response = await client.get("/api/dashboard/scenarios?category=invalid_category")
         assert response.status_code == 400
         assert "Invalid category" in response.json()["detail"]
 
-    def test_list_scenarios_by_difficulty(self, client):
+    @pytest.mark.asyncio
+    async def test_list_scenarios_by_difficulty(self, client):
         """Test filtering scenarios by difficulty."""
-        response = client.get("/api/dashboard/scenarios?difficulty=hard")
+        response = await client.get("/api/dashboard/scenarios?difficulty=hard")
         assert response.status_code == 200
         data = response.json()
 
         for scenario in data["scenarios"]:
             assert scenario["difficulty"] == "hard"
 
-    def test_get_scenario_detail(self, client):
+    @pytest.mark.asyncio
+    async def test_get_scenario_detail(self, client):
         """Test getting specific scenario details."""
-        response = client.get("/api/dashboard/scenarios/normal_ops_001")
+        response = await client.get("/api/dashboard/scenarios/normal_ops_001")
         assert response.status_code == 200
         data = response.json()
 
@@ -328,15 +338,17 @@ class TestScenarioRoutes:
         assert len(data["drones"]) == 3
         assert len(data["assets"]) == 3
 
-    def test_get_scenario_not_found(self, client):
+    @pytest.mark.asyncio
+    async def test_get_scenario_not_found(self, client):
         """Test getting non-existent scenario."""
-        response = client.get("/api/dashboard/scenarios/nonexistent_999")
+        response = await client.get("/api/dashboard/scenarios/nonexistent_999")
         assert response.status_code == 404
         assert "not found" in response.json()["detail"]
 
-    def test_scenario_drone_details(self, client):
+    @pytest.mark.asyncio
+    async def test_scenario_drone_details(self, client):
         """Test that drone details are included."""
-        response = client.get("/api/dashboard/scenarios/battery_cascade_001")
+        response = await client.get("/api/dashboard/scenarios/battery_cascade_001")
         assert response.status_code == 200
         data = response.json()
 
@@ -354,9 +366,10 @@ class TestScenarioRoutes:
         assert min(batteries) < 30  # At least one critical
         assert max(batteries) > 50  # At least one healthy
 
-    def test_scenario_asset_details(self, client):
+    @pytest.mark.asyncio
+    async def test_scenario_asset_details(self, client):
         """Test that asset details are included."""
-        response = client.get("/api/dashboard/scenarios/multi_anom_001")
+        response = await client.get("/api/dashboard/scenarios/multi_anom_001")
         assert response.status_code == 200
         data = response.json()
 
@@ -372,9 +385,10 @@ class TestScenarioRoutes:
         anomaly_assets = [a for a in data["assets"] if a["has_anomaly"]]
         assert len(anomaly_assets) >= 3
 
-    def test_scenario_environment_details(self, client):
+    @pytest.mark.asyncio
+    async def test_scenario_environment_details(self, client):
         """Test that environment details are included."""
-        response = client.get("/api/dashboard/scenarios/weather_001")
+        response = await client.get("/api/dashboard/scenarios/weather_001")
         assert response.status_code == 200
         data = response.json()
 
@@ -384,9 +398,10 @@ class TestScenarioRoutes:
         assert "precipitation" in env
         assert "is_daylight" in env
 
-    def test_scenario_events_timeline(self, client):
+    @pytest.mark.asyncio
+    async def test_scenario_events_timeline(self, client):
         """Test that events timeline is included."""
-        response = client.get("/api/dashboard/scenarios/normal_ops_001")
+        response = await client.get("/api/dashboard/scenarios/normal_ops_001")
         assert response.status_code == 200
         data = response.json()
 
@@ -410,23 +425,32 @@ class TestRunnerRoutes:
         app = FastAPI()
         log_dir = tmp_path / "logs"
         log_dir.mkdir()
-        add_dashboard_routes(app, log_dir)
+        dashboard_module.add_dashboard_routes(app, log_dir)
         return app, log_dir
 
-    @pytest.fixture
-    def client(self, app_with_runner):
-        """Create test client."""
+    @pytest_asyncio.fixture
+    async def client(self, app_with_runner):
+        """Create async test client."""
         app, _ = app_with_runner
-        return TestClient(app)
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            yield client
 
-    @pytest.fixture(autouse=True)
-    def reset_runner_state(self):
+    @pytest_asyncio.fixture(autouse=True)
+    async def reset_runner_state(self):
         """Reset global runner state before each test."""
         import agent.server.dashboard as dashboard_module
+
+        loop = asyncio.get_running_loop()
 
         # Cancel any running task first
         if dashboard_module._runner_state.run_task and not dashboard_module._runner_state.run_task.done():
             dashboard_module._runner_state.run_task.cancel()
+            if dashboard_module._runner_state.run_task.get_loop() is loop:
+                try:
+                    await dashboard_module._runner_state.run_task
+                except asyncio.CancelledError:
+                    pass
 
         # Stop runner if active
         if dashboard_module._runner_state.runner:
@@ -440,6 +464,11 @@ class TestRunnerRoutes:
         # Cleanup after test
         if dashboard_module._runner_state.run_task and not dashboard_module._runner_state.run_task.done():
             dashboard_module._runner_state.run_task.cancel()
+            if dashboard_module._runner_state.run_task.get_loop() is loop:
+                try:
+                    await dashboard_module._runner_state.run_task
+                except asyncio.CancelledError:
+                    pass
 
         if dashboard_module._runner_state.runner:
             dashboard_module._runner_state.runner.stop()
@@ -449,9 +478,10 @@ class TestRunnerRoutes:
         dashboard_module._runner_state.is_running = False
         dashboard_module._runner_state.last_error = None
 
-    def test_runner_status_initial(self, client):
+    @pytest.mark.asyncio
+    async def test_runner_status_initial(self, client):
         """Test runner status when not running."""
-        response = client.get("/api/dashboard/runner/status")
+        response = await client.get("/api/dashboard/runner/status")
         assert response.status_code == 200
         data = response.json()
 
@@ -459,9 +489,10 @@ class TestRunnerRoutes:
         assert data["scenario_id"] is None
         assert data["drones"] == []
 
-    def test_runner_start_scenario(self, client):
+    @pytest.mark.asyncio
+    async def test_runner_start_scenario(self, client):
         """Test starting a scenario."""
-        response = client.post(
+        response = await client.post(
             "/api/dashboard/runner/start",
             json={"scenario_id": "normal_ops_001", "time_scale": 10.0, "max_duration_s": 1.0},
         )
@@ -472,26 +503,28 @@ class TestRunnerRoutes:
         assert data["scenario_id"] == "normal_ops_001"
 
         # Check status - the scenario should be loaded
-        status_response = client.get("/api/dashboard/runner/status")
+        status_response = await client.get("/api/dashboard/runner/status")
         status_data = status_response.json()
         assert status_data["scenario_id"] == "normal_ops_001"
 
     @pytest.mark.allow_error_logs
-    def test_runner_start_not_found(self, client):
+    @pytest.mark.asyncio
+    async def test_runner_start_not_found(self, client):
         """Test starting non-existent scenario."""
-        response = client.post(
+        response = await client.post(
             "/api/dashboard/runner/start",
             json={"scenario_id": "nonexistent_999"},
         )
         assert response.status_code == 404
         assert "not found" in response.json()["detail"]
 
-    def test_runner_start_already_running(self, client):
+    @pytest.mark.asyncio
+    async def test_runner_start_already_running(self, client):
         """Test starting when already running."""
         import agent.server.dashboard as dashboard_module
 
         # Start first scenario
-        response1 = client.post(
+        response1 = await client.post(
             "/api/dashboard/runner/start",
             json={"scenario_id": "normal_ops_001", "time_scale": 10.0, "max_duration_s": 5.0},
         )
@@ -501,14 +534,15 @@ class TestRunnerRoutes:
         dashboard_module._runner_state.is_running = True
 
         # Try to start another
-        response = client.post(
+        response = await client.post(
             "/api/dashboard/runner/start",
             json={"scenario_id": "battery_cascade_001"},
         )
         assert response.status_code == 409
         assert "already active" in response.json()["detail"]
 
-    def test_runner_stop(self, app_with_runner):
+    @pytest.mark.asyncio
+    async def test_runner_stop(self, app_with_runner):
         """Test stopping a running scenario."""
         import agent.server.dashboard as dashboard_module
         from agent.server.scenario_runner import ScenarioRunner
@@ -522,37 +556,41 @@ class TestRunnerRoutes:
         dashboard_module._runner_state.is_running = True
         dashboard_module._runner_state.run_task = None  # No actual task
 
-        client = TestClient(app)
+        transport = httpx.ASGITransport(app=app)
 
         # Stop it
-        response = client.post("/api/dashboard/runner/stop")
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.post("/api/dashboard/runner/stop")
         assert response.status_code == 200
         data = response.json()
 
         assert data["status"] == "stopped"
         assert "summary" in data
 
-    def test_runner_stop_not_running(self, client):
+    @pytest.mark.asyncio
+    async def test_runner_stop_not_running(self, client):
         """Test stopping when not running."""
-        response = client.post("/api/dashboard/runner/stop")
+        response = await client.post("/api/dashboard/runner/stop")
         assert response.status_code == 409
         assert "No runner active" in response.json()["detail"]
 
-    def test_runner_decisions_empty(self, client):
+    @pytest.mark.asyncio
+    async def test_runner_decisions_empty(self, client):
         """Test getting decisions when not running."""
-        response = client.get("/api/dashboard/runner/decisions")
+        response = await client.get("/api/dashboard/runner/decisions")
         assert response.status_code == 200
         data = response.json()
 
         assert data["decisions"] == []
         assert data["total"] == 0
 
-    def test_runner_decisions_with_data(self, client):
+    @pytest.mark.asyncio
+    async def test_runner_decisions_with_data(self, client):
         """Test getting decisions from running scenario."""
         import agent.server.dashboard as dashboard_module
 
         # Start scenario with fast execution
-        response = client.post(
+        response = await client.post(
             "/api/dashboard/runner/start",
             json={"scenario_id": "normal_ops_001", "time_scale": 50.0, "max_duration_s": 2.0},
         )
@@ -566,7 +604,7 @@ class TestRunnerRoutes:
                 "timestamp": "2024-01-01T12:00:00",
             })
 
-        response = client.get("/api/dashboard/runner/decisions?limit=10")
+        response = await client.get("/api/dashboard/runner/decisions?limit=10")
         assert response.status_code == 200
         data = response.json()
 
@@ -574,16 +612,17 @@ class TestRunnerRoutes:
         assert "decisions" in data
         assert "total" in data
 
-    def test_runner_status_with_drones(self, client):
+    @pytest.mark.asyncio
+    async def test_runner_status_with_drones(self, client):
         """Test runner status includes drone details."""
         # Start scenario
-        response = client.post(
+        response = await client.post(
             "/api/dashboard/runner/start",
             json={"scenario_id": "battery_cascade_001", "time_scale": 10.0, "max_duration_s": 2.0},
         )
         assert response.status_code == 200
 
-        response = client.get("/api/dashboard/runner/status")
+        response = await client.get("/api/dashboard/runner/status")
         assert response.status_code == 200
         data = response.json()
 

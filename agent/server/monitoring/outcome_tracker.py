@@ -7,7 +7,6 @@ import json
 import logging
 from datetime import datetime
 from pathlib import Path
-from typing import Any
 
 from agent.server.decision import Decision
 from agent.server.models.outcome_models import (

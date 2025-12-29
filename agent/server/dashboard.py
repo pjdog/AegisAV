@@ -33,6 +33,7 @@ class RunnerState:
     """Global state for the scenario runner."""
 
     def __init__(self) -> None:
+        """Initialize the RunnerState."""
         self.runner: Any = None
         self.run_task: asyncio.Task | None = None
         self.is_running: bool = False
@@ -60,7 +61,17 @@ def _load_entries(run_file: Path) -> list[dict[str, Any]]:
 def _calculate_relative_pos(
     origin_lat: float, origin_lon: float, target_lat: float, target_lon: float
 ) -> dict[str, float]:
-    """Calculate relative X, Y in meters (flat earth approximation)."""
+    """Calculate relative X, Y in meters using flat earth approximation.
+
+    Args:
+        origin_lat: Origin latitude in degrees.
+        origin_lon: Origin longitude in degrees.
+        target_lat: Target latitude in degrees.
+        target_lon: Target longitude in degrees.
+
+    Returns:
+        Dictionary with 'x' and 'y' keys representing relative position in meters.
+    """
     # 1 deg lat ~ 111,111 meters
     # 1 deg lon ~ 111,111 * cos(lat) meters
     lat_m = (target_lat - origin_lat) * 111111
@@ -69,7 +80,14 @@ def _calculate_relative_pos(
 
 
 def _list_runs(log_dir: Path) -> list[str]:
-    """List run IDs sorted by timestamp string."""
+    """List run IDs sorted by timestamp string.
+
+    Args:
+        log_dir: Directory containing decision log files.
+
+    Returns:
+        List of run IDs sorted alphabetically.
+    """
     runs = []
     for path in log_dir.glob("decisions_*.jsonl"):
         run_id = path.stem.replace("decisions_", "")
@@ -78,7 +96,14 @@ def _list_runs(log_dir: Path) -> list[str]:
 
 
 def _summarize(entries: list[dict[str, Any]]) -> dict[str, Any]:
-    """Build summary metrics for a run."""
+    """Build summary metrics for a run.
+
+    Args:
+        entries: List of decision log entries.
+
+    Returns:
+        Dictionary containing summary metrics including total count and risk scores.
+    """
     if not entries:
         return {
             "total": 0,
@@ -98,7 +123,14 @@ def _summarize(entries: list[dict[str, Any]]) -> dict[str, Any]:
 
 
 def _series(entries: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    """Prepare chart series for risk and battery."""
+    """Prepare chart series for risk and battery.
+
+    Args:
+        entries: List of decision log entries.
+
+    Returns:
+        Tuple of (risk_series, battery_series) for charting.
+    """
     risk_series = []
     battery_series = []
     for entry in entries:
@@ -109,7 +141,14 @@ def _series(entries: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], list[d
 
 
 def _action_counts(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Count decisions by action."""
+    """Count decisions by action.
+
+    Args:
+        entries: List of decision log entries.
+
+    Returns:
+        List of dictionaries with action names and their counts.
+    """
     counts: dict[str, int] = {}
     for entry in entries:
         action = entry.get("action", "unknown")
@@ -118,7 +157,15 @@ def _action_counts(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 
 def _recent(entries: list[dict[str, Any]], limit: int = 12) -> list[dict[str, Any]]:
-    """Return the most recent decision entries for the table."""
+    """Return the most recent decision entries for the table.
+
+    Args:
+        entries: List of decision log entries.
+        limit: Maximum number of entries to return.
+
+    Returns:
+        List of recent decision entries with spatial context.
+    """
     recent_entries = entries[-limit:]
     items = []
     for entry in recent_entries[::-1]:
@@ -160,7 +207,12 @@ def _recent(entries: list[dict[str, Any]], limit: int = 12) -> list[dict[str, An
 
 
 def add_dashboard_routes(app: FastAPI, log_dir: Path) -> None:
-    """Register dashboard routes and static assets."""
+    """Register dashboard routes and static assets.
+
+    Args:
+        app: FastAPI application instance.
+        log_dir: Directory containing decision log files.
+    """
     repo_root = Path(__file__).resolve().parents[2]
     dist_dir = repo_root / "frontend" / "dist"
     assets_dir = dist_dir / "assets"
@@ -169,6 +221,7 @@ def add_dashboard_routes(app: FastAPI, log_dir: Path) -> None:
 
     @app.get("/dashboard", response_class=HTMLResponse)
     async def dashboard() -> HTMLResponse:
+        """Serve the dashboard HTML page."""
         dist_index = dist_dir / "index.html"
         if dist_index.exists():
             return HTMLResponse(dist_index.read_text(encoding="utf-8"))
@@ -179,11 +232,13 @@ def add_dashboard_routes(app: FastAPI, log_dir: Path) -> None:
 
     @app.get("/api/dashboard/runs", response_class=JSONResponse)
     async def list_runs() -> JSONResponse:
+        """List all available run IDs."""
         runs = _list_runs(log_dir)
         return JSONResponse({"runs": runs, "latest": runs[-1] if runs else None})
 
     @app.get("/api/dashboard/run/{run_id}", response_class=JSONResponse)
     async def run_data(run_id: str) -> JSONResponse:
+        """Get detailed data for a specific run."""
         run_file = log_dir / f"decisions_{run_id}.jsonl"
         if not run_file.exists():
             raise HTTPException(status_code=404, detail="Run not found")
@@ -335,20 +390,31 @@ def add_dashboard_routes(app: FastAPI, log_dir: Path) -> None:
 
     @app.post("/api/dashboard/runner/stop", response_class=JSONResponse)
     async def stop_runner() -> JSONResponse:
-        """Stop the currently running scenario."""
+        """Stop the currently running scenario.
+
+        Returns:
+            JSON response with stop status and summary.
+        """
         global _runner_state
 
         if not _runner_state.is_running or not _runner_state.runner:
             raise HTTPException(status_code=409, detail="No runner active")
 
         _runner_state.runner.stop()
+        _runner_state.is_running = False
 
         # Wait briefly for task to complete
         if _runner_state.run_task:
             try:
+                if not _runner_state.run_task.done():
+                    _runner_state.run_task.cancel()
                 await asyncio.wait_for(_runner_state.run_task, timeout=2.0)
             except asyncio.TimeoutError:
                 pass
+            except asyncio.CancelledError:
+                pass
+            finally:
+                _runner_state.run_task = None
 
         # Save decision log
         log_path = None
@@ -365,7 +431,11 @@ def add_dashboard_routes(app: FastAPI, log_dir: Path) -> None:
 
     @app.get("/api/dashboard/runner/status", response_class=JSONResponse)
     async def runner_status() -> JSONResponse:
-        """Get current runner status."""
+        """Get current runner status.
+
+        Returns:
+            JSON response with current runner state and drone information.
+        """
         global _runner_state
 
         if not _runner_state.runner or not _runner_state.runner.run_state:
@@ -415,7 +485,15 @@ def add_dashboard_routes(app: FastAPI, log_dir: Path) -> None:
 
     @app.get("/api/dashboard/runner/decisions", response_class=JSONResponse)
     async def runner_decisions(limit: int = 20, offset: int = 0) -> JSONResponse:
-        """Get recent decisions from the running scenario."""
+        """Get recent decisions from the running scenario.
+
+        Args:
+            limit: Maximum number of decisions to return.
+            offset: Number of decisions to skip from the end.
+
+        Returns:
+            JSON response with paginated decision list.
+        """
         global _runner_state
 
         if not _runner_state.runner or not _runner_state.runner.run_state:

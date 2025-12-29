@@ -93,6 +93,11 @@ class DecisionLogger:
     """
 
     def __init__(self, log_dir: Path) -> None:
+        """Initialize the DecisionLogger.
+
+        Args:
+            log_dir: Directory path where decision logs will be stored.
+        """
         self.log_dir = Path(log_dir)
         self.log_dir.mkdir(parents=True, exist_ok=True)
 

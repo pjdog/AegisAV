@@ -166,6 +166,7 @@ class BatteryPredictor(PredictiveModel):
     """Predicts battery consumption and remaining flight time."""
 
     def __init__(self) -> None:
+        """Initialize the BatteryPredictor."""
         self.consumption_history = deque(maxlen=100)
         self.weather_factors = {}
 
@@ -239,6 +240,7 @@ class WeatherPredictor(PredictiveModel):
     """Predicts weather changes and their impact on operations."""
 
     def __init__(self) -> None:
+        """Initialize the WeatherPredictor."""
         self.weather_history = deque(maxlen=50)
         self.wind_patterns = {}
 
@@ -295,6 +297,7 @@ class GoalHierarchy:
     """Hierarchical goal planning with multi-level objectives."""
 
     def __init__(self) -> None:
+        """Initialize the GoalHierarchy."""
         self.goal_stack = []
         self.current_level = 0
         self.max_depth = 5
@@ -413,6 +416,7 @@ class MetaCognitiveMonitor:
     """Meta-cognitive monitoring for self-awareness."""
 
     def __init__(self) -> None:
+        """Initialize the MetaCognitiveMonitor."""
         self.decision_history = deque(maxlen=100)
         self.performance_metrics = {}
         self.learning_rate = 0.1
@@ -476,6 +480,7 @@ class AdvancedDecisionEngine:
     """Advanced agentic decision engine with learning and prediction."""
 
     def __init__(self) -> None:
+        """Initialize the AdvancedDecisionEngine."""
         self.modules = DecisionModules(
             battery_predictor=BatteryPredictor(),
             weather_predictor=WeatherPredictor(),
@@ -908,6 +913,7 @@ class EnhancedGoalSelector:
     """Enhanced goal selector using advanced decision engine."""
 
     def __init__(self) -> None:
+        """Initialize the EnhancedGoalSelector."""
         self.advanced_engine = None  # Will be initialized asynchronously
 
     async def initialize(self) -> None:

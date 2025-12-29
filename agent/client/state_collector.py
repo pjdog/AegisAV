@@ -51,6 +51,12 @@ class StateCollector:
         mavlink: MAVLinkInterface,
         config: CollectorConfig | None = None,
     ) -> None:
+        """Initialize the StateCollector.
+
+        Args:
+            mavlink: MAVLink interface for receiving telemetry.
+            config: Collector configuration settings.
+        """
         self.mavlink = mavlink
         self.config = config or CollectorConfig()
 

@@ -53,6 +53,7 @@ class Position(BaseModel):
 
     def distance_to(self, other: "Position") -> float:
         """Calculate approximate distance to another position in meters.
+
         Uses haversine formula for accuracy.
         """
         earth_radius_m = 6371000  # Earth radius in meters

@@ -54,6 +54,13 @@ class AgentClient:
         collector_config: CollectorConfig,
         vision_client: VisionClient | None = None,
     ) -> None:
+        """Initialize the AgentClient.
+
+        Args:
+            mavlink_config: Configuration for MAVLink connection.
+            collector_config: Configuration for state collection.
+            vision_client: Optional vision client for inspections.
+        """
         self.mavlink = MAVLinkInterface(mavlink_config)
         self.state_collector = StateCollector(self.mavlink, collector_config)
         self.vision_client = vision_client
@@ -64,6 +71,7 @@ class AgentClient:
         self._shutdown_event = asyncio.Event()
 
     async def _refresh_edge_config(self) -> None:
+        """Refresh edge compute configuration from the server."""
         payload = await self.state_collector.get_edge_config()
         if not payload or not isinstance(payload, dict):
             return
@@ -201,6 +209,14 @@ def load_config(config_path: Path) -> tuple[MAVLinkConfig, CollectorConfig]:
 
 
 def _build_vision_client(vision_config: dict[str, Any]) -> VisionClient | None:
+    """Build a VisionClient from configuration dictionary.
+
+    Args:
+        vision_config: Configuration dictionary with vision settings.
+
+    Returns:
+        Configured VisionClient, or None if vision is disabled or unsupported.
+    """
     vision_section = vision_config.get("vision", {})
     if not isinstance(vision_section, dict) or not vision_section.get("enabled", False):
         return None

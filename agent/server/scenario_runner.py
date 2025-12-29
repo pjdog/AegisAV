@@ -286,6 +286,8 @@ class ScenarioRunner:
                 real_elapsed = (datetime.now() - real_start).total_seconds()
                 if real_elapsed >= max_duration_s:
                     logger.info("Scenario stopped: real-time limit reached")
+                    self.run_state.abort_reason = "real_time_limit"
+                    self.run_state.is_running = False
                     break
 
             # Execute one tick
@@ -494,7 +496,6 @@ class ScenarioRunner:
         }
 
         self._log_entry(decision_record)
-        self.run_state.decision_log.append(decision_record)
 
         logger.info(
             f"[{self.run_state.elapsed_seconds:.0f}s] {drone.name}: "

@@ -32,11 +32,19 @@
 
 ## Key Features
 
+
+---
+
+## Key Features
+
 | Feature | Description |
 |---------|-------------|
 | **Autonomous Inspection** | AI selects which assets to inspect based on priority and conditions |
 | **Defect Detection** | Computer vision identifies cracks, corrosion, hot spots, and damage |
-| **Explainable AI** | Every decision includes human-readable reasoning |
+| **Explainable AI** | Every decision includes human-readable reasoning and risk assessment |
+| **Multi-Agent Critics** | 3-layer safety validation (Safety, Efficiency, Goal) for every action |
+| **Cost Awareness** | Real-time LLM token tracking and budget enforcement |
+| **Edge Intelligence** | Configurable policies for bandwidth management and anomaly gating |
 | **Real-Time Dashboard** | Monitor vehicle state, detections, and AI reasoning live |
 | **Production Flight Controller** | Uses ArduPilot SITL - same code that runs on real Pixhawk hardware |
 | **Photorealistic Simulation** | Unreal Engine rendering with AirSim physics |
@@ -52,7 +60,7 @@
 git clone https://github.com/pjdog/AegisAV.git && cd AegisAV
 uv sync
 
-# Run the integrated demo
+# Run the integrated demo (uses development config by default)
 uv run python examples/demo_integrated_vision.py
 ```
 
@@ -64,82 +72,15 @@ This runs a complete inspection simulation with:
 
 ### Option 2: Full Simulation (Recommended)
 
-For the complete high-fidelity experience with photorealistic rendering:
+1. **Setup Simulation**: Follow the [Simulation Setup](#-high-fidelity-simulation) guide.
+2. **Configure**: Copy `configs/aegis_config.development.yaml` to `configs/aegis_config.yaml`.
+3. **Run**:
 
 ```bash
-# On your desktop machine (requires GPU)
-cd simulation
-chmod +x setup_desktop.sh
-./setup_desktop.sh
-
-# Then run:
-python simulation/run_simulation.py --airsim --sitl
-```
-
-See [Simulation Setup](#-high-fidelity-simulation) for full details.
-
----
-
-## High-Fidelity Simulation
-
-AegisAV includes a complete simulation stack for realistic drone inspection:
-
-```
-┌─────────────────────────────────────────────────────────────────────┐
-│              UNREAL ENGINE + AIRSIM                                 │
-│         Photorealistic 3D environments (Solar farms, turbines)     │
-│         Real-time camera feeds at 1920x1080                         │
-└─────────────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────────────┐
-│              ARDUPILOT SITL                                         │
-│         Real flight controller code (same as Pixhawk hardware)     │
-│         MAVLink protocol, GPS, attitude control                    │
-└─────────────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────────────┐
-│              AEGISAV AGENT                                          │
-│         AI decision making, vision pipeline, anomaly detection     │
-│         FastAPI server with real-time dashboard                    │
-└─────────────────────────────────────────────────────────────────────┘
-```
-
-### Hardware Requirements
-
-| Component | Minimum | Recommended |
-|-----------|---------|-------------|
-| GPU | GTX 1070 / RX 5700 | RTX 3080 / RX 6950XT |
-| RAM | 16GB | 32GB+ |
-| Storage | 100GB SSD | 200GB NVMe |
-| CPU | 6-core | 8+ core |
-
-### Simulation Documentation
-
-| Document | Description |
-|----------|-------------|
-| [simulation/README.md](simulation/README.md) | Architecture overview and quick start |
-| [simulation/UNREAL_SETUP_GUIDE.md](simulation/UNREAL_SETUP_GUIDE.md) | Detailed Unreal Engine setup |
-| [simulation/ENVIRONMENTS.md](simulation/ENVIRONMENTS.md) | Infrastructure environment planning |
-
-### Quick Simulation Setup
-
-```bash
-# 1. Run the setup script (installs ArduPilot, AirSim, dependencies)
-./simulation/setup_desktop.sh
-
-# 2. Validate your setup
-python simulation/validate_setup.py
-
-# 3. Start the simulation
-#    Terminal 1: Start Unreal/AirSim
-#    Terminal 2: Start ArduPilot SITL
-#    Terminal 3: Run AegisAV
-python simulation/run_simulation.py --airsim --sitl
-
-# 4. Open dashboard
-open http://localhost:8000/dashboard
+# Terminal 1: Start Unreal/AirSim (see verification guide)
+# Terminal 2: Start ArduPilot SITL
+# Terminal 3: Run AegisAV
+uv run python simulation/run_simulation.py --airsim --sitl
 ```
 
 ---
@@ -170,8 +111,8 @@ open http://localhost:8000/dashboard
 ┌───────────────────────────────────────────────────────────────────┐
 │                      EXECUTION LAYER                               │
 │   ┌─────────────┐  ┌─────────────┐  ┌─────────────────────────┐   │
-│   │   Action    │  │    State    │  │   Mission Primitives    │   │
-│   │  Executor   │  │  Collector  │  │  (orbit, goto, land)    │   │
+│   │   Action    │  │    State    │  │   Edge Policy Engine    │   │
+│   │  Executor   │  │  Collector  │  │  (Bandwidth/Gating)     │   │
 │   └─────────────┘  └─────────────┘  └─────────────────────────┘   │
 └───────────────────────────────────────────────────────────────────┘
                               │
@@ -180,8 +121,24 @@ open http://localhost:8000/dashboard
 │                      CONTROL LAYER                                 │
 │                (ArduPilot SITL / Pixhawk Hardware)                │
 │            Stabilization • Navigation • Sensor Fusion             │
+│                        (MAVLink)                                  │
 └───────────────────────────────────────────────────────────────────┘
 ```
+
+---
+
+## Configuration & Edge Policy
+
+AegisAV features a unified configuration system (`ConfigManager`) supporting:
+- **YAML Configs**: `configs/aegis_config.yaml` (overrides defaults)
+- **Environment Variables**: `AEGIS_VISION_ENABLED=true`
+- **Runtime Updates**: Change settings via Dashboard UI or API
+
+### Edge Computing Policies
+Optimize bandwidth and processing by configuring the client's behavior:
+- **Anomaly Gating**: Only transmit images when defects exceed specific confidence/severity thresholds.
+- **Capture Cadence**: Dynamically adjust frame rates based on mission phase.
+- **Cost Budgeting**: LLM calls are tracked and capped daily (default $1.00/day).
 
 ---
 
@@ -198,56 +155,18 @@ The vision system detects infrastructure defects in real-time:
 | **Power Lines** | Damaged conductors, vegetation encroachment, insulator damage |
 | **Substations** | Corrosion, oil leaks, thermal anomalies |
 
-### Vision Architecture
-
-```
-Camera Frame (1920x1080)
-        │
-        ▼
-┌─────────────────┐
-│  Preprocessing  │  Resize, normalize, color correction
-└─────────────────┘
-        │
-        ▼
-┌─────────────────┐
-│  YOLO Detector  │  Object detection + classification
-└─────────────────┘
-        │
-        ▼
-┌─────────────────┐
-│ Anomaly Filter  │  Severity scoring, false positive reduction
-└─────────────────┘
-        │
-        ▼
-┌─────────────────┐
-│ World Model     │  Update asset states, trigger re-inspection
-└─────────────────┘
-```
-
-### Running Vision Demo
-
-```bash
-# Run vision-only demo
-uv run python examples/demo_integrated_vision.py
-
-# Output includes:
-# - Detected defects with confidence scores
-# - Anomaly classifications
-# - Asset status updates
-```
-
 ---
 
 ## Dashboard
 
-The Aegis Onyx Dashboard provides real-time monitoring:
+The Aegis Onyx Dashboard provides real-time monitoring and configuration:
 
 | Panel | Description |
 |-------|-------------|
 | **Vehicle State** | Position, altitude, battery, flight mode |
 | **Radar View** | Spatial visualization of vehicle and assets |
-| **Reasoning Feed** | Live AI decision explanations |
-| **Detection Log** | Vision pipeline detections |
+| **Reasoning Feed** | Live AI decision explanations and critic feedback |
+| **Settings** | **[NEW]** Runtime configuration of thresholds and policies |
 | **Mission Status** | Current goal and progress |
 
 Access at: `http://localhost:8000/dashboard`
@@ -259,23 +178,18 @@ Access at: `http://localhost:8000/dashboard`
 ```
 AegisAV/
 ├── agent/
-│   ├── server/              # Decision layer (FastAPI + PydanticAI)
-│   │   ├── critics/         # Safety, efficiency, goal-alignment validators
-│   │   ├── vision/          # Vision service integration
-│   │   └── monitoring/      # Cost tracking, explanations
-│   └── client/              # Execution layer (action executor)
+│   ├── server/              # Decision layer
+│   │   ├── content/         # ConfigManager and settings
+│   │   ├── critics/         # Multi-agent validation system
+│   │   ├── monitoring/      # Cost tracking, outcome logging
+│   │   └── vision/          # Vision service integration
+│   └── client/              # Execution layer & edge policies
 ├── autonomy/                # Vehicle interface (MAVLink)
 ├── vision/                  # Computer vision pipeline
-│   ├── models/              # YOLO detector, anomaly classifier
-│   └── camera/              # Camera capture (simulated + real)
 ├── simulation/              # High-fidelity simulation
-│   ├── airsim_bridge.py     # Unreal Engine camera integration
-│   ├── sitl_manager.py      # ArduPilot SITL management
-│   └── run_simulation.py    # Unified simulation runner
 ├── frontend/                # Aegis Onyx dashboard (Vite + React)
-├── examples/                # Demo scripts
-├── configs/                 # YAML configurations
-└── tests/                   # Comprehensive test suite
+├── configs/                 # Configuration templates
+└── tests/                   # Comprehensive test suite (150+ tests)
 ```
 
 ---
@@ -301,59 +215,29 @@ cd frontend && npm install && npm run build && cd ..
 ### Run Tests
 
 ```bash
-# Full test suite (152 tests)
+# Full test suite
 uv run pytest
 
 # With coverage
 uv run pytest --cov=agent --cov=autonomy --cov=vision
 
 # Specific modules
-uv run pytest tests/test_advanced_decision.py -v
-```
-
-### Start Development Server
-
-```bash
-# Start the agent server
-uv run uvicorn agent.server.main:app --reload --port 8000
-
-# In another terminal, run a demo
-uv run python examples/demo_integrated_vision.py
-```
-
----
-
-## Configuration
-
-Key configuration files:
-
-| File | Purpose |
-|------|---------|
-| `configs/agent_config.yaml` | Agent behavior, thresholds |
-| `configs/vision_config.yaml` | Vision pipeline settings |
-| `simulation/settings.json` | AirSim camera and vehicle config |
-
-Environment variables:
-
-```bash
-export OPENAI_API_KEY=your-key    # For LLM-powered goal selection
-export AEGIS_LOG_LEVEL=DEBUG      # Logging verbosity
-export AEGIS_MOCK_LLM=true        # Use rule-based fallback
+uv run pytest tests/test_config_manager.py -v
 ```
 
 ---
 
 ## Roadmap
 
-- [x] Core decision engine with multi-critic validation
-- [x] Vision pipeline with defect detection
-- [x] ArduPilot SITL integration
-- [x] AirSim camera bridge
-- [x] Real-time dashboard
-- [ ] Custom Unreal infrastructure environments (Sprint 1-2)
-- [ ] YOLO model training on infrastructure defects
-- [ ] Hardware deployment guide
-- [ ] Multi-vehicle coordination
+See [plan.md](plan.md) for the detailed project roadmap.
+
+- [x] **Phase 1**: Foundation (Architecture, Simulation, Vision)
+- [x] **Phase 2**: Multi-Agent Validation (Critics, Safety, Integration)
+- [ ] **Phase 3**: Intelligence & Production (Optimization, Learning)
+    - [x] System Configuration & UI
+    - [x] Edge Policies & Cost Tracking
+    - [ ] Hybrid LLM Decision Engine
+    - [ ] Advanced Explanation Agent
 
 ---
 
@@ -370,3 +254,4 @@ export AEGIS_MOCK_LLM=true        # Use rule-based fallback
 Built for the future of autonomous infrastructure monitoring.
 
 </div>
+

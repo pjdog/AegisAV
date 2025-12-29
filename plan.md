@@ -1,43 +1,52 @@
-# Demo Visualization Plan
+# AegisAV Project Roadmap
 
-## Goals
-- Show agent autonomy in action with clear decision context
-- Make risk and safety reasoning visible
-- Demonstrate mission progress and outcome at a glance
+## Phase 1: Foundation (✅ Complete)
+**Goal:** Establish the core infrastructure for autonomous inspection.
+- [x] **Architecture Design**: Decision/Execution/Control layer separation
+- [x] **Simulation Stack**: Unreal Engine + AirSim + ArduPilot SITL integration
+- [x] **Vision Layer (Basic)**: Simulated camera capture and YOLOv8 integration
+- [x] **Dashboard (V1)**: Real-time telemetry and camera feed
+- [x] **Execution Engine**: Basic MAVLink primitives (TAKEOFF, GOTO, RTL)
 
-## Primary Views
-1. Mission Overview
-   - Total decisions, risk summary, mission time window
-   - Latest decision with confidence and rationale
-2. Risk and Battery Timeline
-   - Line chart of risk score over time
-   - Line chart of battery percentage over time
-3. Decision Mix
-   - Action distribution (inspect, return, wait, abort)
-4. Recent Decisions Table
-   - Timestamp, action, confidence, risk level, battery
+## Phase 2: Multi-Agent Validation (✅ Complete)
+**Goal:** Ensure autonomy is safe, explainable, and verified.
+- [x] **Multi-Critic Architecture**:
+    - `SafetyCritic`: Battery, weather, and geofence validation
+    - `EfficiencyCritic`: Resource usage optimization
+    - `GoalAlignmentCritic`: Strategic consisteny checks
+- [x] **Escalation System**: Advisory → Blocking → Hierarchical review flow
+- [x] **Outcome Tracking**: Feedback loop for decision success/failure
+- [x] **Integration Testing**: End-to-end pipeline validation (30/30 tests passing)
 
-## Demo Narrative (5-7 minutes)
-1. Setup (30s)
-   - Introduce mission goal and live dashboard
-2. Agent in Motion (2m)
-   - Highlight decision cadence and action mix
-   - Call out a sample decision and reasoning
-3. Risk Response (2m)
-   - Show risk spike and corresponding behavior change
-   - Tie to battery trend or weather thresholds
-4. Outcome (1-2m)
-   - Return to dock or mission completion
-   - Summarize key metrics
+## Phase 3: Intelligence & Production Readiness (🚧 In Progress)
+**Goal:** Enhance decision capabilities and operational robustness.
 
-## Data Requirements
-- Decision logs written as JSONL per run
-- Risk score and risk level
-- Battery percentage
-- Decision action and confidence
-- World position (optional for future map view)
+### 3.1 System Configuration (✅ Complete)
+- [x] **Centralized Config**: `ConfigManager` with YAML & Env var support
+- [x] **Runtime Settings**: `SettingsPanel` UI for hot-reloading params
+- [x] **Environment Profiles**: Dev/Prod presets (`configs/aegis_config.*.yaml`)
 
-## Stretch Goals (Optional)
-- Map panel with asset locations and vehicle path
-- Timeline scrubber to replay decisions
-- Compare runs side-by-side for benchmarking
+### 3.2 Efficiency & Monitoring (✅ Complete)
+- [x] **Edge Computing Policy**: Configurable bandwidth & anomaly gating
+- [x] **Cost Tracking**: LLM token usage monitoring & budget enforcement
+- [x] **Performance Optimization**: Client-side feedback loop improvements
+
+### 3.3 Advanced Reasoning (TODO)
+- [ ] **Hybrid Decision Engine**: Route complex decisions to LLM, simple ones to rules
+- [ ] **Explanation Agent**: Generate natural language audit trails for post-mission analysis
+- [ ] **Learning System**: Update risk models based on `OutcomeTracker` data
+
+### 3.4 Multi-Drone Orchestration (New)
+- [ ] **Swarm Server**: Centralized fleet manager for efficient task allocation and spatial deconfliction.
+- [ ] **Preconfigured Simulations**:
+    - *Solar Farm Sweep*: 2 drones splitting a large field for optimal coverage speed.
+    - *Linear Inspection*: 2 drones inspecting power lines in tandem (leapfrog pattern).
+    - *Perimeter Defense*: 3 drones coordinating patrol coverage with handover logic.
+- [ ] **Hardware Deployment**: Validation on physical Pixhawk/Jetson hardware (moved from 3.4)
+- [ ] **Operational Tools**:
+    - Mission Replay: Time-scrubbing interface for past missions
+
+
+## Known Issues / Backlog
+- [ ] **Geodetic Transform**: Refine separate `GlobalPosition` vs `LocalPosition` tracking
+- [ ] **Vision Model**: Retrain YOLO on specialized infrastructure defect dataset

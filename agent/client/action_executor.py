@@ -1,5 +1,4 @@
-"""
-Action Executor
+"""Action Executor.
 
 Translates high-level decisions from the agent server into
 MAVLink commands for the flight controller.
@@ -44,8 +43,7 @@ class ExecutionResult:
 
 
 class ActionExecutor:
-    """
-    Executes decisions by translating them to flight commands.
+    """Executes decisions by translating them to flight commands.
 
     The action executor receives decisions from the agent server
     and uses MissionPrimitives to execute them on the vehicle.
@@ -65,7 +63,13 @@ class ActionExecutor:
                 logger.error(f"Execution failed: {result.message}")
     """
 
-    def __init__(self, mavlink: MAVLinkInterface, vision_client: "VisionClient | None" = None):
+    def __init__(self, mavlink: MAVLinkInterface, vision_client: "VisionClient | None" = None) -> None:
+        """Initialize the ActionExecutor.
+
+        Args:
+            mavlink: MAVLink interface for vehicle communication.
+            vision_client: Optional vision client for inspection captures.
+        """
         self.mavlink = mavlink
         self.primitives = MissionPrimitives(mavlink)
         self.vision_client = vision_client
@@ -85,8 +89,7 @@ class ActionExecutor:
         self._state = ExecutionState.ABORTED
 
     async def execute(self, decision: dict) -> ExecutionResult:
-        """
-        Execute a decision from the agent server.
+        """Execute a decision from the agent server.
 
         Args:
             decision: Decision dict from server
@@ -169,21 +172,53 @@ class ActionExecutor:
         return await handler(parameters)
 
     async def _handle_wait(self, parameters: dict) -> PrimitiveResult:
+        """Handle wait action by sleeping for the specified duration.
+
+        Args:
+            parameters: Action parameters containing optional duration_s.
+
+        Returns:
+            PrimitiveResult indicating success.
+        """
         duration = parameters.get("duration_s", 0)
         if duration > 0:
             await asyncio.sleep(duration)
         return PrimitiveResult.SUCCESS
 
     async def _handle_abort(self, _parameters: dict) -> PrimitiveResult:
+        """Handle abort action by commanding return to launch.
+
+        Args:
+            _parameters: Action parameters (unused).
+
+        Returns:
+            PrimitiveResult indicating success or failure.
+        """
         if await self.mavlink.return_to_launch():
             return PrimitiveResult.SUCCESS
         return PrimitiveResult.FAILED
 
     async def _handle_takeoff(self, parameters: dict) -> PrimitiveResult:
+        """Handle takeoff action by arming and taking off to specified altitude.
+
+        Args:
+            parameters: Action parameters containing optional altitude_m.
+
+        Returns:
+            PrimitiveResult indicating success or failure.
+        """
         altitude = parameters.get("altitude_m", 10.0)
         return await self.primitives.arm_and_takeoff(altitude)
 
     async def _handle_goto(self, parameters: dict) -> PrimitiveResult:
+        """Handle goto action by flying to the specified position.
+
+        Args:
+            parameters: Action parameters containing position and optional speed_ms.
+
+        Returns:
+            PrimitiveResult indicating success or failure.
+        """
         pos = parameters.get("position", {})
         if not pos:
             return PrimitiveResult.FAILED
@@ -197,6 +232,15 @@ class ActionExecutor:
         return await self.primitives.goto(target, speed)
 
     async def _handle_inspect(self, parameters: dict) -> PrimitiveResult:
+        """Handle inspect action by flying to position and performing inspection maneuver.
+
+        Args:
+            parameters: Action parameters containing position, orbit_radius_m,
+                dwell_time_s, and asset_id.
+
+        Returns:
+            PrimitiveResult indicating success or failure.
+        """
         pos = parameters.get("position", {})
         if not pos:
             return PrimitiveResult.FAILED
@@ -253,6 +297,14 @@ class ActionExecutor:
         return result
 
     async def _handle_dock(self, parameters: dict) -> PrimitiveResult:
+        """Handle dock action by flying to dock position or returning to launch.
+
+        Args:
+            parameters: Action parameters containing optional dock_position.
+
+        Returns:
+            PrimitiveResult indicating success or failure.
+        """
         dock_pos = parameters.get("dock_position")
         if dock_pos:
             target = Position(
@@ -264,9 +316,25 @@ class ActionExecutor:
         return await self.primitives.return_to_launch()
 
     async def _handle_rtl(self, _parameters: dict) -> PrimitiveResult:
+        """Handle return-to-launch action.
+
+        Args:
+            _parameters: Action parameters (unused).
+
+        Returns:
+            PrimitiveResult indicating success or failure.
+        """
         return await self.primitives.return_to_launch()
 
     async def _handle_land(self, _parameters: dict) -> PrimitiveResult:
+        """Handle land action by landing at current position.
+
+        Args:
+            _parameters: Action parameters (unused).
+
+        Returns:
+            PrimitiveResult indicating success or failure.
+        """
         return await self.primitives.land()
 
     def _get_vehicle_state_dict(self) -> dict:

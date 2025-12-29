@@ -1,5 +1,4 @@
-"""
-Goal Models
+"""Goal Models.
 
 Defines goal types and goal payloads used by the planning pipeline.
 """

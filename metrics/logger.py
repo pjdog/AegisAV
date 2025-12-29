@@ -1,5 +1,4 @@
-"""
-Decision Logger
+"""Decision Logger.
 
 Structured logging of agent decisions for analysis and explainability.
 """
@@ -22,6 +21,7 @@ class DecisionLogEntry:
 
     # Decision info
     timestamp: str
+    vehicle_id: str | None
     decision_id: str
     action: str
     parameters: dict
@@ -73,8 +73,7 @@ class DecisionLogContext:
 
 
 class DecisionLogger:
-    """
-    Logs agent decisions with full context for analysis.
+    """Logs agent decisions with full context for analysis.
 
     Each decision is logged as a structured JSON entry containing:
     - The decision itself (action, parameters, reasoning)
@@ -94,7 +93,12 @@ class DecisionLogger:
         logger.end_run()
     """
 
-    def __init__(self, log_dir: Path):
+    def __init__(self, log_dir: Path) -> None:
+        """Initialize the DecisionLogger.
+
+        Args:
+            log_dir: Directory path where decision logs will be stored.
+        """
         self.log_dir = Path(log_dir)
         self.log_dir.mkdir(parents=True, exist_ok=True)
 
@@ -103,8 +107,7 @@ class DecisionLogger:
         self._entries: list[DecisionLogEntry] = []
 
     def start_run(self, run_id: str | None = None) -> str:
-        """
-        Start a new logging run.
+        """Start a new logging run.
 
         Args:
             run_id: Optional run identifier (default: timestamp)
@@ -130,8 +133,7 @@ class DecisionLogger:
             self._run_file = None
 
     def log_decision(self, context: DecisionLogContext) -> None:
-        """
-        Log a decision with full context.
+        """Log a decision with full context.
 
         Args:
             context: Aggregated context for the decision
@@ -154,6 +156,7 @@ class DecisionLogger:
 
         entry = DecisionLogEntry(
             timestamp=datetime.now().isoformat(),
+            vehicle_id=getattr(world.vehicle, "vehicle_id", None),
             decision_id=decision.decision_id,
             action=decision.action.value,
             parameters=decision.parameters,
@@ -203,8 +206,7 @@ class DecisionLogger:
         return list(self._entries)
 
     def load_run(self, run_id: str) -> list[dict]:
-        """
-        Load entries from a previous run.
+        """Load entries from a previous run.
 
         Args:
             run_id: The run ID to load
@@ -234,8 +236,7 @@ class DecisionLogger:
 
 
 def create_summary_report(entries: list[dict]) -> str:
-    """
-    Create a summary report from decision log entries.
+    """Create a summary report from decision log entries.
 
     Args:
         entries: List of decision entries

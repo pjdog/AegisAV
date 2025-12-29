@@ -129,6 +129,12 @@ select = [
     "S",      # flake8-bandit - security issues
     "A",      # flake8-builtins - builtin function usage
 
+    # Type annotations - enforce types everywhere
+    "ANN",    # flake8-annotations - type hints for functions/methods
+
+    # Docstrings - enforce documentation
+    "D",      # pydocstyle - docstring rules
+
     # Code quality rules
     "ARG001", # unused arguments in functions
     "ARG002", # unused method arguments
@@ -143,7 +149,21 @@ ignore = [
     "B008",   # do not perform function calls in argument defaults
     "C901",   # too complex (handled by complexity check)
     "S101",   # assert usage (allowed in tests)
-    "S311",  # random usage (allowed for simulation)
+    "S311",   # random usage (allowed for simulation)
+
+    # Type annotation exceptions
+    "ANN101", # missing type for self (redundant)
+    "ANN102", # missing type for cls (redundant)
+    "ANN401", # allow Any type when necessary
+
+    # Docstring exceptions
+    "D100",   # missing docstring in public module (module docstrings optional)
+    "D104",   # missing docstring in public package
+    "D105",   # missing docstring in magic method
+    "D107",   # missing docstring in __init__
+    "D203",   # no blank line before class docstring (conflicts with D211)
+    "D213",   # multi-line summary second line (conflicts with D212)
+    "D415",   # first line should end with punctuation (too pedantic for short docstrings)
 ]
 
 # AegisAV-specific rule configurations
@@ -152,7 +172,13 @@ ignore = [
 "agent/server/world_model.py" = ["RUF005"]  # Allow complex loops in world modeling
 "autonomy/mavlink_interface.py" = ["RUF012"]  # Allow try/except in MAVLink comms
 "agent/server/critics/*.py" = ["PLC0415"]  # Allow in-function pydantic_ai imports (optional dep)
-"tests/*" = ["S", "PLC0415"]  # Allow security rules and conditional imports in tests
+"tests/*" = ["S", "PLC0415", "ANN", "D"]  # Tests: security, imports, annotations, docstrings
+"scripts/*" = ["D"]  # Scripts: docstrings optional
+"examples/*" = ["D", "ANN"]  # Examples: relaxed rules
+
+# Pydocstyle configuration - Google-style docstrings
+[tool.ruff.lint.pydocstyle]
+convention = "google"
 
 
 [tool.ruff.lint.flake8-copyright]

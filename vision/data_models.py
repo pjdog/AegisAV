@@ -1,5 +1,4 @@
-"""
-Vision Data Models
+"""Vision Data Models.
 
 Core data structures for computer vision subsystem.
 Includes camera state, detection results, and capture metadata.
@@ -10,7 +9,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, ValidationInfo, field_validator
 
 
 class CameraStatus(str, Enum):
@@ -55,8 +54,7 @@ class DetectionClass(str, Enum):
 
 
 class CameraState(BaseModel, frozen=True):
-    """
-    Current state of the camera sensor.
+    """Current state of the camera sensor.
 
     Immutable snapshot of camera status at a point in time.
     """
@@ -89,8 +87,7 @@ class CameraState(BaseModel, frozen=True):
 
 
 class BoundingBox(BaseModel, frozen=True):
-    """
-    Bounding box for detected object.
+    """Bounding box for detected object.
 
     Coordinates are normalized to [0, 1] range relative to image dimensions.
     """
@@ -102,7 +99,7 @@ class BoundingBox(BaseModel, frozen=True):
 
     @field_validator("x_max")
     @classmethod
-    def validate_x_max(cls, v: float, info) -> float:
+    def validate_x_max(cls, v: float, info: ValidationInfo) -> float:
         """Ensure x_max > x_min."""
         if "x_min" in info.data and v <= info.data["x_min"]:
             raise ValueError("x_max must be greater than x_min")
@@ -110,7 +107,7 @@ class BoundingBox(BaseModel, frozen=True):
 
     @field_validator("y_max")
     @classmethod
-    def validate_y_max(cls, v: float, info) -> float:
+    def validate_y_max(cls, v: float, info: ValidationInfo) -> float:
         """Ensure y_max > y_min."""
         if "y_min" in info.data and v <= info.data["y_min"]:
             raise ValueError("y_max must be greater than y_min")
@@ -141,8 +138,7 @@ class BoundingBox(BaseModel, frozen=True):
 
 
 class Detection(BaseModel, frozen=True):
-    """
-    Single object detection result.
+    """Single object detection result.
 
     Represents one detected object/defect in an image.
     """
@@ -165,8 +161,7 @@ class Detection(BaseModel, frozen=True):
 
 
 class DetectionResult(BaseModel, frozen=True):
-    """
-    Complete detection result from analyzing an image.
+    """Complete detection result from analyzing an image.
 
     Contains all detections found in a single image.
     """
@@ -221,8 +216,7 @@ class DetectionResult(BaseModel, frozen=True):
 
     @property
     def needs_detailed_analysis(self) -> bool:
-        """
-        Whether this result should be sent for detailed server-side analysis.
+        """Whether this result should be sent for detailed server-side analysis.
 
         True if any detection has confidence > 0.4 or severity > 0.3.
         """
@@ -233,8 +227,7 @@ class DetectionResult(BaseModel, frozen=True):
 
 
 class CaptureResult(BaseModel, frozen=True):
-    """
-    Result from a camera capture operation.
+    """Result from a camera capture operation.
 
     Contains captured image information and camera state.
     """

@@ -1,5 +1,4 @@
-"""
-Agent Client Main Entry Point
+"""Agent Client Main Entry Point.
 
 Connects to the vehicle via MAVLink and to the agent server via HTTP.
 Runs the main control loop: collect state -> send to server -> execute decisions.
@@ -35,8 +34,7 @@ logger = logging.getLogger(__name__)
 
 
 class AgentClient:
-    """
-    Main agent client orchestrating state collection and action execution.
+    """Main agent client orchestrating state collection and action execution.
 
     The client connects to:
     - The vehicle via MAVLink (receives telemetry, sends commands)
@@ -55,7 +53,14 @@ class AgentClient:
         mavlink_config: MAVLinkConfig,
         collector_config: CollectorConfig,
         vision_client: VisionClient | None = None,
-    ):
+    ) -> None:
+        """Initialize the AgentClient.
+
+        Args:
+            mavlink_config: Configuration for MAVLink connection.
+            collector_config: Configuration for state collection.
+            vision_client: Optional vision client for inspections.
+        """
         self.mavlink = MAVLinkInterface(mavlink_config)
         self.state_collector = StateCollector(self.mavlink, collector_config)
         self.vision_client = vision_client
@@ -66,6 +71,7 @@ class AgentClient:
         self._shutdown_event = asyncio.Event()
 
     async def _refresh_edge_config(self) -> None:
+        """Refresh edge compute configuration from the server."""
         payload = await self.state_collector.get_edge_config()
         if not payload or not isinstance(payload, dict):
             return
@@ -191,18 +197,34 @@ def load_config(config_path: Path) -> tuple[MAVLinkConfig, CollectorConfig]:
         # Client/collector config
         client_section = config.get("client", {})
         server_section = config.get("server", {})
+        agent_name = config.get("agent", {}).get("name", collector_config.vehicle_id)
         collector_config = CollectorConfig(
             server_url=client_section.get(
                 "server_url",
                 f"http://localhost:{server_section.get('port', 8080)}",
             ),
             update_interval_s=client_section.get("update_interval_ms", 100) / 1000,
+            retry_delay_s=client_section.get("reconnect_delay_s", collector_config.retry_delay_s),
+            async_mode=client_section.get("async_mode", collector_config.async_mode),
+            decision_poll_timeout_s=client_section.get(
+                "decision_poll_timeout_s",
+                collector_config.decision_poll_timeout_s,
+            ),
+            vehicle_id=client_section.get("vehicle_id", agent_name),
         )
 
     return mavlink_config, collector_config
 
 
 def _build_vision_client(vision_config: dict[str, Any]) -> VisionClient | None:
+    """Build a VisionClient from configuration dictionary.
+
+    Args:
+        vision_config: Configuration dictionary with vision settings.
+
+    Returns:
+        Configured VisionClient, or None if vision is disabled or unsupported.
+    """
     vision_section = vision_config.get("vision", {})
     if not isinstance(vision_section, dict) or not vision_section.get("enabled", False):
         return None

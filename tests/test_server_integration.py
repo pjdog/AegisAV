@@ -4,21 +4,18 @@ Integration tests for the FastAPI server endpoints.
 Tests the main API endpoints without requiring a real Redis connection.
 """
 
-import os
 import tempfile
 from datetime import datetime
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
 
+import httpx
 import pytest
 from fastapi import FastAPI
-from fastapi.testclient import TestClient
 
 from agent.api_models import ActionType, VehicleStateRequest
-from agent.server.auth import APIKeyAuth, AuthConfig
+from agent.server.auth import AuthConfig
 from agent.server.config_manager import ConfigManager
 from agent.server.persistence import InMemoryStore
-
 
 # Fixtures for server testing
 
@@ -352,7 +349,8 @@ class TestServerStateManagement:
 class TestDashboardAPIIntegration:
     """Test dashboard API endpoints work correctly."""
 
-    def test_dashboard_runs_endpoint(self, temp_log_dir):
+    @pytest.mark.asyncio
+    async def test_dashboard_runs_endpoint(self, temp_log_dir):
         """Test dashboard runs listing."""
         from agent.server.dashboard import add_dashboard_routes
 
@@ -362,8 +360,9 @@ class TestDashboardAPIIntegration:
         # Create some run files
         (temp_log_dir / "decisions_run1.jsonl").write_text('{"action": "WAIT"}\n')
 
-        client = TestClient(app)
-        response = client.get("/api/dashboard/runs")
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.get("/api/dashboard/runs")
         assert response.status_code == 200
         data = response.json()
         assert "runs" in data

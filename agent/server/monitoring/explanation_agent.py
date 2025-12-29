@@ -1,5 +1,4 @@
-"""
-Explanation Agent
+"""Explanation Agent.
 
 Generates detailed audit trails and explanations for decisions using LLM.
 Provides counterfactual analysis and factor contributions.
@@ -28,8 +27,7 @@ logger = logging.getLogger(__name__)
 
 
 class ExplanationAgent:
-    """
-    Generates detailed explanations and audit trails for decisions.
+    """Generates detailed explanations and audit trails for decisions.
 
     Responsibilities:
     - Create comprehensive audit trails
@@ -38,9 +36,8 @@ class ExplanationAgent:
     - Provide natural language explanations
     """
 
-    def __init__(self, llm_model: str = "gpt-4o-mini"):
-        """
-        Initialize explanation agent.
+    def __init__(self, llm_model: str = "gpt-4o-mini") -> None:
+        """Initialize explanation agent.
 
         Args:
             llm_model: LLM model to use for explanations
@@ -55,8 +52,7 @@ class ExplanationAgent:
         risk: RiskAssessment,
         escalation: EscalationDecision | None = None,
     ) -> AuditTrail:
-        """
-        Generate a comprehensive audit trail for a decision.
+        """Generate a comprehensive audit trail for a decision.
 
         Args:
             decision: The decision that was made
@@ -144,8 +140,7 @@ class ExplanationAgent:
     def _identify_factors(
         self, _decision: Decision, world: WorldSnapshot, risk: RiskAssessment
     ) -> list[FactorContribution]:
-        """
-        Identify key factors that influenced the decision.
+        """Identify key factors that influenced the decision.
 
         Returns:
             List of FactorContribution objects
@@ -204,8 +199,7 @@ class ExplanationAgent:
     async def _generate_counterfactuals(
         self, _decision: Decision, world: WorldSnapshot, risk: RiskAssessment
     ) -> list[CounterfactualScenario]:
-        """
-        Generate counterfactual "what if" scenarios.
+        """Generate counterfactual "what if" scenarios.
 
         Returns:
             List of CounterfactualScenario objects
@@ -257,8 +251,7 @@ class ExplanationAgent:
     async def explain_decision_llm(
         self, decision: Decision, world: WorldSnapshot, risk: RiskAssessment
     ) -> str:
-        """
-        Generate natural language explanation using LLM.
+        """Generate natural language explanation using LLM.
 
         Args:
             decision: Decision to explain

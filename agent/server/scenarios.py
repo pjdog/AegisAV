@@ -1,5 +1,4 @@
-"""
-Multi-Drone Simulation Scenarios
+"""Multi-Drone Simulation Scenarios.
 
 Preloaded scenarios for demonstrating the AegisAV decision system with
 multiple drones, each with their own edge cases and operational challenges.
@@ -275,7 +274,6 @@ def create_normal_operations_scenario() -> Scenario:
 
 def create_battery_cascade_scenario() -> Scenario:
     """Multiple drones experience battery issues requiring coordinated response."""
-    now = datetime.now()
     return Scenario(
         scenario_id="battery_cascade_001",
         name="Battery Cascade Emergency",

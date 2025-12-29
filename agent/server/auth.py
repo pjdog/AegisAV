@@ -1,5 +1,4 @@
-"""
-API Authentication
+"""API Authentication.
 
 Simple API key authentication for the AegisAV server.
 Supports both header-based and query parameter authentication.
@@ -68,8 +67,7 @@ api_key_query = APIKeyQuery(name=API_KEY_QUERY_NAME, auto_error=False)
 
 
 class APIKeyAuth:
-    """
-    API Key authentication handler.
+    """API Key authentication handler.
 
     Validates API keys from headers or query parameters.
     Supports multiple valid keys for key rotation.
@@ -83,9 +81,8 @@ class APIKeyAuth:
             return {"message": "Authenticated!"}
     """
 
-    def __init__(self, config: AuthConfig | None = None):
-        """
-        Initialize authentication handler.
+    def __init__(self, config: AuthConfig | None = None) -> None:
+        """Initialize authentication handler.
 
         Args:
             config: Auth configuration. Uses env vars if None.
@@ -100,8 +97,7 @@ class APIKeyAuth:
         api_key_header: str | None = Security(api_key_header),
         api_key_query: str | None = Security(api_key_query),
     ) -> dict:
-        """
-        Validate API key from request.
+        """Validate API key from request.
 
         Args:
             request: FastAPI request
@@ -161,8 +157,7 @@ class APIKeyAuth:
         }
 
     def _validate_key(self, provided_key: str) -> bool:
-        """
-        Validate an API key using constant-time comparison.
+        """Validate an API key using constant-time comparison.
 
         Args:
             provided_key: The key to validate
@@ -178,8 +173,7 @@ class APIKeyAuth:
 
     @staticmethod
     def _matches_public_endpoint(path: str, endpoint: str) -> bool:
-        """
-        Determine whether a request path matches a configured public endpoint.
+        """Determine whether a request path matches a configured public endpoint.
 
         Notes:
         - For "/" we only allow the root path, not every route.
@@ -209,8 +203,7 @@ class APIKeyAuth:
         return request.client.host if request.client else "unknown"
 
     def _check_rate_limit(self, client_ip: str) -> bool:
-        """
-        Check if client is within rate limit.
+        """Check if client is within rate limit.
 
         Args:
             client_ip: Client IP address
@@ -241,8 +234,7 @@ class APIKeyAuth:
 
     @staticmethod
     def generate_api_key() -> str:
-        """
-        Generate a secure random API key.
+        """Generate a secure random API key.
 
         Returns:
             32-character hex API key
@@ -251,8 +243,7 @@ class APIKeyAuth:
 
 
 def create_auth_dependency(config: AuthConfig | None = None) -> APIKeyAuth:
-    """
-    Create an authentication dependency for FastAPI.
+    """Create an authentication dependency for FastAPI.
 
     Args:
         config: Auth configuration
@@ -267,8 +258,7 @@ def create_auth_dependency(config: AuthConfig | None = None) -> APIKeyAuth:
 def require_auth(
     auth_result: Annotated[dict, Depends(APIKeyAuth())]
 ) -> dict:
-    """
-    Dependency that requires authentication.
+    """Dependency that requires authentication.
 
     Use in endpoint definitions:
         @app.get("/protected")
@@ -283,8 +273,7 @@ def optional_auth(
     api_key_header: str | None = Security(api_key_header),
     api_key_query: str | None = Security(api_key_query),
 ) -> dict:
-    """
-    Optional authentication that doesn't require a key.
+    """Optional authentication that doesn't require a key.
 
     Returns auth info if key provided and valid, otherwise returns
     unauthenticated status without raising an error.

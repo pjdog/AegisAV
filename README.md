@@ -47,6 +47,8 @@
 | **Edge Intelligence** | Configurable policies for bandwidth management and anomaly gating |
 | **Risk Evaluation** | **[NEW]** Framework to quantify mission risk based on battery, weather, and GPS factors |
 | **Behavioral Validation** | **[NEW]** Integration tests ensuring correct multi-drone decision logic in complex scenarios |
+| **Strict Type Safety** | **[NEW]** Full type annotations on all functions with mypy enforcement |
+| **Code Quality** | **[NEW]** Pre-commit hooks with ruff, mypy, pylint, and gitleaks |
 | **Real-Time Dashboard** | Monitor vehicle state, detections, and AI reasoning live |
 | **Production Flight Controller** | Uses ArduPilot SITL - same code that runs on real Pixhawk hardware |
 | **Photorealistic Simulation** | Unreal Engine rendering with AirSim physics |
@@ -214,6 +216,24 @@ uv sync
 cd frontend && npm install && npm run build && cd ..
 ```
 
+### Code Quality
+
+AegisAV enforces strict code quality via pre-commit hooks:
+
+```bash
+# Install pre-commit hooks
+pre-commit install
+
+# Run manually
+pre-commit run --all-files
+```
+
+**Enforced Standards:**
+- **Type Safety**: All functions have type annotations (ruff ANN rules + mypy)
+- **Documentation**: Google-style docstrings (ruff D rules)
+- **Security**: Bandit security scanning + gitleaks secret detection
+- **Style**: Consistent formatting with ruff
+
 ### Run Tests
 
 ```bash
@@ -239,6 +259,7 @@ See [plan.md](plan.md) for the detailed project roadmap.
     - [x] System Configuration & UI
     - [x] Edge Policies & Cost Tracking
     - [x] Risk Evaluation & Behavioral Tests
+    - [x] Full Type Safety & Code Quality Enforcement
     - [ ] Hybrid LLM Decision Engine
     - [ ] Advanced Explanation Agent
 

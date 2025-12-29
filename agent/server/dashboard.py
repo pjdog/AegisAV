@@ -1,6 +1,4 @@
-"""
-Dashboard routes for monitoring agent activity.
-"""
+"""Dashboard routes for monitoring agent activity."""
 
 import asyncio
 import json
@@ -9,10 +7,15 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+from agent.server.feedback_store import (
+    get_anomalies_for_run,
+    get_feedback_for_run,
+    get_run_summary,
+)
 from agent.server.scenario_runner import ScenarioRunner
 from agent.server.scenarios import (
     ScenarioCategory,
@@ -35,6 +38,7 @@ class RunnerState:
     """Global state for the scenario runner."""
 
     def __init__(self) -> None:
+        """Initialize the RunnerState."""
         self.runner: Any = None
         self.run_task: asyncio.Task | None = None
         self.is_running: bool = False
@@ -43,6 +47,9 @@ class RunnerState:
 
 # Global runner state
 _runner_state = RunnerState()
+
+# Global store reference (set by add_dashboard_routes)
+_store: Any = None
 
 
 def _load_entries(run_file: Path) -> list[dict[str, Any]]:
@@ -62,7 +69,17 @@ def _load_entries(run_file: Path) -> list[dict[str, Any]]:
 def _calculate_relative_pos(
     origin_lat: float, origin_lon: float, target_lat: float, target_lon: float
 ) -> dict[str, float]:
-    """Calculate relative X, Y in meters (flat earth approximation)."""
+    """Calculate relative X, Y in meters using flat earth approximation.
+
+    Args:
+        origin_lat: Origin latitude in degrees.
+        origin_lon: Origin longitude in degrees.
+        target_lat: Target latitude in degrees.
+        target_lon: Target longitude in degrees.
+
+    Returns:
+        Dictionary with 'x' and 'y' keys representing relative position in meters.
+    """
     # 1 deg lat ~ 111,111 meters
     # 1 deg lon ~ 111,111 * cos(lat) meters
     lat_m = (target_lat - origin_lat) * 111111
@@ -71,7 +88,14 @@ def _calculate_relative_pos(
 
 
 def _list_runs(log_dir: Path) -> list[str]:
-    """List run IDs sorted by timestamp string."""
+    """List run IDs sorted by timestamp string.
+
+    Args:
+        log_dir: Directory containing decision log files.
+
+    Returns:
+        List of run IDs sorted alphabetically.
+    """
     runs = []
     for path in log_dir.glob("decisions_*.jsonl"):
         run_id = path.stem.replace("decisions_", "")
@@ -80,7 +104,14 @@ def _list_runs(log_dir: Path) -> list[str]:
 
 
 def _summarize(entries: list[dict[str, Any]]) -> dict[str, Any]:
-    """Build summary metrics for a run."""
+    """Build summary metrics for a run.
+
+    Args:
+        entries: List of decision log entries.
+
+    Returns:
+        Dictionary containing summary metrics including total count and risk scores.
+    """
     if not entries:
         return {
             "total": 0,
@@ -100,7 +131,14 @@ def _summarize(entries: list[dict[str, Any]]) -> dict[str, Any]:
 
 
 def _series(entries: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    """Prepare chart series for risk and battery."""
+    """Prepare chart series for risk and battery.
+
+    Args:
+        entries: List of decision log entries.
+
+    Returns:
+        Tuple of (risk_series, battery_series) for charting.
+    """
     risk_series = []
     battery_series = []
     for entry in entries:
@@ -111,7 +149,14 @@ def _series(entries: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], list[d
 
 
 def _action_counts(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Count decisions by action."""
+    """Count decisions by action.
+
+    Args:
+        entries: List of decision log entries.
+
+    Returns:
+        List of dictionaries with action names and their counts.
+    """
     counts: dict[str, int] = {}
     for entry in entries:
         action = entry.get("action", "unknown")
@@ -120,7 +165,15 @@ def _action_counts(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 
 def _recent(entries: list[dict[str, Any]], limit: int = 12) -> list[dict[str, Any]]:
-    """Return the most recent decision entries for the table."""
+    """Return the most recent decision entries for the table.
+
+    Args:
+        entries: List of decision log entries.
+        limit: Maximum number of entries to return.
+
+    Returns:
+        List of recent decision entries with spatial context.
+    """
     recent_entries = entries[-limit:]
     items = []
     for entry in recent_entries[::-1]:
@@ -161,8 +214,16 @@ def _recent(entries: list[dict[str, Any]], limit: int = 12) -> list[dict[str, An
     return items
 
 
-def add_dashboard_routes(app: FastAPI, log_dir: Path) -> None:
-    """Register dashboard routes and static assets."""
+def add_dashboard_routes(app: FastAPI, log_dir: Path, store: Any = None) -> None:
+    """Register dashboard routes and static assets.
+
+    Args:
+        app: FastAPI application instance.
+        log_dir: Directory containing decision log files.
+        store: Optional state store for feedback persistence.
+    """
+    global _store
+    _store = store
     repo_root = Path(__file__).resolve().parents[2]
     dist_dir = repo_root / "frontend" / "dist"
     assets_dir = dist_dir / "assets"
@@ -170,22 +231,25 @@ def add_dashboard_routes(app: FastAPI, log_dir: Path) -> None:
         app.mount("/dashboard/assets", StaticFiles(directory=assets_dir), name="dashboard-assets")
 
     @app.get("/dashboard", response_class=HTMLResponse)
-    def dashboard() -> HTMLResponse:
+    async def dashboard() -> HTMLResponse:
+        """Serve the dashboard HTML page."""
         dist_index = dist_dir / "index.html"
         if dist_index.exists():
-            return FileResponse(dist_index)
+            return HTMLResponse(dist_index.read_text(encoding="utf-8"))
         return HTMLResponse(
             "<html><body><h1>Dashboard build missing.</h1>"
             "<p>Run the frontend build to generate /frontend/dist.</p></body></html>"
         )
 
     @app.get("/api/dashboard/runs", response_class=JSONResponse)
-    def list_runs() -> JSONResponse:
+    async def list_runs() -> JSONResponse:
+        """List all available run IDs."""
         runs = _list_runs(log_dir)
         return JSONResponse({"runs": runs, "latest": runs[-1] if runs else None})
 
     @app.get("/api/dashboard/run/{run_id}", response_class=JSONResponse)
-    def run_data(run_id: str) -> JSONResponse:
+    async def run_data(run_id: str) -> JSONResponse:
+        """Get detailed data for a specific run."""
         run_file = log_dir / f"decisions_{run_id}.jsonl"
         if not run_file.exists():
             raise HTTPException(status_code=404, detail="Run not found")
@@ -208,7 +272,7 @@ def add_dashboard_routes(app: FastAPI, log_dir: Path) -> None:
     # Scenario API endpoints
 
     @app.get("/api/dashboard/scenarios", response_class=JSONResponse)
-    def list_scenarios(
+    async def list_scenarios(
         category: str | None = None,
         difficulty: str | None = None,
     ) -> JSONResponse:
@@ -234,7 +298,7 @@ def add_dashboard_routes(app: FastAPI, log_dir: Path) -> None:
         })
 
     @app.get("/api/dashboard/scenarios/{scenario_id}", response_class=JSONResponse)
-    def scenario_detail(scenario_id: str) -> JSONResponse:
+    async def scenario_detail(scenario_id: str) -> JSONResponse:
         """Get detailed information about a specific scenario."""
         scenario = get_scenario(scenario_id)
         if not scenario:
@@ -332,25 +396,37 @@ def add_dashboard_routes(app: FastAPI, log_dir: Path) -> None:
         return JSONResponse({
             "status": "started",
             "scenario_id": request.scenario_id,
+            "run_id": _runner_state.runner.run_id,
             "time_scale": request.time_scale,
         })
 
     @app.post("/api/dashboard/runner/stop", response_class=JSONResponse)
     async def stop_runner() -> JSONResponse:
-        """Stop the currently running scenario."""
+        """Stop the currently running scenario.
+
+        Returns:
+            JSON response with stop status and summary.
+        """
         global _runner_state
 
         if not _runner_state.is_running or not _runner_state.runner:
             raise HTTPException(status_code=409, detail="No runner active")
 
         _runner_state.runner.stop()
+        _runner_state.is_running = False
 
         # Wait briefly for task to complete
         if _runner_state.run_task:
             try:
+                if not _runner_state.run_task.done():
+                    _runner_state.run_task.cancel()
                 await asyncio.wait_for(_runner_state.run_task, timeout=2.0)
             except asyncio.TimeoutError:
                 pass
+            except asyncio.CancelledError:
+                pass
+            finally:
+                _runner_state.run_task = None
 
         # Save decision log
         log_path = None
@@ -366,13 +442,18 @@ def add_dashboard_routes(app: FastAPI, log_dir: Path) -> None:
         })
 
     @app.get("/api/dashboard/runner/status", response_class=JSONResponse)
-    def runner_status() -> JSONResponse:
-        """Get current runner status."""
+    async def runner_status() -> JSONResponse:
+        """Get current runner status.
+
+        Returns:
+            JSON response with current runner state and drone information.
+        """
         global _runner_state
 
         if not _runner_state.runner or not _runner_state.runner.run_state:
             return JSONResponse({
                 "is_running": _runner_state.is_running,
+                "run_id": None,
                 "scenario_id": None,
                 "elapsed_seconds": 0,
                 "drones": [],
@@ -402,6 +483,7 @@ def add_dashboard_routes(app: FastAPI, log_dir: Path) -> None:
 
         return JSONResponse({
             "is_running": _runner_state.is_running,
+            "run_id": run_state.run_id,
             "scenario_id": run_state.scenario.scenario_id,
             "scenario_name": run_state.scenario.name,
             "elapsed_seconds": run_state.elapsed_seconds,
@@ -416,8 +498,16 @@ def add_dashboard_routes(app: FastAPI, log_dir: Path) -> None:
         })
 
     @app.get("/api/dashboard/runner/decisions", response_class=JSONResponse)
-    def runner_decisions(limit: int = 20, offset: int = 0) -> JSONResponse:
-        """Get recent decisions from the running scenario."""
+    async def runner_decisions(limit: int = 20, offset: int = 0) -> JSONResponse:
+        """Get recent decisions from the running scenario.
+
+        Args:
+            limit: Maximum number of decisions to return.
+            offset: Number of decisions to skip from the end.
+
+        Returns:
+            JSON response with paginated decision list.
+        """
         global _runner_state
 
         if not _runner_state.runner or not _runner_state.runner.run_state:
@@ -437,3 +527,92 @@ def add_dashboard_routes(app: FastAPI, log_dir: Path) -> None:
             "offset": offset,
             "limit": limit,
         })
+
+    @app.get("/api/dashboard/runner/summary", response_class=JSONResponse)
+    async def runner_summary() -> JSONResponse:
+        """Get full summary of the current or most recent run.
+
+        Returns comprehensive statistics including:
+        - Run identification (run_id, scenario_id)
+        - Completion status
+        - Total decisions and battery consumption
+        - Per-drone breakdowns
+
+        Returns:
+            JSON response with run summary or 404 if no run available.
+        """
+        global _runner_state
+
+        if not _runner_state.runner or not _runner_state.runner.run_state:
+            raise HTTPException(status_code=404, detail="No run available")
+
+        summary = _runner_state.runner.get_summary()
+        return JSONResponse(summary)
+
+    # ========================================================================
+    # Run-based feedback APIs
+    # ========================================================================
+
+    @app.get("/api/dashboard/run/{run_id}/feedback", response_class=JSONResponse)
+    async def run_feedback(run_id: str) -> JSONResponse:
+        """Get all feedback entries for a specific run.
+
+        Args:
+            run_id: The run ID to query.
+
+        Returns:
+            JSON response with feedback list for this run.
+        """
+        global _store
+
+        feedback_list = await get_feedback_for_run(_store, run_id)
+        return JSONResponse({
+            "run_id": run_id,
+            "feedback": feedback_list,
+            "total": len(feedback_list),
+        })
+
+    @app.get("/api/dashboard/run/{run_id}/anomalies", response_class=JSONResponse)
+    async def run_anomalies(run_id: str) -> JSONResponse:
+        """Get all anomaly-related feedback for a specific run.
+
+        Returns entries where anomalies were detected or resolved.
+
+        Args:
+            run_id: The run ID to query.
+
+        Returns:
+            JSON response with anomaly list.
+        """
+        global _store
+
+        anomalies = await get_anomalies_for_run(_store, run_id)
+        return JSONResponse({
+            "run_id": run_id,
+            "anomalies": anomalies,
+            "total": len(anomalies),
+        })
+
+    @app.get("/api/dashboard/run/{run_id}/summary", response_class=JSONResponse)
+    async def run_feedback_summary(run_id: str) -> JSONResponse:
+        """Get summary statistics for a run's feedback.
+
+        Returns aggregated metrics including success/fail counts,
+        anomaly counts, battery consumption, and timing.
+
+        Args:
+            run_id: The run ID to summarize.
+
+        Returns:
+            JSON response with run summary or 404 if no feedback found.
+        """
+        global _store
+
+        summary = await get_run_summary(_store, run_id)
+        if summary is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"No feedback found for run: {run_id}"
+            )
+
+        return JSONResponse(summary.to_dict())

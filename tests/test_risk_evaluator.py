@@ -14,8 +14,6 @@ from agent.server.risk_evaluator import (
     RiskThresholds,
 )
 from agent.server.world_model import (
-    Asset,
-    AssetType,
     DockState,
     DockStatus,
     EnvironmentState,
@@ -32,7 +30,6 @@ from autonomy.vehicle_state import (
     VehicleState,
     Velocity,
 )
-
 
 # ==================== Fixtures ====================
 

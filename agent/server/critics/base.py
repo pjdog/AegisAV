@@ -1,5 +1,4 @@
-"""
-Base Critic Architecture
+"""Base Critic Architecture.
 
 Provides abstract base class for all critic agents with hybrid classical/LLM evaluation.
 """
@@ -22,8 +21,7 @@ logger = logging.getLogger(__name__)
 
 
 class BaseCritic(ABC):
-    """
-    Base class for all critic agents.
+    """Base class for all critic agents.
 
     Provides hybrid evaluation strategy:
     - Fast classical algorithms for routine decisions (< 50ms)
@@ -35,9 +33,8 @@ class BaseCritic(ABC):
     - evaluate_llm(): LLM-based evaluation (optional, has default)
     """
 
-    def __init__(self, config: CriticConfig | None = None, llm_model: str | None = None):
-        """
-        Initialize critic.
+    def __init__(self, config: CriticConfig | None = None, llm_model: str | None = None) -> None:
+        """Initialize critic.
 
         Args:
             config: Critic configuration (enables, thresholds, etc.)
@@ -57,8 +54,7 @@ class BaseCritic(ABC):
 
     @abstractmethod
     def _get_critic_type(self) -> CriticType:
-        """
-        Return the critic type.
+        """Return the critic type.
 
         Must be implemented by subclasses.
         """
@@ -68,8 +64,7 @@ class BaseCritic(ABC):
     async def evaluate_fast(
         self, decision: Decision, world: WorldSnapshot, risk: RiskAssessment
     ) -> CriticResponse:
-        """
-        Fast classical algorithm evaluation.
+        """Fast classical algorithm evaluation.
 
         This method should use deterministic, rule-based logic to quickly
         assess the decision. Target latency: < 50ms.
@@ -89,8 +84,7 @@ class BaseCritic(ABC):
     async def evaluate_llm(
         self, decision: Decision, world: WorldSnapshot, risk: RiskAssessment
     ) -> CriticResponse:
-        """
-        LLM-based evaluation for complex cases.
+        """LLM-based evaluation for complex cases.
 
         Default implementation returns APPROVE with note that LLM is not implemented.
         Subclasses should override this to provide LLM-based reasoning.
@@ -118,8 +112,7 @@ class BaseCritic(ABC):
         risk: RiskAssessment,
         force_llm: bool = False,
     ) -> CriticResponse:
-        """
-        Main evaluation entry point.
+        """Main evaluation entry point.
 
         Chooses between fast (classical) or LLM-based evaluation based on:
         - Configuration (use_llm enabled/disabled)
@@ -184,8 +177,7 @@ class BaseCritic(ABC):
             )
 
     def _should_use_llm(self, decision: Decision, risk: RiskAssessment) -> bool:
-        """
-        Determine if LLM evaluation is needed.
+        """Determine if LLM evaluation is needed.
 
         Heuristics:
         - High risk (> llm_threshold): Use LLM for safety-critical analysis
@@ -227,8 +219,7 @@ class BaseCritic(ABC):
         return False
 
     def get_stats(self) -> dict:
-        """
-        Get critic statistics.
+        """Get critic statistics.
 
         Returns:
             Dictionary with evaluation counts and LLM usage

@@ -758,3 +758,213 @@ h2 {
   border-color: rgba(0, 242, 255, 0.3);
   color: var(--accent-cyber);
 }
+
+/* --- Advanced Overrides Panel --- */
+
+.advanced-overrides {
+  background: var(--card-glass);
+  backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--border-glass);
+  border-radius: 16px;
+  margin-bottom: 32px;
+  overflow: hidden;
+}
+
+.advanced-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 24px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.advanced-header:hover {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.advanced-title {
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: var(--text-primary);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+
+.budget-indicators {
+  display: flex;
+  gap: 24px;
+  flex: 1;
+  justify-content: center;
+  padding: 0 32px;
+}
+
+.budget-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.budget-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--text-muted);
+  min-width: 70px;
+}
+
+.budget-bar {
+  width: 100px;
+  height: 6px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.budget-fill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.3s ease;
+}
+
+.budget-fill.compute {
+  background: linear-gradient(90deg, var(--accent-security), var(--accent-cyber));
+  box-shadow: 0 0 8px rgba(0, 242, 255, 0.4);
+}
+
+.budget-fill.bandwidth {
+  background: linear-gradient(90deg, var(--accent-warning), var(--accent-alert));
+  box-shadow: 0 0 8px rgba(255, 184, 0, 0.4);
+}
+
+.budget-value {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 0.75rem;
+  color: var(--accent-cyber);
+  min-width: 40px;
+  text-align: right;
+}
+
+.advanced-chevron {
+  font-size: 1.4rem;
+  color: var(--text-muted);
+  font-weight: 300;
+  transition: transform 0.2s;
+}
+
+.advanced-content {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 24px;
+  padding: 0 24px 24px;
+  border-top: 1px solid var(--border-glass);
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.override-section {
+  padding-top: 20px;
+}
+
+.override-section h4 {
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.15em;
+  color: var(--accent-cyber);
+  margin: 0 0 16px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid rgba(0, 242, 255, 0.15);
+}
+
+.override-row {
+  display: grid;
+  grid-template-columns: 140px 1fr 60px;
+  gap: 12px;
+  align-items: center;
+  padding: 8px 0;
+}
+
+.override-row > span:first-child {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.override-row input[type="range"] {
+  -webkit-appearance: none;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+  height: 4px;
+  cursor: pointer;
+  width: 100%;
+}
+
+.override-row input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 14px;
+  height: 14px;
+  background: var(--accent-cyber);
+  border-radius: 50%;
+  cursor: pointer;
+  box-shadow: 0 0 8px rgba(0, 242, 255, 0.5);
+  transition: transform 0.1s;
+}
+
+.override-row input[type="range"]::-webkit-slider-thumb:hover {
+  transform: scale(1.15);
+}
+
+.override-row input[type="range"]::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  background: var(--accent-cyber);
+  border-radius: 50%;
+  cursor: pointer;
+  border: none;
+  box-shadow: 0 0 8px rgba(0, 242, 255, 0.5);
+}
+
+.override-value {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 0.75rem;
+  color: var(--accent-cyber);
+  text-align: right;
+}
+
+.override-toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 0;
+  cursor: pointer;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+}
+
+.override-toggle-row:hover {
+  background: rgba(255, 255, 255, 0.02);
+  margin: 0 -8px;
+  padding: 10px 8px;
+  border-radius: 6px;
+}
+
+.override-toggle-row > span {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+@media (max-width: 768px) {
+  .budget-indicators {
+    display: none;
+  }
+
+  .advanced-content {
+    grid-template-columns: 1fr;
+  }
+
+  .override-row {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+
+  .override-row > span:first-child {
+    font-size: 0.75rem;
+  }
+}

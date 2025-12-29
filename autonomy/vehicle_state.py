@@ -1,5 +1,4 @@
-"""
-Vehicle State Data Models
+"""Vehicle State Data Models.
 
 Core models representing vehicle telemetry and state information.
 These models are platform-agnostic and used throughout the system.
@@ -36,8 +35,7 @@ class FlightMode(Enum):
 
 
 class Position(BaseModel):
-    """
-    Geographic position in WGS84 coordinates.
+    """Geographic position in WGS84 coordinates.
 
     Attributes:
         latitude: Latitude in degrees (-90 to 90)
@@ -54,8 +52,8 @@ class Position(BaseModel):
     altitude_agl: float | None = None
 
     def distance_to(self, other: "Position") -> float:
-        """
-        Calculate approximate distance to another position in meters.
+        """Calculate approximate distance to another position in meters.
+
         Uses haversine formula for accuracy.
         """
         earth_radius_m = 6371000  # Earth radius in meters
@@ -75,8 +73,7 @@ class Position(BaseModel):
 
 
 class Velocity(BaseModel):
-    """
-    Velocity in NED (North-East-Down) frame.
+    """Velocity in NED (North-East-Down) frame.
 
     Attributes:
         north: Velocity north in m/s
@@ -107,8 +104,7 @@ class Velocity(BaseModel):
 
 
 class Attitude(BaseModel):
-    """
-    Vehicle attitude in radians.
+    """Vehicle attitude in radians.
 
     Attributes:
         roll: Roll angle in radians (positive = right wing down)
@@ -139,8 +135,7 @@ class Attitude(BaseModel):
 
 
 class BatteryState(BaseModel):
-    """
-    Battery status information.
+    """Battery status information.
 
     Attributes:
         voltage: Battery voltage in volts
@@ -215,14 +210,14 @@ class VehicleHealth(BaseModel):
 
 
 class VehicleState(BaseModel):
-    """
-    Complete vehicle state snapshot.
+    """Complete vehicle state snapshot.
 
     This is the primary telemetry object passed between components.
     It aggregates all relevant vehicle information at a point in time.
     """
 
     timestamp: datetime
+    vehicle_id: str | None = None
     position: Position
     velocity: Velocity
     attitude: Attitude
@@ -253,7 +248,7 @@ class VehicleState(BaseModel):
 
     def to_dict(self) -> dict:
         """Convert to dictionary for serialization."""
-        return {
+        payload = {
             "timestamp": self.timestamp.isoformat(),
             "position": {
                 "latitude": self.position.latitude,
@@ -282,3 +277,6 @@ class VehicleState(BaseModel):
             "healthy": self.health.is_healthy if self.health else True,
             "in_air": self.in_air,
         }
+        if self.vehicle_id:
+            payload["vehicle_id"] = self.vehicle_id
+        return payload

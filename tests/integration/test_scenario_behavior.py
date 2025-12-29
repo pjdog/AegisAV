@@ -5,13 +5,11 @@ These tests verify that the system makes CORRECT decisions
 in various edge cases - not just that it runs without errors.
 """
 
-import asyncio
 
 import pytest
 
 from agent.server.goals import GoalType
 from agent.server.scenario_runner import ScenarioRunner
-from agent.server.scenarios import DroneState
 
 
 @pytest.mark.asyncio

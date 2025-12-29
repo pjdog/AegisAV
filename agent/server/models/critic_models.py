@@ -1,5 +1,4 @@
-"""
-Data models for multi-agent critic system.
+"""Data models for multi-agent critic system.
 
 Defines critic responses, verdicts, escalation decisions, and related structures.
 """

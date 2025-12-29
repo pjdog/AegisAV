@@ -1,5 +1,4 @@
-"""
-Pydantic models for API validation and serialization.
+"""Pydantic models for API validation and serialization.
 
 These models complement the dataclasses in vehicle_state.py by providing
 validation, serialization, and API request/response models.
@@ -50,7 +49,7 @@ class PositionModel(BaseModel):
 
     @field_validator("latitude", "longitude")
     @classmethod
-    def validate_coordinates(cls, v):
+    def validate_coordinates(cls, v: float) -> float:
         """Validate coordinate ranges."""
         return float(v)
 
@@ -119,7 +118,7 @@ class BatteryModel(BaseModel):
 
     @field_validator("voltage")
     @classmethod
-    def validate_voltage(cls, v):
+    def validate_voltage(cls, v: float) -> float:
         """Validate reasonable voltage range."""
         if v < 10 or v > 30:  # Typical drone battery range
             raise ValueError("Voltage outside typical drone battery range")
@@ -213,6 +212,7 @@ class VehicleStateRequest(BaseModel):
     """API request model for vehicle state updates."""
 
     timestamp: datetime
+    vehicle_id: str | None = None
     position: PositionModel
     velocity: VelocityModel
     attitude: AttitudeModel
@@ -229,6 +229,7 @@ class VehicleStateRequest(BaseModel):
         """Convert to VehicleState dataclass."""
         return VehicleState(
             timestamp=self.timestamp,
+            vehicle_id=self.vehicle_id,
             position=self.position.to_dataclass(),
             velocity=self.velocity.to_dataclass(),
             attitude=self.attitude.to_dataclass(),
@@ -247,6 +248,7 @@ class VehicleStateRequest(BaseModel):
         """Create from VehicleState dataclass."""
         return cls(
             timestamp=state.timestamp,
+            vehicle_id=state.vehicle_id,
             position=PositionModel.from_dataclass(state.position),
             velocity=VelocityModel.from_dataclass(state.velocity),
             attitude=AttitudeModel.from_dataclass(state.attitude),

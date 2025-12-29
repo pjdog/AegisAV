@@ -16,6 +16,9 @@ client:
   server_url: "http://localhost:8080"
   update_interval_ms: 100
   reconnect_delay_s: 5
+  async_mode: true
+  decision_poll_timeout_s: 10
+  vehicle_id: "aegis-primary"
 
 mavlink:
   connection: "udp:127.0.0.1:14550"

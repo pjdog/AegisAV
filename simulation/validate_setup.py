@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
-"""
-AegisAV Simulation Setup Validator
+"""AegisAV Simulation Setup Validator
 
 Validates that all simulation components are properly configured:
 - AirSim connection and camera capture
@@ -27,7 +26,7 @@ async def validate_airsim() -> bool:
     print("\n[1/5] Testing AirSim connection...")
 
     try:
-        from simulation.airsim_bridge import AirSimBridge, AirSimCameraConfig, AIRSIM_AVAILABLE
+        from simulation.airsim_bridge import AIRSIM_AVAILABLE, AirSimBridge, AirSimCameraConfig
 
         if not AIRSIM_AVAILABLE:
             print(f"  {check_mark(False)} airsim package not installed")

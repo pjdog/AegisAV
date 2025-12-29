@@ -1,5 +1,4 @@
-"""
-Data models for decision outcome tracking.
+"""Data models for decision outcome tracking.
 
 Defines structures for tracking execution results and validating predictions.
 """
@@ -23,8 +22,7 @@ class ExecutionStatus(Enum):
 
 
 class DecisionOutcome(BaseModel):
-    """
-    Outcome of an executed decision.
+    """Outcome of an executed decision.
 
     Tracks actual execution results and compares against predictions
     to enable learning and model validation.
@@ -100,8 +98,7 @@ class DecisionOutcome(BaseModel):
 
 
 class DecisionFeedback(BaseModel):
-    """
-    Client feedback about decision execution.
+    """Client feedback about decision execution.
 
     Sent from agent client back to server after executing a decision.
     """

@@ -1,5 +1,4 @@
-"""
-AegisAV Agent Package
+"""AegisAV Agent Package.
 
 Agentic decision-making components for autonomous aerial monitoring.
 """

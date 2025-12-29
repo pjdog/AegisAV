@@ -3,12 +3,10 @@ Tests for API authentication module.
 """
 
 import os
-from datetime import datetime
 from unittest.mock import MagicMock, patch
 
 import pytest
 from fastapi import FastAPI, HTTPException
-from fastapi.testclient import TestClient
 
 from agent.server.auth import (
     APIKeyAuth,
@@ -198,7 +196,7 @@ class TestAPIKeyAuth:
 
     @pytest.mark.asyncio
     @pytest.mark.allow_error_logs
-    async def test_rate_limiting(self, auth_config):
+    async def test_rate_limiting(self):
         """Test rate limiting blocks excessive requests."""
         # Create handler with very low rate limit
         config = AuthConfig(

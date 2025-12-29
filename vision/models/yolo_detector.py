@@ -1,5 +1,4 @@
-"""
-YOLO Detector
+"""YOLO Detector.
 
 Object detection using YOLO (You Only Look Once) models.
 Supports both real YOLO inference and mock detection for testing.
@@ -88,8 +87,7 @@ YOLO_CLASS_MAPPING: dict[str, DetectionClass] = {
 
 
 class YOLODetector:
-    """
-    Real YOLO detector using ultralytics library.
+    """Real YOLO detector using ultralytics library.
 
     Supports YOLOv8 and YOLOv11 models for infrastructure defect detection.
     Can use pretrained models or custom trained models.
@@ -108,9 +106,8 @@ class YOLODetector:
         device: str = "auto",
         image_size: int = 640,
         half_precision: bool = False,
-    ):
-        """
-        Initialize YOLO detector.
+    ) -> None:
+        """Initialize YOLO detector.
 
         Args:
             weights_path: Path to YOLO weights (.pt file) or model name
@@ -139,8 +136,7 @@ class YOLODetector:
         self.logger = logger
 
     async def initialize(self) -> bool:
-        """
-        Initialize the YOLO model.
+        """Initialize the YOLO model.
 
         Downloads pretrained weights if necessary.
 
@@ -169,7 +165,7 @@ class YOLODetector:
             self.logger.error(f"Failed to initialize YOLODetector: {e}")
             return False
 
-    def _load_model(self) -> Any:
+    def _load_model(self) -> object:
         """Load the YOLO model (blocking, run in executor)."""
         model = YOLO(str(self.weights_path))
 
@@ -180,8 +176,7 @@ class YOLODetector:
         return model
 
     async def analyze_image(self, image_path: Path) -> DetectionResult:
-        """
-        Analyze image for defects using YOLO inference.
+        """Analyze image for defects using YOLO inference.
 
         Args:
             image_path: Path to image file
@@ -226,7 +221,7 @@ class YOLODetector:
                 inference_time_ms=(time.time() - start_time) * 1000,
             )
 
-    def _run_inference(self, image_path: Path) -> Any:
+    def _run_inference(self, image_path: Path) -> object:
         """Run YOLO inference (blocking, run in executor)."""
         return self.model(
             str(image_path),
@@ -237,7 +232,7 @@ class YOLODetector:
             verbose=False,
         )
 
-    def _process_results(self, results: Any) -> list[Detection]:
+    def _process_results(self, results: object) -> list[Detection]:
         """Process YOLO results into Detection objects."""
         detections = []
 
@@ -321,8 +316,7 @@ class YOLODetector:
 
 
 class MockYOLODetector:
-    """
-    Mock YOLO detector for testing and simulation.
+    """Mock YOLO detector for testing and simulation.
 
     Reads defect metadata from simulated camera captures and
     generates realistic detection results without running actual inference.
@@ -333,9 +327,8 @@ class MockYOLODetector:
         model_variant: str = "yolov8n",
         confidence_threshold: float = 0.6,
         device: str = "cpu",
-    ):
-        """
-        Initialize mock YOLO detector.
+    ) -> None:
+        """Initialize mock YOLO detector.
 
         Args:
             model_variant: YOLO variant (n/s/m/l/x)
@@ -357,8 +350,7 @@ class MockYOLODetector:
         return True
 
     async def analyze_image(self, image_path: Path) -> DetectionResult:
-        """
-        Analyze image for defects.
+        """Analyze image for defects.
 
         Reads metadata from .json sidecar if available (from SimulatedCamera),
         otherwise returns empty result.
@@ -425,8 +417,7 @@ class MockYOLODetector:
         )
 
     def _create_detection_from_metadata(self, defect_metadata: dict) -> Detection:
-        """
-        Create detection from defect metadata.
+        """Create detection from defect metadata.
 
         Adds realistic confidence and bounding box.
 
@@ -509,10 +500,9 @@ def create_detector(
     weights_path: str | Path = "yolov8n.pt",
     confidence_threshold: float = 0.5,
     device: str = "auto",
-    **kwargs,
+    **kwargs: int | float | str | bool,
 ) -> YOLODetector | MockYOLODetector:
-    """
-    Factory function to create appropriate detector.
+    """Factory function to create appropriate detector.
 
     Args:
         use_real: Use real YOLO if available, else mock

@@ -1,0 +1,934 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AegisAV Agent Thought Overlay</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      background: transparent;
+      overflow: hidden;
+      font-family: 'Segoe UI', 'SF Pro Display', -apple-system, sans-serif;
+      width: 100vw;
+      height: 100vh;
+    }
+
+    /* Connection status indicator */
+    .connection-status {
+      position: fixed;
+      top: 10px;
+      right: 10px;
+      padding: 8px 16px;
+      border-radius: 20px;
+      font-size: 12px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      transition: all 0.3s ease;
+    }
+
+    .connection-status.connected {
+      background: rgba(0, 255, 157, 0.2);
+      color: #00ff9d;
+      border: 1px solid rgba(0, 255, 157, 0.4);
+    }
+
+    .connection-status.disconnected {
+      background: rgba(255, 62, 62, 0.2);
+      color: #ff3e3e;
+      border: 1px solid rgba(255, 62, 62, 0.4);
+    }
+
+    .connection-status.connecting {
+      background: rgba(255, 184, 0, 0.2);
+      color: #ffb800;
+      border: 1px solid rgba(255, 184, 0, 0.4);
+    }
+
+    /* Thought bubble container */
+    .thought-container {
+      position: absolute;
+      transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    /* Main thought bubble */
+    .thought-bubble {
+      background: linear-gradient(135deg, rgba(20, 20, 30, 0.95), rgba(30, 30, 45, 0.95));
+      backdrop-filter: blur(20px);
+      border: 1px solid rgba(0, 242, 255, 0.3);
+      border-radius: 16px;
+      padding: 16px 20px;
+      min-width: 280px;
+      max-width: 380px;
+      box-shadow:
+        0 10px 40px rgba(0, 0, 0, 0.4),
+        0 0 30px rgba(0, 242, 255, 0.1),
+        inset 0 1px 0 rgba(255, 255, 255, 0.1);
+      transform: translateY(20px);
+      opacity: 0;
+      transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .thought-bubble.visible {
+      transform: translateY(0);
+      opacity: 1;
+    }
+
+    .thought-bubble.deciding {
+      border-color: rgba(255, 184, 0, 0.5);
+      box-shadow:
+        0 10px 40px rgba(0, 0, 0, 0.4),
+        0 0 40px rgba(255, 184, 0, 0.2);
+    }
+
+    .thought-bubble.complete {
+      border-color: rgba(0, 255, 157, 0.5);
+      box-shadow:
+        0 10px 40px rgba(0, 0, 0, 0.4),
+        0 0 40px rgba(0, 255, 157, 0.2);
+    }
+
+    /* Bubble pointer */
+    .thought-bubble::after {
+      content: '';
+      position: absolute;
+      bottom: -12px;
+      left: 40px;
+      border: 12px solid transparent;
+      border-top-color: rgba(30, 30, 45, 0.95);
+      border-bottom: 0;
+    }
+
+    /* Header */
+    .bubble-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 12px;
+      padding-bottom: 10px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    }
+
+    .drone-id {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .drone-icon {
+      font-size: 20px;
+    }
+
+    .drone-name {
+      font-weight: 700;
+      font-size: 14px;
+      color: #00f2ff;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+
+    .cognitive-badge {
+      padding: 4px 10px;
+      border-radius: 12px;
+      font-size: 10px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .cognitive-badge.reactive {
+      background: rgba(0, 150, 255, 0.2);
+      color: #00a2ff;
+    }
+
+    .cognitive-badge.deliberative {
+      background: rgba(255, 184, 0, 0.2);
+      color: #ffb800;
+    }
+
+    .cognitive-badge.reflective {
+      background: rgba(180, 100, 255, 0.2);
+      color: #b464ff;
+    }
+
+    .cognitive-badge.predictive {
+      background: rgba(0, 255, 200, 0.2);
+      color: #00ffc8;
+    }
+
+    /* Goal section */
+    .goal-section {
+      margin-bottom: 12px;
+    }
+
+    .goal-label {
+      font-size: 10px;
+      color: rgba(255, 255, 255, 0.5);
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      margin-bottom: 4px;
+    }
+
+    .goal-text {
+      font-size: 15px;
+      font-weight: 600;
+      color: #fff;
+    }
+
+    .goal-target {
+      font-size: 12px;
+      color: #00f2ff;
+      margin-top: 2px;
+    }
+
+    /* Risk meter */
+    .risk-section {
+      margin-bottom: 12px;
+    }
+
+    .risk-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 6px;
+    }
+
+    .risk-label {
+      font-size: 10px;
+      color: rgba(255, 255, 255, 0.5);
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+
+    .risk-value {
+      font-size: 12px;
+      font-weight: 700;
+      font-family: 'SF Mono', 'Consolas', monospace;
+    }
+
+    .risk-value.low { color: #00ff9d; }
+    .risk-value.moderate { color: #ffb800; }
+    .risk-value.high { color: #ff8c00; }
+    .risk-value.critical { color: #ff3e3e; }
+
+    .risk-bar {
+      height: 6px;
+      background: rgba(255, 255, 255, 0.1);
+      border-radius: 3px;
+      overflow: hidden;
+    }
+
+    .risk-fill {
+      height: 100%;
+      border-radius: 3px;
+      transition: width 0.5s ease, background 0.5s ease;
+    }
+
+    .risk-fill.low {
+      background: linear-gradient(90deg, #00ff9d, #00d4aa);
+    }
+
+    .risk-fill.moderate {
+      background: linear-gradient(90deg, #ffb800, #ff9500);
+    }
+
+    .risk-fill.high {
+      background: linear-gradient(90deg, #ff8c00, #ff5500);
+    }
+
+    .risk-fill.critical {
+      background: linear-gradient(90deg, #ff3e3e, #ff0000);
+      animation: pulse-critical 1s infinite;
+    }
+
+    @keyframes pulse-critical {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.7; }
+    }
+
+    /* Critics section */
+    .critics-section {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+
+    .critic-badge {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 4px;
+      padding: 6px 8px;
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      transition: all 0.3s ease;
+    }
+
+    .critic-badge.approve {
+      background: rgba(0, 255, 157, 0.1);
+      border-color: rgba(0, 255, 157, 0.3);
+    }
+
+    .critic-badge.reject {
+      background: rgba(255, 62, 62, 0.1);
+      border-color: rgba(255, 62, 62, 0.3);
+    }
+
+    .critic-badge.pending {
+      background: rgba(255, 255, 255, 0.05);
+      border-color: rgba(255, 255, 255, 0.1);
+    }
+
+    .critic-icon {
+      font-size: 14px;
+    }
+
+    .critic-name {
+      font-size: 9px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: rgba(255, 255, 255, 0.7);
+    }
+
+    /* Reasoning text */
+    .reasoning-section {
+      margin-bottom: 12px;
+    }
+
+    .reasoning-label {
+      font-size: 10px;
+      color: rgba(255, 255, 255, 0.5);
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      margin-bottom: 6px;
+    }
+
+    .reasoning-list {
+      list-style: none;
+      padding: 0;
+    }
+
+    .reasoning-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+      font-size: 12px;
+      color: rgba(255, 255, 255, 0.8);
+      line-height: 1.4;
+      margin-bottom: 4px;
+      opacity: 0;
+      transform: translateX(-10px);
+      animation: slideIn 0.3s ease forwards;
+    }
+
+    .reasoning-item::before {
+      content: '>';
+      color: #00f2ff;
+      font-weight: bold;
+    }
+
+    @keyframes slideIn {
+      to {
+        opacity: 1;
+        transform: translateX(0);
+      }
+    }
+
+    /* Decision flash */
+    .decision-section {
+      display: none;
+      padding: 12px;
+      background: linear-gradient(135deg, rgba(0, 255, 157, 0.15), rgba(0, 200, 157, 0.1));
+      border: 1px solid rgba(0, 255, 157, 0.3);
+      border-radius: 10px;
+      margin-top: 12px;
+    }
+
+    .decision-section.active {
+      display: block;
+      animation: decisionFlash 0.5s ease;
+    }
+
+    @keyframes decisionFlash {
+      0% {
+        transform: scale(0.95);
+        opacity: 0;
+      }
+      50% {
+        transform: scale(1.02);
+      }
+      100% {
+        transform: scale(1);
+        opacity: 1;
+      }
+    }
+
+    .decision-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+
+    .decision-icon {
+      font-size: 20px;
+    }
+
+    .decision-action {
+      font-size: 16px;
+      font-weight: 700;
+      color: #00ff9d;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+
+    .decision-confidence {
+      margin-left: auto;
+      font-size: 14px;
+      font-weight: 600;
+      font-family: 'SF Mono', 'Consolas', monospace;
+      color: #00ff9d;
+    }
+
+    .decision-reasoning {
+      font-size: 12px;
+      color: rgba(255, 255, 255, 0.8);
+      line-height: 1.4;
+    }
+
+    /* Position presets for multiple drones */
+    .thought-container[data-position="top-left"] {
+      top: 80px;
+      left: 40px;
+    }
+
+    .thought-container[data-position="top-right"] {
+      top: 80px;
+      right: 40px;
+    }
+
+    .thought-container[data-position="bottom-left"] {
+      bottom: 120px;
+      left: 40px;
+    }
+
+    .thought-container[data-position="bottom-right"] {
+      bottom: 120px;
+      right: 40px;
+    }
+
+    .thought-container[data-position="center-left"] {
+      top: 50%;
+      left: 40px;
+      transform: translateY(-50%);
+    }
+
+    .thought-container[data-position="center-right"] {
+      top: 50%;
+      right: 40px;
+      transform: translateY(-50%);
+    }
+
+    /* Typing indicator */
+    .typing-indicator {
+      display: flex;
+      gap: 4px;
+      padding: 8px 0;
+    }
+
+    .typing-dot {
+      width: 6px;
+      height: 6px;
+      background: #00f2ff;
+      border-radius: 50%;
+      animation: typingBounce 1.4s infinite ease-in-out;
+    }
+
+    .typing-dot:nth-child(1) { animation-delay: 0s; }
+    .typing-dot:nth-child(2) { animation-delay: 0.2s; }
+    .typing-dot:nth-child(3) { animation-delay: 0.4s; }
+
+    @keyframes typingBounce {
+      0%, 80%, 100% {
+        transform: scale(0.8);
+        opacity: 0.5;
+      }
+      40% {
+        transform: scale(1);
+        opacity: 1;
+      }
+    }
+
+    /* Hide scrollbar */
+    ::-webkit-scrollbar {
+      display: none;
+    }
+  </style>
+</head>
+<body>
+  <div class="connection-status connecting" id="connectionStatus">Connecting...</div>
+
+  <div id="thoughtContainers"></div>
+
+  <script>
+    // Configuration
+    const CONFIG = {
+      serverUrl: 'ws://localhost:8000/ws/unreal',
+      reconnectDelay: 3000,
+      thoughtTimeout: 8000, // Hide thought after 8s of inactivity
+      dronePositions: {
+        'drone_001': 'top-left',
+        'drone_002': 'top-right',
+        'drone_003': 'bottom-left',
+        'Drone1': 'top-left',
+        'default': 'center-left'
+      }
+    };
+
+    // State management
+    const state = {
+      socket: null,
+      drones: new Map(), // droneId -> { element, timeout, data }
+      connected: false
+    };
+
+    // DOM elements
+    const statusEl = document.getElementById('connectionStatus');
+    const containersEl = document.getElementById('thoughtContainers');
+
+    // Action icons
+    const ACTION_ICONS = {
+      'INSPECT': '🔍',
+      'ABORT': '🛑',
+      'GOTO': '📍',
+      'DOCK': '🏠',
+      'RTL': '↩️',
+      'WAIT': '⏳',
+      'HOVER': '🚁',
+      'default': '✈️'
+    };
+
+    // Critic icons
+    const CRITIC_ICONS = {
+      'safety': '🛡️',
+      'efficiency': '⚡',
+      'goal_alignment': '🎯'
+    };
+
+    // Connect to WebSocket
+    function connect() {
+      updateStatus('connecting');
+
+      try {
+        state.socket = new WebSocket(CONFIG.serverUrl);
+
+        state.socket.onopen = () => {
+          console.log('Connected to AegisAV');
+          state.connected = true;
+          updateStatus('connected');
+
+          // Subscribe to all drones
+          state.socket.send(JSON.stringify({
+            subscribe: [] // Empty = all drones
+          }));
+        };
+
+        state.socket.onclose = () => {
+          console.log('Disconnected');
+          state.connected = false;
+          updateStatus('disconnected');
+          setTimeout(connect, CONFIG.reconnectDelay);
+        };
+
+        state.socket.onerror = (error) => {
+          console.error('WebSocket error:', error);
+        };
+
+        state.socket.onmessage = (event) => {
+          try {
+            const data = JSON.parse(event.data);
+            handleMessage(data);
+          } catch (e) {
+            console.error('Failed to parse message:', e);
+          }
+        };
+      } catch (e) {
+        console.error('Connection failed:', e);
+        updateStatus('disconnected');
+        setTimeout(connect, CONFIG.reconnectDelay);
+      }
+    }
+
+    // Update connection status
+    function updateStatus(status) {
+      statusEl.className = `connection-status ${status}`;
+      statusEl.textContent = status === 'connected' ? 'Live' :
+                             status === 'connecting' ? 'Connecting...' : 'Offline';
+    }
+
+    // Handle incoming messages
+    function handleMessage(data) {
+      const type = data.type;
+      const droneId = data.drone_id || data.droneId || 'unknown';
+
+      switch (type) {
+        case 'thinking_start':
+          handleThinkingStart(droneId, data);
+          break;
+        case 'thinking_update':
+          handleThinkingUpdate(droneId, data);
+          break;
+        case 'thinking_complete':
+          handleThinkingComplete(droneId, data);
+          break;
+        case 'critic_result':
+          handleCriticResult(droneId, data);
+          break;
+        case 'risk_update':
+          handleRiskUpdate(droneId, data);
+          break;
+        case 'airsim_telemetry':
+          // Telemetry - could update position but skip for now
+          break;
+        case 'heartbeat':
+        case 'sync':
+          // Ignore keepalives
+          break;
+        default:
+          console.log('Unknown message type:', type, data);
+      }
+    }
+
+    // Get or create drone thought container
+    function getDroneContainer(droneId) {
+      if (!state.drones.has(droneId)) {
+        const container = createThoughtContainer(droneId);
+        state.drones.set(droneId, {
+          element: container,
+          timeout: null,
+          data: {}
+        });
+      }
+      return state.drones.get(droneId);
+    }
+
+    // Create thought bubble container
+    function createThoughtContainer(droneId) {
+      const position = CONFIG.dronePositions[droneId] || CONFIG.dronePositions['default'];
+
+      const container = document.createElement('div');
+      container.className = 'thought-container';
+      container.dataset.droneId = droneId;
+      container.dataset.position = position;
+
+      container.innerHTML = `
+        <div class="thought-bubble">
+          <div class="bubble-header">
+            <div class="drone-id">
+              <span class="drone-icon">🚁</span>
+              <span class="drone-name">${droneId}</span>
+            </div>
+            <span class="cognitive-badge deliberative">Thinking</span>
+          </div>
+
+          <div class="goal-section">
+            <div class="goal-label">Current Goal</div>
+            <div class="goal-text">Evaluating...</div>
+            <div class="goal-target"></div>
+          </div>
+
+          <div class="risk-section">
+            <div class="risk-header">
+              <span class="risk-label">Risk Level</span>
+              <span class="risk-value low">0%</span>
+            </div>
+            <div class="risk-bar">
+              <div class="risk-fill low" style="width: 0%"></div>
+            </div>
+          </div>
+
+          <div class="critics-section">
+            <div class="critic-badge pending" data-critic="safety">
+              <span class="critic-icon">🛡️</span>
+              <span class="critic-name">Safety</span>
+            </div>
+            <div class="critic-badge pending" data-critic="efficiency">
+              <span class="critic-icon">⚡</span>
+              <span class="critic-name">Efficiency</span>
+            </div>
+            <div class="critic-badge pending" data-critic="goal_alignment">
+              <span class="critic-icon">🎯</span>
+              <span class="critic-name">Goal</span>
+            </div>
+          </div>
+
+          <div class="reasoning-section">
+            <div class="reasoning-label">Reasoning</div>
+            <ul class="reasoning-list">
+              <li class="reasoning-item">Analyzing situation...</li>
+            </ul>
+          </div>
+
+          <div class="decision-section">
+            <div class="decision-header">
+              <span class="decision-icon">✈️</span>
+              <span class="decision-action">DECIDING</span>
+              <span class="decision-confidence">--</span>
+            </div>
+            <div class="decision-reasoning"></div>
+          </div>
+        </div>
+      `;
+
+      containersEl.appendChild(container);
+      return container;
+    }
+
+    // Handle thinking start
+    function handleThinkingStart(droneId, data) {
+      const drone = getDroneContainer(droneId);
+      const bubble = drone.element.querySelector('.thought-bubble');
+
+      // Show bubble
+      bubble.classList.remove('complete');
+      bubble.classList.add('visible', 'deciding');
+
+      // Update cognitive level
+      const badge = bubble.querySelector('.cognitive-badge');
+      const level = data.cognitive_level || data.cognitiveLevel || 'deliberative';
+      badge.className = `cognitive-badge ${level.toLowerCase()}`;
+      badge.textContent = level.charAt(0).toUpperCase() + level.slice(1);
+
+      // Update goal
+      if (data.current_goal || data.currentGoal) {
+        const goalText = bubble.querySelector('.goal-text');
+        goalText.textContent = formatGoal(data.current_goal || data.currentGoal);
+      }
+
+      if (data.target_asset || data.targetAsset) {
+        const goalTarget = bubble.querySelector('.goal-target');
+        goalTarget.textContent = `Target: ${data.target_asset || data.targetAsset}`;
+      }
+
+      // Reset critics
+      bubble.querySelectorAll('.critic-badge').forEach(badge => {
+        badge.classList.remove('approve', 'reject');
+        badge.classList.add('pending');
+      });
+
+      // Hide decision section
+      bubble.querySelector('.decision-section').classList.remove('active');
+
+      // Reset timeout
+      resetTimeout(droneId);
+    }
+
+    // Handle thinking update
+    function handleThinkingUpdate(droneId, data) {
+      const drone = getDroneContainer(droneId);
+      const bubble = drone.element.querySelector('.thought-bubble');
+
+      // Ensure visible
+      bubble.classList.add('visible');
+
+      // Update risk
+      if (data.risk_score !== undefined || data.riskScore !== undefined) {
+        const score = data.risk_score ?? data.riskScore;
+        const level = data.risk_level || data.riskLevel || getRiskLevel(score);
+        updateRisk(bubble, score, level);
+      }
+
+      // Update considerations as reasoning
+      if (data.considerations && data.considerations.length > 0) {
+        updateReasoning(bubble, data.considerations);
+      }
+
+      // Update goal if provided
+      if (data.current_goal || data.currentGoal) {
+        const goalText = bubble.querySelector('.goal-text');
+        goalText.textContent = formatGoal(data.current_goal || data.currentGoal);
+      }
+
+      resetTimeout(droneId);
+    }
+
+    // Handle critic result
+    function handleCriticResult(droneId, data) {
+      const drone = getDroneContainer(droneId);
+      const bubble = drone.element.querySelector('.thought-bubble');
+
+      const criticName = data.critic_name || data.criticName;
+      const verdict = data.verdict;
+
+      const badge = bubble.querySelector(`.critic-badge[data-critic="${criticName}"]`);
+      if (badge) {
+        badge.classList.remove('pending', 'approve', 'reject');
+        badge.classList.add(verdict === 'approve' ? 'approve' : 'reject');
+      }
+
+      resetTimeout(droneId);
+    }
+
+    // Handle thinking complete (decision made)
+    function handleThinkingComplete(droneId, data) {
+      const drone = getDroneContainer(droneId);
+      const bubble = drone.element.querySelector('.thought-bubble');
+
+      // Update bubble state
+      bubble.classList.remove('deciding');
+      bubble.classList.add('complete');
+
+      // Show decision
+      const decisionSection = bubble.querySelector('.decision-section');
+      const actionEl = decisionSection.querySelector('.decision-action');
+      const iconEl = decisionSection.querySelector('.decision-icon');
+      const confidenceEl = decisionSection.querySelector('.decision-confidence');
+      const reasoningEl = decisionSection.querySelector('.decision-reasoning');
+
+      const action = data.decision_action || data.action || 'UNKNOWN';
+      actionEl.textContent = action;
+      iconEl.textContent = ACTION_ICONS[action] || ACTION_ICONS['default'];
+      confidenceEl.textContent = `${((data.decision_confidence || data.confidence || 0) * 100).toFixed(0)}%`;
+      reasoningEl.textContent = data.decision_reasoning || data.reasoning || '';
+
+      decisionSection.classList.add('active');
+
+      // Extended timeout after decision
+      resetTimeout(droneId, 10000);
+    }
+
+    // Handle risk update
+    function handleRiskUpdate(droneId, data) {
+      const drone = getDroneContainer(droneId);
+      if (!drone) return;
+
+      const bubble = drone.element.querySelector('.thought-bubble');
+      const score = data.overall_score || data.overallScore || 0;
+      const level = data.level || getRiskLevel(score);
+
+      updateRisk(bubble, score, level);
+    }
+
+    // Update risk display
+    function updateRisk(bubble, score, level) {
+      const valueEl = bubble.querySelector('.risk-value');
+      const fillEl = bubble.querySelector('.risk-fill');
+
+      const levelLower = level.toLowerCase();
+      const percentage = Math.round(score * 100);
+
+      valueEl.textContent = `${percentage}%`;
+      valueEl.className = `risk-value ${levelLower}`;
+
+      fillEl.style.width = `${percentage}%`;
+      fillEl.className = `risk-fill ${levelLower}`;
+    }
+
+    // Update reasoning list
+    function updateReasoning(bubble, items) {
+      const list = bubble.querySelector('.reasoning-list');
+      list.innerHTML = '';
+
+      items.slice(0, 4).forEach((item, index) => {
+        const li = document.createElement('li');
+        li.className = 'reasoning-item';
+        li.style.animationDelay = `${index * 0.1}s`;
+        li.textContent = item;
+        list.appendChild(li);
+      });
+    }
+
+    // Format goal type
+    function formatGoal(goalType) {
+      const goalMap = {
+        'INSPECT_ASSET': 'Inspect Asset',
+        'INSPECT_ANOMALY': 'Inspect Anomaly',
+        'RETURN_LOW_BATTERY': 'Return (Low Battery)',
+        'RETURN_WEATHER': 'Return (Weather)',
+        'RETURN_MISSION_COMPLETE': 'Mission Complete',
+        'ABORT': 'Abort Mission',
+        'WAIT': 'Waiting'
+      };
+      return goalMap[goalType] || goalType;
+    }
+
+    // Get risk level from score
+    function getRiskLevel(score) {
+      if (score < 0.25) return 'low';
+      if (score < 0.5) return 'moderate';
+      if (score < 0.75) return 'high';
+      return 'critical';
+    }
+
+    // Reset auto-hide timeout
+    function resetTimeout(droneId, duration = CONFIG.thoughtTimeout) {
+      const drone = state.drones.get(droneId);
+      if (!drone) return;
+
+      if (drone.timeout) {
+        clearTimeout(drone.timeout);
+      }
+
+      drone.timeout = setTimeout(() => {
+        const bubble = drone.element.querySelector('.thought-bubble');
+        bubble.classList.remove('visible');
+      }, duration);
+    }
+
+    // Initialize
+    connect();
+
+    // Debug: simulate messages for testing without server
+    window.simulateThinking = function(droneId = 'drone_001') {
+      handleThinkingStart(droneId, {
+        cognitive_level: 'deliberative',
+        current_goal: 'INSPECT_ASSET',
+        target_asset: 'solar_panel_007'
+      });
+
+      setTimeout(() => {
+        handleThinkingUpdate(droneId, {
+          risk_score: 0.25,
+          risk_level: 'low',
+          considerations: [
+            'Battery at 72% - sufficient',
+            'Wind 8kts from NW - within limits',
+            'Asset overdue for inspection'
+          ]
+        });
+      }, 1000);
+
+      setTimeout(() => {
+        handleCriticResult(droneId, { critic_name: 'safety', verdict: 'approve' });
+      }, 2000);
+
+      setTimeout(() => {
+        handleCriticResult(droneId, { critic_name: 'efficiency', verdict: 'approve' });
+      }, 2500);
+
+      setTimeout(() => {
+        handleCriticResult(droneId, { critic_name: 'goal_alignment', verdict: 'approve' });
+      }, 3000);
+
+      setTimeout(() => {
+        handleThinkingComplete(droneId, {
+          action: 'INSPECT',
+          confidence: 0.92,
+          reasoning: 'High-priority asset inspection with favorable conditions'
+        });
+      }, 3500);
+    };
+
+    console.log('AegisAV Overlay loaded. Call simulateThinking() to test.');
+  </script>
+</body>
+</html>

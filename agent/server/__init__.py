@@ -1,5 +1,4 @@
-"""
-Agent Server Package
+"""Agent Server Package.
 
 High-level reasoning and decision-making components.
 """

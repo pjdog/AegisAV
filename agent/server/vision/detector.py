@@ -1,5 +1,4 @@
-"""
-Server-Side Detectors
+"""Server-Side Detectors.
 
 Detailed vision analysis for server-side processing.
 Includes simulated detector for testing and real YOLO for production.
@@ -22,8 +21,7 @@ logger = logging.getLogger(__name__)
 
 
 class SimulatedDetector:
-    """
-    Simulated detector for testing server-side vision.
+    """Simulated detector for testing server-side vision.
 
     Generates realistic detection results based on:
     - Client-side detection confidence
@@ -36,9 +34,8 @@ class SimulatedDetector:
         defect_probability: float = 0.15,
         severity_range: tuple[float, float] = (0.3, 0.9),
         confidence_boost: float = 0.1,
-    ):
-        """
-        Initialize simulated detector.
+    ) -> None:
+        """Initialize simulated detector.
 
         Args:
             defect_probability: Probability of detecting a defect (0.0-1.0)
@@ -62,8 +59,7 @@ class SimulatedDetector:
         image_path: Path,
         client_detection: DetectionResult | None = None,
     ) -> DetectionResult:
-        """
-        Perform detailed server-side analysis.
+        """Perform detailed server-side analysis.
 
         Args:
             image_path (Path): Path to image (:class:`pathlib.Path`).

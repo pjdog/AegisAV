@@ -1,5 +1,4 @@
-"""
-Unified Configuration Manager
+"""Unified Configuration Manager.
 
 Provides centralized configuration management for AegisAV.
 Supports loading from YAML, environment variables, and runtime updates via API.
@@ -10,7 +9,6 @@ import os
 import secrets
 from datetime import datetime
 from pathlib import Path
-from typing import Any
 
 import yaml
 from pydantic import BaseModel, Field
@@ -145,8 +143,7 @@ class AegisConfig(BaseModel):
 
 
 class ConfigManager:
-    """
-    Centralized configuration manager.
+    """Centralized configuration manager.
 
     Handles loading, saving, and runtime updates of all configurations.
     Supports YAML files, environment variables, and API updates.
@@ -163,9 +160,8 @@ class ConfigManager:
         manager.save()
     """
 
-    def __init__(self, config_dir: Path | str | None = None):
-        """
-        Initialize config manager.
+    def __init__(self, config_dir: Path | str | None = None) -> None:
+        """Initialize config manager.
 
         Args:
             config_dir: Directory for config files. Defaults to project configs/
@@ -184,8 +180,7 @@ class ConfigManager:
         self.logger = logger
 
     def load(self) -> AegisConfig:
-        """
-        Load configuration from file and environment.
+        """Load configuration from file and environment.
 
         Priority (highest to lowest):
         1. Environment variables
@@ -222,8 +217,7 @@ class ConfigManager:
         return self.config
 
     def save(self) -> bool:
-        """
-        Save current configuration to file.
+        """Save current configuration to file.
 
         Returns:
             True if successful
@@ -245,8 +239,7 @@ class ConfigManager:
             return False
 
     def update_section(self, section: str, values: dict) -> bool:
-        """
-        Update a configuration section.
+        """Update a configuration section.
 
         Args:
             section: Section name (redis, auth, vision, etc.)
@@ -308,8 +301,7 @@ class ConfigManager:
         self.config = AegisConfig()
 
     def validate(self) -> list[str]:
-        """
-        Validate current configuration.
+        """Validate current configuration.
 
         Returns:
             List of validation errors (empty if valid)
@@ -421,7 +413,7 @@ class ConfigManager:
 
         return data
 
-    def _sanitize_for_yaml(self, obj: Any) -> Any:
+    def _sanitize_for_yaml(self, obj: object) -> object:
         """Recursively convert tuples to lists for YAML serialization."""
         if isinstance(obj, tuple):
             return list(obj)

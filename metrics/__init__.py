@@ -1,5 +1,4 @@
-"""
-Metrics Package
+"""Metrics Package.
 
 Logging, visualization, and analysis tools for decision traces.
 """

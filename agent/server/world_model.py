@@ -1,5 +1,4 @@
-"""
-World Model
+"""World Model.
 
 Maintains a unified, consistent view of the operational environment
 for decision-making. Fuses data from vehicle telemetry, asset database,
@@ -168,8 +167,7 @@ class MissionState(BaseModel):
 
 
 class WorldSnapshot(BaseModel):
-    """
-    Immutable snapshot of the world state at a point in time.
+    """Immutable snapshot of the world state at a point in time.
 
     This is passed to the goal selector and risk evaluator for
     decision-making. Creating snapshots ensures consistent state
@@ -200,30 +198,48 @@ class WorldSnapshot(BaseModel):
     overall_confidence: float = 1.0
 
     def get_asset(self, asset_id: str) -> Asset | None:
-        """Get asset by ID."""
+        """Get asset by ID.
+
+        Args:
+            asset_id: Asset identifier.
+
+        Returns:
+            Asset if found, None otherwise.
+        """
         for asset in self.assets:
             if asset.asset_id == asset_id:
                 return asset
         return None
 
     def get_pending_assets(self) -> list[Asset]:
-        """Get assets that need inspection, sorted by priority."""
+        """Get assets that need inspection, sorted by priority.
+
+        Returns:
+            List of assets needing inspection, sorted by priority.
+        """
         pending = [a for a in self.assets if a.needs_inspection]
         return sorted(pending, key=lambda a: a.priority)
 
     def get_anomaly_assets(self) -> list[Asset]:
-        """Get assets with active anomalies."""
+        """Get assets with active anomalies.
+
+        Returns:
+            List of assets that have unresolved anomalies.
+        """
         anomaly_asset_ids = {a.asset_id for a in self.anomalies if not a.resolved}
         return [a for a in self.assets if a.asset_id in anomaly_asset_ids]
 
     def distance_to_dock(self) -> float:
-        """Calculate distance from current position to dock."""
+        """Calculate distance from current position to dock.
+
+        Returns:
+            Distance in meters to the dock.
+        """
         return self.vehicle.position.distance_to(self.dock.position)
 
 
 class WorldModel:
-    """
-    Maintains and updates the world state.
+    """Maintains and updates the world state.
 
     The WorldModel is the single source of truth for the agent's
     understanding of the operational environment. It:
@@ -246,6 +262,7 @@ class WorldModel:
     """
 
     def __init__(self) -> None:
+        """Initialize the WorldModel."""
         self._vehicle: VehicleState | None = None
         self._assets: list[Asset] = []
         self._anomalies: list[Anomaly] = []
@@ -256,23 +273,35 @@ class WorldModel:
         self._last_update: datetime | None = None
 
     def update_vehicle(self, state: VehicleState) -> None:
-        """Update vehicle state from telemetry."""
+        """Update vehicle state from telemetry.
+
+        Args:
+            state: New vehicle state from telemetry.
+        """
         self._vehicle = state
         self._last_update = datetime.now()
 
     def set_dock(self, position: Position, status: DockStatus = DockStatus.AVAILABLE) -> None:
-        """Set dock position and status."""
+        """Set dock position and status.
+
+        Args:
+            position: Dock position.
+            status: Dock availability status.
+        """
         self._dock = DockState(position=position, status=status)
 
     def add_asset(self, asset: Asset) -> None:
-        """Add or update an asset."""
+        """Add or update an asset.
+
+        Args:
+            asset: Asset to add or update.
+        """
         # Replace if exists
         self._assets = [a for a in self._assets if a.asset_id != asset.asset_id]
         self._assets.append(asset)
 
     def load_assets_from_config(self, config: dict) -> None:
-        """
-        Load assets from mission configuration.
+        """Load assets from mission configuration.
 
         Args:
             config: Mission configuration dictionary
@@ -300,7 +329,12 @@ class WorldModel:
             self.add_asset(asset)
 
     def record_inspection(self, asset_id: str, cadence_minutes: float = 30) -> None:
-        """Record that an asset was inspected."""
+        """Record that an asset was inspected.
+
+        Args:
+            asset_id: Asset identifier that was inspected.
+            cadence_minutes: Minutes until next scheduled inspection.
+        """
         for asset in self._assets:
             if asset.asset_id == asset_id:
                 asset.last_inspection = datetime.now()
@@ -308,7 +342,11 @@ class WorldModel:
                 break
 
     def add_anomaly(self, anomaly: Anomaly) -> None:
-        """Add a detected anomaly."""
+        """Add a detected anomaly.
+
+        Args:
+            anomaly: Anomaly to add.
+        """
         self._anomalies.append(anomaly)
 
         # Update asset status
@@ -318,18 +356,31 @@ class WorldModel:
                 break
 
     def resolve_anomaly(self, anomaly_id: str) -> None:
-        """Mark an anomaly as resolved."""
+        """Mark an anomaly as resolved.
+
+        Args:
+            anomaly_id: Anomaly identifier to resolve.
+        """
         for anomaly in self._anomalies:
             if anomaly.anomaly_id == anomaly_id:
                 anomaly.resolved = True
                 break
 
     def update_environment(self, env: EnvironmentState) -> None:
-        """Update environmental conditions."""
+        """Update environmental conditions.
+
+        Args:
+            env: New environmental state.
+        """
         self._environment = env
 
     def start_mission(self, mission_id: str, mission_name: str) -> None:
-        """Start a new mission."""
+        """Start a new mission.
+
+        Args:
+            mission_id: Unique mission identifier.
+            mission_name: Human-readable mission name.
+        """
         self._mission = MissionState(
             mission_id=mission_id,
             mission_name=mission_name,
@@ -355,8 +406,7 @@ class WorldModel:
         return False
 
     def get_anomaly_assets(self) -> list[str]:
-        """
-        Get asset IDs with active anomalies.
+        """Get asset IDs with active anomalies.
 
         Returns:
             List of asset IDs that have unresolved anomalies
@@ -364,8 +414,7 @@ class WorldModel:
         return [a.asset_id for a in self._anomalies if not a.resolved]
 
     def get_snapshot(self) -> WorldSnapshot | None:
-        """
-        Get an immutable snapshot of current world state.
+        """Get an immutable snapshot of current world state.
 
         Returns:
             WorldSnapshot if sufficient data available, None otherwise
@@ -384,7 +433,11 @@ class WorldModel:
         )
 
     def time_since_update(self) -> timedelta | None:
-        """Time since last vehicle state update."""
+        """Time since last vehicle state update.
+
+        Returns:
+            Timedelta since last update, or None if never updated.
+        """
         if self._last_update is None:
             return None
         return datetime.now() - self._last_update

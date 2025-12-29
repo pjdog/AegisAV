@@ -1,5 +1,4 @@
-"""
-AegisAV Autonomy Package
+"""AegisAV Autonomy Package.
 
 Platform-agnostic flight interface supporting MAVLink-based autopilots.
 """

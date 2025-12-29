@@ -1,5 +1,4 @@
-"""
-Edge Compute Configuration
+"""Edge Compute Configuration.
 
 Defines configurable "edge compute" profiles that simulate different on-drone compute tiers
 (FC-only, MCU, SBC, Jetson) and how they impact capture cadence, inference latency,
@@ -109,13 +108,11 @@ class EdgeComputeConfig(BaseModel):
 
 def available_edge_profiles() -> list[str]:
     """Return profile values for UI selection."""
-
     return [p.value for p in EdgeComputeProfile]
 
 
 def default_edge_compute_config(profile: EdgeComputeProfile) -> EdgeComputeConfig:
     """Return opinionated defaults for a given profile."""
-
     match profile:
         case EdgeComputeProfile.FC_ONLY:
             return EdgeComputeConfig(
@@ -217,13 +214,11 @@ def _deep_merge(base: dict[str, Any], updates: dict[str, Any]) -> dict[str, Any]
 
 
 def apply_edge_compute_update(current: EdgeComputeConfig, update: dict[str, Any]) -> EdgeComputeConfig:
-    """
-    Apply a partial update dict to the current edge config.
+    """Apply a partial update dict to the current edge config.
 
     If ``profile`` is present, the base is reset to that profile's defaults, then
     the remaining fields are merged in.
     """
-
     if not isinstance(update, dict):
         raise TypeError("edge config update must be a dict")
 

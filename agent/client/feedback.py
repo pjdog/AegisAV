@@ -1,5 +1,4 @@
-"""
-Client Feedback Builder
+"""Client Feedback Builder.
 
 Creates DecisionFeedback payloads to POST back to the server `/feedback` endpoint.
 Includes optional `inspection_data` (vision summaries / evidence) shaped by the
@@ -23,7 +22,6 @@ def build_feedback(
     edge: EdgeComputeConfig | None,
 ) -> dict[str, Any]:
     """Create a feedback payload compatible with server-side DecisionFeedback."""
-
     # Map execution result to server-side ExecutionStatus enum values.
     status = "failed"
     if result.state == ExecutionState.COMPLETED:

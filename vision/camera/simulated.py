@@ -1,5 +1,4 @@
-"""
-Simulated Camera
+"""Simulated Camera.
 
 Generates synthetic images for testing with probabilistic defect injection.
 Useful for testing the vision pipeline without real camera hardware.
@@ -28,8 +27,7 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class DefectConfig:
-    """
-    Configuration for probabilistic defect injection in simulated images.
+    """Configuration for probabilistic defect injection in simulated images.
 
     Each field represents the probability (0.0-1.0) of injecting that defect type.
     """
@@ -57,8 +55,7 @@ class DefectConfig:
         )
 
     def sample_defect(self) -> tuple[DetectionClass, float] | None:
-        """
-        Sample a random defect based on configured probabilities.
+        """Sample a random defect based on configured probabilities.
 
         Returns:
             (defect_type, severity) tuple if defect occurs, None otherwise
@@ -94,9 +91,8 @@ class SimulatedCameraConfig(BaseCameraConfig):
         output_dir: Path | str = "data/vision/simulated",
         defect_config: DefectConfig | None = None,
         save_images: bool = True,
-    ):
-        """
-        Initialize simulated camera configuration.
+    ) -> None:
+        """Initialize simulated camera configuration.
 
         Args:
             resolution: Image resolution
@@ -113,16 +109,14 @@ class SimulatedCameraConfig(BaseCameraConfig):
 
 
 class SimulatedCamera:
-    """
-    Simulated camera for testing.
+    """Simulated camera for testing.
 
     Generates synthetic images with configurable defect injection.
     Useful for testing vision pipeline without real hardware.
     """
 
-    def __init__(self, config: SimulatedCameraConfig | None = None):
-        """
-        Initialize simulated camera.
+    def __init__(self, config: SimulatedCameraConfig | None = None) -> None:
+        """Initialize simulated camera.
 
         Args:
             config: Camera configuration
@@ -139,8 +133,7 @@ class SimulatedCamera:
             self.config.output_dir.mkdir(parents=True, exist_ok=True)
 
     async def initialize(self) -> bool:
-        """
-        Initialize the simulated camera.
+        """Initialize the simulated camera.
 
         Always succeeds for simulated camera.
 
@@ -153,8 +146,7 @@ class SimulatedCamera:
         return True
 
     async def capture(self, vehicle_state: dict | None = None) -> CaptureResult:
-        """
-        Capture a simulated image.
+        """Capture a simulated image.
 
         Generates a synthetic image and optionally injects defects.
 
@@ -231,8 +223,7 @@ class SimulatedCamera:
             )
 
     def get_state(self) -> CameraState:
-        """
-        Get current camera state.
+        """Get current camera state.
 
         Returns:
             CameraState: Camera state snapshot (:class:`vision.data_models.CameraState`).
@@ -248,8 +239,7 @@ class SimulatedCamera:
         )
 
     async def shutdown(self) -> None:
-        """
-        Shutdown simulated camera.
+        """Shutdown simulated camera.
 
         No-op for simulated camera, but logs the shutdown.
         """
@@ -259,8 +249,7 @@ class SimulatedCamera:
     def _generate_synthetic_image(
         self, output_path: Path, defect_info: tuple[DetectionClass, float] | None
     ) -> None:
-        """
-        Generate a synthetic image file.
+        """Generate a synthetic image file.
 
         Creates a simple colored image with text overlay indicating defect (if any).
 
@@ -301,8 +290,7 @@ class SimulatedCamera:
         self.logger.debug(f"Generated synthetic image: {output_path}")
 
     def _save_metadata(self, image_path: Path, metadata: dict[str, Any]) -> None:
-        """
-        Save metadata sidecar file for image.
+        """Save metadata sidecar file for image.
 
         Args:
             image_path: Path to image file

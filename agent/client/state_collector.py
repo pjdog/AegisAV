@@ -1,5 +1,4 @@
-"""
-State Collector
+"""State Collector.
 
 Aggregates vehicle telemetry from MAVLink into structured state
 updates for the agent server.
@@ -7,6 +6,7 @@ updates for the agent server.
 
 import asyncio
 import logging
+from collections.abc import AsyncGenerator
 from dataclasses import dataclass
 from typing import Any
 
@@ -29,8 +29,7 @@ class CollectorConfig:
 
 
 class StateCollector:
-    """
-    Collects vehicle state from MAVLink and sends to agent server.
+    """Collects vehicle state from MAVLink and sends to agent server.
 
     The state collector is the bridge between the vehicle telemetry
     and the agent server's decision-making. It:
@@ -51,7 +50,7 @@ class StateCollector:
         self,
         mavlink: MAVLinkInterface,
         config: CollectorConfig | None = None,
-    ):
+    ) -> None:
         self.mavlink = mavlink
         self.config = config or CollectorConfig()
 
@@ -80,8 +79,7 @@ class StateCollector:
         logger.info("State collector stopped")
 
     async def send_state(self, state: VehicleState) -> dict | None:
-        """
-        Send state to agent server and receive decision.
+        """Send state to agent server and receive decision.
 
         Args:
             state: Current vehicle state
@@ -110,9 +108,8 @@ class StateCollector:
             logger.error(f"Failed to send state: {e}")
             return None
 
-    async def run(self):
-        """
-        Run the state collection loop.
+    async def run(self) -> AsyncGenerator[dict, None]:
+        """Run the state collection loop.
 
         Yields decisions received from the agent server.
         """
@@ -136,8 +133,7 @@ class StateCollector:
             await self.stop()
 
     async def check_server_health(self) -> bool:
-        """
-        Check if agent server is healthy.
+        """Check if agent server is healthy.
 
         Returns:
             True if server is responding
@@ -152,8 +148,7 @@ class StateCollector:
             return False
 
     async def get_edge_config(self) -> dict | None:
-        """
-        Fetch the edge compute simulation configuration from the server.
+        """Fetch the edge compute simulation configuration from the server.
 
         Returns:
             Response dict from `/api/config/edge`, or None if failed.
@@ -176,8 +171,7 @@ class StateCollector:
             return None
 
     async def send_feedback(self, feedback: dict[str, Any]) -> dict | None:
-        """
-        Send decision execution feedback to the agent server.
+        """Send decision execution feedback to the agent server.
 
         Args:
             feedback: Feedback payload matching server DecisionFeedback model.

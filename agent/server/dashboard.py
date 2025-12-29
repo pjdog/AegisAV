@@ -1,6 +1,4 @@
-"""
-Dashboard routes for monitoring agent activity.
-"""
+"""Dashboard routes for monitoring agent activity."""
 
 import asyncio
 import json
@@ -9,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -170,22 +168,22 @@ def add_dashboard_routes(app: FastAPI, log_dir: Path) -> None:
         app.mount("/dashboard/assets", StaticFiles(directory=assets_dir), name="dashboard-assets")
 
     @app.get("/dashboard", response_class=HTMLResponse)
-    def dashboard() -> HTMLResponse:
+    async def dashboard() -> HTMLResponse:
         dist_index = dist_dir / "index.html"
         if dist_index.exists():
-            return FileResponse(dist_index)
+            return HTMLResponse(dist_index.read_text(encoding="utf-8"))
         return HTMLResponse(
             "<html><body><h1>Dashboard build missing.</h1>"
             "<p>Run the frontend build to generate /frontend/dist.</p></body></html>"
         )
 
     @app.get("/api/dashboard/runs", response_class=JSONResponse)
-    def list_runs() -> JSONResponse:
+    async def list_runs() -> JSONResponse:
         runs = _list_runs(log_dir)
         return JSONResponse({"runs": runs, "latest": runs[-1] if runs else None})
 
     @app.get("/api/dashboard/run/{run_id}", response_class=JSONResponse)
-    def run_data(run_id: str) -> JSONResponse:
+    async def run_data(run_id: str) -> JSONResponse:
         run_file = log_dir / f"decisions_{run_id}.jsonl"
         if not run_file.exists():
             raise HTTPException(status_code=404, detail="Run not found")
@@ -208,7 +206,7 @@ def add_dashboard_routes(app: FastAPI, log_dir: Path) -> None:
     # Scenario API endpoints
 
     @app.get("/api/dashboard/scenarios", response_class=JSONResponse)
-    def list_scenarios(
+    async def list_scenarios(
         category: str | None = None,
         difficulty: str | None = None,
     ) -> JSONResponse:
@@ -234,7 +232,7 @@ def add_dashboard_routes(app: FastAPI, log_dir: Path) -> None:
         })
 
     @app.get("/api/dashboard/scenarios/{scenario_id}", response_class=JSONResponse)
-    def scenario_detail(scenario_id: str) -> JSONResponse:
+    async def scenario_detail(scenario_id: str) -> JSONResponse:
         """Get detailed information about a specific scenario."""
         scenario = get_scenario(scenario_id)
         if not scenario:
@@ -366,7 +364,7 @@ def add_dashboard_routes(app: FastAPI, log_dir: Path) -> None:
         })
 
     @app.get("/api/dashboard/runner/status", response_class=JSONResponse)
-    def runner_status() -> JSONResponse:
+    async def runner_status() -> JSONResponse:
         """Get current runner status."""
         global _runner_state
 
@@ -416,7 +414,7 @@ def add_dashboard_routes(app: FastAPI, log_dir: Path) -> None:
         })
 
     @app.get("/api/dashboard/runner/decisions", response_class=JSONResponse)
-    def runner_decisions(limit: int = 20, offset: int = 0) -> JSONResponse:
+    async def runner_decisions(limit: int = 20, offset: int = 0) -> JSONResponse:
         """Get recent decisions from the running scenario."""
         global _runner_state
 

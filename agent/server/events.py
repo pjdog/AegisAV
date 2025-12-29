@@ -1,5 +1,4 @@
-"""
-Event Broadcasting System
+"""Event Broadcasting System.
 
 Handles real-time event broadcasting via WebSocket for dashboard updates.
 """

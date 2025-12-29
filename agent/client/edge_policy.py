@@ -1,5 +1,4 @@
-"""
-Edge Policy (Client-Side)
+"""Edge Policy (Client-Side).
 
 Applies edge-compute profiles (configured on the server) to the on-drone client:
 - adjusts capture cadence and simulated inference latency
@@ -22,7 +21,6 @@ logger = logging.getLogger(__name__)
 
 def apply_edge_config_to_vision_client(vision_client: VisionClient, edge: EdgeComputeConfig) -> None:
     """Apply edge config knobs to an existing VisionClient instance."""
-
     vision_client.config = VisionClientConfig(
         capture_interval_s=edge.capture_interval_s,
         max_captures_per_inspection=edge.max_captures_per_inspection,
@@ -49,7 +47,6 @@ def _detection_meets_gate(detection: DetectionResult, edge: EdgeComputeConfig) -
 
 def compute_anomaly_detected(results: InspectionVisionResults, edge: EdgeComputeConfig) -> bool:
     """Convert client detections into a single anomaly flag per inspection."""
-
     if not edge.vision_enabled:
         return False
 
@@ -107,7 +104,6 @@ def _find_capture_for_image(
 
 def build_inspection_data(results: InspectionVisionResults, edge: EdgeComputeConfig) -> dict[str, Any]:
     """Build the `inspection_data` payload attached to DecisionFeedback."""
-
     best_detection = select_best_detection(results)
     best_image_path = select_best_image_path(best_detection, edge)
     best_capture = _find_capture_for_image(results.captures, best_image_path)

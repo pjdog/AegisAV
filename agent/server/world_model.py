@@ -1,5 +1,4 @@
-"""
-World Model
+"""World Model.
 
 Maintains a unified, consistent view of the operational environment
 for decision-making. Fuses data from vehicle telemetry, asset database,
@@ -168,8 +167,7 @@ class MissionState(BaseModel):
 
 
 class WorldSnapshot(BaseModel):
-    """
-    Immutable snapshot of the world state at a point in time.
+    """Immutable snapshot of the world state at a point in time.
 
     This is passed to the goal selector and risk evaluator for
     decision-making. Creating snapshots ensures consistent state
@@ -222,8 +220,7 @@ class WorldSnapshot(BaseModel):
 
 
 class WorldModel:
-    """
-    Maintains and updates the world state.
+    """Maintains and updates the world state.
 
     The WorldModel is the single source of truth for the agent's
     understanding of the operational environment. It:
@@ -271,8 +268,7 @@ class WorldModel:
         self._assets.append(asset)
 
     def load_assets_from_config(self, config: dict) -> None:
-        """
-        Load assets from mission configuration.
+        """Load assets from mission configuration.
 
         Args:
             config: Mission configuration dictionary
@@ -355,8 +351,7 @@ class WorldModel:
         return False
 
     def get_anomaly_assets(self) -> list[str]:
-        """
-        Get asset IDs with active anomalies.
+        """Get asset IDs with active anomalies.
 
         Returns:
             List of asset IDs that have unresolved anomalies
@@ -364,8 +359,7 @@ class WorldModel:
         return [a.asset_id for a in self._anomalies if not a.resolved]
 
     def get_snapshot(self) -> WorldSnapshot | None:
-        """
-        Get an immutable snapshot of current world state.
+        """Get an immutable snapshot of current world state.
 
         Returns:
             WorldSnapshot if sufficient data available, None otherwise

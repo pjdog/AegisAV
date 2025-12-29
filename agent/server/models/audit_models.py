@@ -1,5 +1,4 @@
-"""
-Data models for decision explainability and audit trails.
+"""Data models for decision explainability and audit trails.
 
 Supports transparency, debugging, and trust by capturing decision reasoning chains.
 """
@@ -81,8 +80,7 @@ class ReasoningStep(BaseModel):
 
 
 class AuditTrail(BaseModel):
-    """
-    Complete audit trail for a decision.
+    """Complete audit trail for a decision.
 
     Captures the full reasoning chain, factor contributions, critic evaluations,
     and counterfactual analysis for transparency and debugging.

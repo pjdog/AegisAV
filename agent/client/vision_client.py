@@ -1,5 +1,4 @@
-"""
-Vision Client
+"""Vision Client.
 
 Client-side vision orchestration.
 Coordinates camera capture and quick detection during inspections.
@@ -24,8 +23,7 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class InspectionVisionResults:
-    """
-    Vision results from an inspection.
+    """Vision results from an inspection.
 
     Aggregates all captures and detections from a single inspection.
     """
@@ -77,8 +75,7 @@ class VisionClientConfig:
 
 
 class VisionClient:
-    """
-    Client-side vision orchestration.
+    """Client-side vision orchestration.
 
     Manages:
     - Camera initialization and capture
@@ -93,9 +90,8 @@ class VisionClient:
         detector: ModelInterface | None = None,
         image_manager: ImageManager | None = None,
         config: VisionClientConfig | None = None,
-    ):
-        """
-        Initialize vision client.
+    ) -> None:
+        """Initialize vision client.
 
         Args:
             camera (CameraInterface | None): Camera instance (creates
@@ -133,8 +129,7 @@ class VisionClient:
         return bool(self.config.enabled)
 
     async def initialize(self) -> bool:
-        """
-        Initialize camera and detector.
+        """Initialize camera and detector.
 
         Returns:
             bool: True if successful.
@@ -174,8 +169,7 @@ class VisionClient:
         duration_s: float,
         vehicle_state_fn: Callable[[], dict[str, Any] | None] | None = None,
     ) -> InspectionVisionResults:
-        """
-        Capture images during an inspection maneuver.
+        """Capture images during an inspection maneuver.
 
         Captures at regular intervals for the duration of the inspection.
 
@@ -251,8 +245,7 @@ class VisionClient:
     async def _capture_and_analyze(
         self, vehicle_state: dict | None
     ) -> tuple[CaptureResult, DetectionResult] | None:
-        """
-        Capture image and run quick detection.
+        """Capture image and run quick detection.
 
         Args:
             vehicle_state (dict | None): Current vehicle state.

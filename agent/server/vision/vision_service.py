@@ -1,5 +1,4 @@
-"""
-Vision Service
+"""Vision Service.
 
 Server-side vision orchestration.
 Handles detailed analysis, anomaly creation, and observation tracking.
@@ -40,8 +39,7 @@ class VisionServiceConfig:
 
 
 class VisionService:
-    """
-    Server-side vision service.
+    """Server-side vision service.
 
     Responsibilities:
     - Detailed image analysis
@@ -56,9 +54,8 @@ class VisionService:
         detector: SimulatedDetector | None = None,
         image_manager: ImageManager | None = None,
         config: VisionServiceConfig | None = None,
-    ):
-        """
-        Initialize vision service.
+    ) -> None:
+        """Initialize vision service.
 
         Args:
             world_model (WorldModel): World model for anomaly creation.
@@ -112,8 +109,7 @@ class VisionService:
         image_path: Path | None = None,
         vehicle_state: dict | None = None,
     ) -> VisionObservation:
-        """
-        Process inspection result with detailed server-side analysis.
+        """Process inspection result with detailed server-side analysis.
 
         Args:
             asset_id (str): Asset being inspected.
@@ -196,8 +192,7 @@ class VisionService:
         return observation
 
     async def simulate_inspection_result(self, asset_id: str) -> DetectionResult:
-        """
-        Simulate inspection result without actual image.
+        """Simulate inspection result without actual image.
 
         Used when client doesn't provide image but indicates anomaly detected.
 
@@ -216,8 +211,7 @@ class VisionService:
             return await self.detector.analyze_image(fake_path, client_detection=None)
 
     def _should_create_anomaly(self, detection: DetectionResult) -> bool:
-        """
-        Check if detection meets thresholds for anomaly creation.
+        """Check if detection meets thresholds for anomaly creation.
 
         Args:
             detection (DetectionResult): Detection result.
@@ -240,8 +234,7 @@ class VisionService:
         detection: DetectionResult,
         observation: VisionObservation,
     ) -> Anomaly | None:
-        """
-        Create anomaly from detection result.
+        """Create anomaly from detection result.
 
         Includes deduplication - won't create duplicate anomalies for same asset.
 
@@ -300,8 +293,7 @@ class VisionService:
         return anomaly
 
     def get_observations_for_asset(self, asset_id: str) -> list[VisionObservation]:
-        """
-        Get all vision observations for an asset.
+        """Get all vision observations for an asset.
 
         Args:
             asset_id: Asset ID
@@ -312,8 +304,7 @@ class VisionService:
         return [obs for obs in self.observations.values() if obs.asset_id == asset_id]
 
     def get_recent_observations(self, limit: int = 100) -> list[VisionObservation]:
-        """
-        Get most recent observations.
+        """Get most recent observations.
 
         Args:
             limit: Maximum number to return
@@ -329,8 +320,7 @@ class VisionService:
         return observations[:limit]
 
     def get_statistics(self) -> dict[str, Any]:
-        """
-        Get vision service statistics.
+        """Get vision service statistics.
 
         Returns:
             dict[str, Any]: Statistics dictionary.

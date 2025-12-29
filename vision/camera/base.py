@@ -1,5 +1,4 @@
-"""
-Camera Interface Protocol
+"""Camera Interface Protocol.
 
 Defines the common interface for all camera implementations.
 Supports both simulated cameras (testing) and real cameras (deployment).
@@ -12,16 +11,14 @@ from vision.data_models import CameraState, CaptureResult
 
 @runtime_checkable
 class CameraInterface(Protocol):
-    """
-    Protocol defining the camera interface.
+    """Protocol defining the camera interface.
 
     All camera implementations (simulated, real hardware) must implement this interface.
     This allows for seamless switching between simulated and real cameras.
     """
 
     async def initialize(self) -> bool:
-        """
-        Initialize the camera hardware/simulation.
+        """Initialize the camera hardware/simulation.
 
         Performs any necessary setup:
         - Hardware initialization (for real cameras)
@@ -35,8 +32,7 @@ class CameraInterface(Protocol):
         ...
 
     async def capture(self, vehicle_state: dict | None = None) -> CaptureResult:
-        """
-        Capture an image from the camera.
+        """Capture an image from the camera.
 
         Args:
             vehicle_state (dict | None): Optional vehicle state dict for metadata
@@ -53,8 +49,7 @@ class CameraInterface(Protocol):
         ...
 
     def get_state(self) -> CameraState:
-        """
-        Get current camera state.
+        """Get current camera state.
 
         Returns:
             CameraState snapshot with current status, resolution, capture count, etc.
@@ -62,8 +57,7 @@ class CameraInterface(Protocol):
         ...
 
     async def shutdown(self) -> None:
-        """
-        Gracefully shutdown the camera.
+        """Gracefully shutdown the camera.
 
         Performs cleanup:
         - Close hardware connections
@@ -74,8 +68,7 @@ class CameraInterface(Protocol):
 
 
 class BaseCameraConfig:
-    """
-    Base configuration for camera implementations.
+    """Base configuration for camera implementations.
 
     Subclass this for specific camera type configurations.
     """
@@ -85,9 +78,8 @@ class BaseCameraConfig:
         resolution: tuple[int, int] = (1920, 1080),
         capture_format: str = "RGB",
         enabled: bool = True,
-    ):
-        """
-        Initialize camera configuration.
+    ) -> None:
+        """Initialize camera configuration.
 
         Args:
             resolution: Image resolution (width, height)

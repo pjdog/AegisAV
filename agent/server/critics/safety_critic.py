@@ -1,5 +1,4 @@
-"""
-Safety Critic
+"""Safety Critic.
 
 Validates decisions against safety constraints using battery, GPS, weather,
 and vehicle health checks.
@@ -51,8 +50,7 @@ class SafetyCriticConfig(CriticConfig):
 
 
 class SafetyCritic(BaseCritic):
-    """
-    Safety critic validates decisions against safety constraints.
+    """Safety critic validates decisions against safety constraints.
 
     Checks:
     - Battery sufficiency for mission + return
@@ -62,7 +60,7 @@ class SafetyCritic(BaseCritic):
     - Distance from dock/safe zones
     """
 
-    def __init__(self, config: SafetyCriticConfig | None = None, llm_model: str | None = None):
+    def __init__(self, config: SafetyCriticConfig | None = None, llm_model: str | None = None) -> None:
         """Initialize safety critic with configuration."""
         self.safety_config = config or SafetyCriticConfig()
         super().__init__(config=self.safety_config, llm_model=llm_model)
@@ -74,8 +72,7 @@ class SafetyCritic(BaseCritic):
     async def evaluate_fast(
         self, decision: Decision, world: WorldSnapshot, risk: RiskAssessment
     ) -> CriticResponse:
-        """
-        Fast classical safety evaluation.
+        """Fast classical safety evaluation.
 
         Performs rule-based checks on:
         - Battery level and margin
@@ -120,8 +117,7 @@ class SafetyCritic(BaseCritic):
     def _check_battery(
         self, decision: Decision, world: WorldSnapshot, _risk: RiskAssessment
     ) -> tuple[list[str], list[str], float]:
-        """
-        Check battery safety.
+        """Check battery safety.
 
         Returns:
             (concerns, alternatives, risk_score)
@@ -167,8 +163,7 @@ class SafetyCritic(BaseCritic):
     def _check_gps(
         self, world: WorldSnapshot, _risk: RiskAssessment
     ) -> tuple[list[str], list[str], float]:
-        """
-        Check GPS quality.
+        """Check GPS quality.
 
         Returns:
             (concerns, alternatives, risk_score)
@@ -203,8 +198,7 @@ class SafetyCritic(BaseCritic):
     def _check_weather(
         self, decision: Decision, world: WorldSnapshot, _risk: RiskAssessment
     ) -> tuple[list[str], list[str], float]:
-        """
-        Check weather safety.
+        """Check weather safety.
 
         Returns:
             (concerns, alternatives, risk_score)
@@ -256,8 +250,7 @@ class SafetyCritic(BaseCritic):
     def _check_vehicle_health(
         self, world: WorldSnapshot, _risk: RiskAssessment
     ) -> tuple[list[str], list[str], float]:
-        """
-        Check vehicle health status.
+        """Check vehicle health status.
 
         Returns:
             (concerns, alternatives, risk_score)
@@ -283,8 +276,7 @@ class SafetyCritic(BaseCritic):
     async def evaluate_llm(
         self, decision: Decision, world: WorldSnapshot, risk: RiskAssessment
     ) -> CriticResponse:
-        """
-        LLM-based safety evaluation for complex scenarios.
+        """LLM-based safety evaluation for complex scenarios.
 
         Uses language model to provide nuanced safety analysis when:
         - Multiple safety factors conflict
@@ -522,8 +514,7 @@ Provide your safety verdict and reasoning."""
         decision: Decision,
         _risk: RiskAssessment,
     ) -> tuple[CriticVerdict, str, float]:
-        """
-        Determine final verdict based on concerns and risk.
+        """Determine final verdict based on concerns and risk.
 
         Returns:
             (verdict, reasoning, confidence)

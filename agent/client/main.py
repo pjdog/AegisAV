@@ -1,5 +1,4 @@
-"""
-Agent Client Main Entry Point
+"""Agent Client Main Entry Point.
 
 Connects to the vehicle via MAVLink and to the agent server via HTTP.
 Runs the main control loop: collect state -> send to server -> execute decisions.
@@ -35,8 +34,7 @@ logger = logging.getLogger(__name__)
 
 
 class AgentClient:
-    """
-    Main agent client orchestrating state collection and action execution.
+    """Main agent client orchestrating state collection and action execution.
 
     The client connects to:
     - The vehicle via MAVLink (receives telemetry, sends commands)
@@ -55,7 +53,7 @@ class AgentClient:
         mavlink_config: MAVLinkConfig,
         collector_config: CollectorConfig,
         vision_client: VisionClient | None = None,
-    ):
+    ) -> None:
         self.mavlink = MAVLinkInterface(mavlink_config)
         self.state_collector = StateCollector(self.mavlink, collector_config)
         self.vision_client = vision_client

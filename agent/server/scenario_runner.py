@@ -1,5 +1,4 @@
-"""
-Scenario Runner
+"""Scenario Runner.
 
 Executes multi-drone simulation scenarios, applying edge cases and
 generating decision logs that can be viewed in the dashboard.
@@ -94,8 +93,7 @@ class ScenarioRunState:
 
 
 class ScenarioRunner:
-    """
-    Executes simulation scenarios with multiple drones.
+    """Executes simulation scenarios with multiple drones.
 
     The runner:
     - Initializes world models for each drone
@@ -116,9 +114,8 @@ class ScenarioRunner:
         tick_interval_s: float = 1.0,
         decision_interval_s: float = 5.0,
         log_dir: Path | None = None,
-    ):
-        """
-        Initialize scenario runner.
+    ) -> None:
+        """Initialize scenario runner.
 
         Args:
             tick_interval_s: Simulation tick interval in seconds
@@ -136,8 +133,7 @@ class ScenarioRunner:
         self.on_tick: Callable[[ScenarioRunState], None] | None = None
 
     async def load_scenario(self, scenario_id: str) -> bool:
-        """
-        Load a scenario by ID.
+        """Load a scenario by ID.
 
         Args:
             scenario_id: ID of scenario to load
@@ -259,8 +255,7 @@ class ScenarioRunner:
         time_scale: float = 1.0,
         max_duration_s: float | None = None,
     ) -> bool:
-        """
-        Run the scenario simulation.
+        """Run the scenario simulation.
 
         Args:
             time_scale: Speed multiplier (1.0 = real-time, 10.0 = 10x speed)
@@ -588,8 +583,7 @@ class ScenarioRunner:
             self.run_state.decision_log.append(entry)
 
     def save_decision_log(self, log_dir: Path | None = None) -> Path:
-        """
-        Save decision log to file.
+        """Save decision log to file.
 
         Args:
             log_dir: Directory to save log (uses default if None)
@@ -653,8 +647,7 @@ class ScenarioRunner:
 
 
 async def run_scenario_demo(scenario_id: str, time_scale: float = 10.0) -> None:
-    """
-    Run a scenario demonstration.
+    """Run a scenario demonstration.
 
     Args:
         scenario_id: ID of scenario to run

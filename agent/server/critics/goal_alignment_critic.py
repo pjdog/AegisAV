@@ -1,5 +1,4 @@
-"""
-Goal Alignment Critic
+"""Goal Alignment Critic.
 
 Validates that decisions align with mission objectives, asset priorities,
 and strategic goals.
@@ -47,8 +46,7 @@ class GoalAlignmentCriticConfig(CriticConfig):
 
 
 class GoalAlignmentCritic(BaseCritic):
-    """
-    Goal alignment critic validates mission consistency.
+    """Goal alignment critic validates mission consistency.
 
     Checks:
     - Decision aligns with current mission objectives
@@ -60,7 +58,7 @@ class GoalAlignmentCritic(BaseCritic):
 
     def __init__(
         self, config: GoalAlignmentCriticConfig | None = None, llm_model: str | None = None
-    ):
+    ) -> None:
         """Initialize goal alignment critic with configuration."""
         self.alignment_config = config or GoalAlignmentCriticConfig()
         super().__init__(config=self.alignment_config, llm_model=llm_model)
@@ -72,8 +70,7 @@ class GoalAlignmentCritic(BaseCritic):
     async def evaluate_fast(
         self, decision: Decision, world: WorldSnapshot, risk: RiskAssessment
     ) -> CriticResponse:
-        """
-        Fast classical goal alignment evaluation.
+        """Fast classical goal alignment evaluation.
 
         Performs rule-based checks on:
         - Mission objective alignment
@@ -116,8 +113,7 @@ class GoalAlignmentCritic(BaseCritic):
     def _check_mission_alignment(
         self, decision: Decision, world: WorldSnapshot
     ) -> tuple[list[str], list[str], float]:
-        """
-        Check if decision aligns with overall mission objectives.
+        """Check if decision aligns with overall mission objectives.
 
         Returns:
             (concerns, alternatives, risk_score)
@@ -168,8 +164,7 @@ class GoalAlignmentCritic(BaseCritic):
     def _check_asset_priorities(
         self, decision: Decision, world: WorldSnapshot
     ) -> tuple[list[str], list[str], float]:
-        """
-        Check if asset priorities are being respected.
+        """Check if asset priorities are being respected.
 
         Returns:
             (concerns, alternatives, risk_score)
@@ -220,8 +215,7 @@ class GoalAlignmentCritic(BaseCritic):
     def _check_anomaly_followup(
         self, decision: Decision, world: WorldSnapshot
     ) -> tuple[list[str], list[str], float]:
-        """
-        Check if anomalies are being followed up appropriately.
+        """Check if anomalies are being followed up appropriately.
 
         Returns:
             (concerns, alternatives, risk_score)
@@ -260,8 +254,7 @@ class GoalAlignmentCritic(BaseCritic):
     def _check_strategic_consistency(
         self, decision: Decision, world: WorldSnapshot, risk: RiskAssessment
     ) -> tuple[list[str], list[str], float]:
-        """
-        Check for strategic consistency and logical flow.
+        """Check for strategic consistency and logical flow.
 
         Returns:
             (concerns, alternatives, risk_score)
@@ -300,8 +293,7 @@ class GoalAlignmentCritic(BaseCritic):
     async def evaluate_llm(
         self, decision: Decision, world: WorldSnapshot, risk: RiskAssessment
     ) -> CriticResponse:
-        """
-        LLM-based goal alignment evaluation for complex strategic scenarios.
+        """LLM-based goal alignment evaluation for complex strategic scenarios.
 
         Uses language model to provide nuanced strategic analysis when:
         - Multiple competing mission objectives exist
@@ -550,8 +542,7 @@ Provide your goal alignment verdict and reasoning."""
     def _determine_verdict(
         self, concerns: list[str], max_risk_score: float, _decision: Decision
     ) -> tuple[CriticVerdict, str, float]:
-        """
-        Determine final verdict based on goal alignment concerns.
+        """Determine final verdict based on goal alignment concerns.
 
         Returns:
             (verdict, reasoning, confidence)

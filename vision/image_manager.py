@@ -1,5 +1,4 @@
-"""
-Image Manager
+"""Image Manager.
 
 Manages image storage, metadata, and lifecycle for vision subsystem.
 Handles organized storage, cleanup, and metadata sidecar files.
@@ -16,8 +15,7 @@ logger = logging.getLogger(__name__)
 
 
 class ImageManager:
-    """
-    Manages image storage and metadata.
+    """Manages image storage and metadata.
 
     Features:
     - Organized directory structure (by date/asset)
@@ -31,9 +29,8 @@ class ImageManager:
         base_dir: Path | str = "data/vision/images",
         max_storage_gb: float = 100.0,
         retention_days: int = 30,
-    ):
-        """
-        Initialize image manager.
+    ) -> None:
+        """Initialize image manager.
 
         Args:
             base_dir: Base directory for image storage
@@ -54,8 +51,7 @@ class ImageManager:
         metadata: dict[str, Any],
         asset_id: str | None = None,
     ) -> Path:
-        """
-        Save image with metadata sidecar file.
+        """Save image with metadata sidecar file.
 
         Organizes images by date and optionally by asset.
 
@@ -87,8 +83,7 @@ class ImageManager:
         return dest_path
 
     def get_image_metadata(self, image_path: Path) -> dict[str, Any] | None:
-        """
-        Load metadata for an image.
+        """Load metadata for an image.
 
         Args:
             image_path (Path): Path to image (:class:`pathlib.Path`).
@@ -108,8 +103,7 @@ class ImageManager:
             return None
 
     def cleanup_old_images(self, dry_run: bool = False) -> int:
-        """
-        Remove images older than retention period.
+        """Remove images older than retention period.
 
         Args:
             dry_run (bool): If True, only report what would be deleted.
@@ -153,8 +147,7 @@ class ImageManager:
         return deleted_count
 
     def get_storage_usage(self) -> dict[str, Any]:
-        """
-        Get current storage usage statistics.
+        """Get current storage usage statistics.
 
         Returns:
             dict[str, Any]: Dictionary with usage info.
@@ -180,8 +173,7 @@ class ImageManager:
         }
 
     def check_quota(self) -> bool:
-        """
-        Check if storage is under quota.
+        """Check if storage is under quota.
 
         Returns:
             bool: True if under quota, False if over quota.
@@ -190,8 +182,7 @@ class ImageManager:
         return not usage["over_quota"]
 
     def get_images_for_asset(self, asset_id: str, limit: int = 100) -> list[Path]:
-        """
-        Get all images for a specific asset.
+        """Get all images for a specific asset.
 
         Args:
             asset_id (str): Asset ID.
@@ -213,8 +204,7 @@ class ImageManager:
         return images[:limit]
 
     def get_recent_images(self, limit: int = 100) -> list[Path]:
-        """
-        Get most recent images across all assets.
+        """Get most recent images across all assets.
 
         Args:
             limit (int): Maximum number of images.

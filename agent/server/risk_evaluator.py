@@ -1,5 +1,4 @@
-"""
-Risk Evaluator
+"""Risk Evaluator.
 
 Assesses operational risks and provides go/no-go decisions.
 This component gates all decisions through a risk assessment
@@ -57,8 +56,7 @@ class RiskFactor(BaseModel):
 
 
 class RiskAssessment(BaseModel):
-    """
-    Complete risk assessment for current state.
+    """Complete risk assessment for current state.
 
     Contains individual risk factors and overall assessment.
     Used to gate decisions and trigger aborts.
@@ -115,8 +113,7 @@ class RiskThresholds(BaseModel):
 
 
 class RiskEvaluator:
-    """
-    Evaluates operational risks based on world state.
+    """Evaluates operational risks based on world state.
 
     The risk evaluator examines multiple risk factors:
     - Battery remaining vs. distance to dock
@@ -139,7 +136,7 @@ class RiskEvaluator:
                 logger.warning(warning)
     """
 
-    def __init__(self, thresholds: RiskThresholds | None = None):
+    def __init__(self, thresholds: RiskThresholds | None = None) -> None:
         self.thresholds = thresholds or RiskThresholds()
 
         # Factor weights for overall score
@@ -152,8 +149,7 @@ class RiskEvaluator:
         }
 
     def evaluate(self, world: WorldSnapshot) -> RiskAssessment:
-        """
-        Perform complete risk assessment.
+        """Perform complete risk assessment.
 
         Args:
             world: Current world snapshot
@@ -204,8 +200,7 @@ class RiskEvaluator:
         )
 
     def should_abort(self, assessment: RiskAssessment) -> bool:
-        """
-        Determine if mission should be aborted based on assessment.
+        """Determine if mission should be aborted based on assessment.
 
         Args:
             assessment: Risk assessment to evaluate
@@ -217,7 +212,6 @@ class RiskEvaluator:
 
     def _assess_battery(self, world: WorldSnapshot) -> RiskFactor:
         """Assess battery risk considering distance to dock."""
-
         battery_percent = world.vehicle.battery.remaining_percent
         distance_to_dock = world.distance_to_dock()
 
@@ -247,7 +241,6 @@ class RiskEvaluator:
 
     def _assess_wind(self, world: WorldSnapshot) -> RiskFactor:
         """Assess wind risk."""
-
         wind_speed = world.environment.wind_speed_ms
 
         if wind_speed >= self.thresholds.wind_abort_ms:
@@ -272,7 +265,6 @@ class RiskEvaluator:
 
     def _assess_gps(self, world: WorldSnapshot) -> RiskFactor:
         """Assess GPS quality risk."""
-
         gps = world.vehicle.gps
 
         if gps is None or not gps.has_fix:
@@ -307,7 +299,6 @@ class RiskEvaluator:
 
     def _assess_health(self, world: WorldSnapshot) -> RiskFactor:
         """Assess vehicle health risk."""
-
         health = world.vehicle.health
 
         if health is None or not health.is_healthy:
@@ -350,7 +341,6 @@ class RiskEvaluator:
 
     def _assess_distance(self, world: WorldSnapshot) -> RiskFactor:
         """Assess distance from dock risk."""
-
         distance = world.distance_to_dock()
 
         if distance > self.thresholds.max_distance_m:

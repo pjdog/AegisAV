@@ -1,5 +1,4 @@
-"""
-Agent Server Main Entry Point
+"""Agent Server Main Entry Point.
 
 FastAPI-based HTTP server providing the decision-making API.
 The agent client sends vehicle state and receives decisions.
@@ -7,6 +6,7 @@ The agent client sends vehicle state and receives decisions.
 
 import asyncio
 import logging
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
@@ -77,7 +77,7 @@ class ServerState:
     """Container for server-wide state and shared services."""
 
     # pylint: disable=too-many-instance-attributes
-    def __init__(self):
+    def __init__(self) -> None:
         self.world_model = WorldModel()
         self.goal_selector = GoalSelector()
         self.risk_evaluator = RiskEvaluator()
@@ -143,21 +143,21 @@ server_state = ServerState()
 class ConnectionManager:
     """Manages WebSocket connections for real-time dashboard updates."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.active_connections: set[WebSocket] = set()
 
-    async def connect(self, websocket: WebSocket):
+    async def connect(self, websocket: WebSocket) -> None:
         """Accept and track a new WebSocket connection."""
         await websocket.accept()
         self.active_connections.add(websocket)
         logger.info("websocket_connected", total_connections=len(self.active_connections))
 
-    def disconnect(self, websocket: WebSocket):
+    def disconnect(self, websocket: WebSocket) -> None:
         """Remove a WebSocket connection."""
         self.active_connections.discard(websocket)
         logger.info("websocket_disconnected", total_connections=len(self.active_connections))
 
-    async def broadcast(self, event: Event):
+    async def broadcast(self, event: Event) -> None:
         """Broadcast event to all connected clients."""
         message = event.model_dump(mode="json")
         disconnected = set()
@@ -178,7 +178,7 @@ connection_manager = ConnectionManager()
 
 
 @asynccontextmanager
-async def lifespan(_app: FastAPI):
+async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
     """Application lifespan handler."""
     await asyncio.sleep(0)
     # Startup
@@ -308,7 +308,7 @@ auth_handler = APIKeyAuth(AuthConfig.from_env())
 
 
 @app.websocket("/ws")
-async def websocket_endpoint(websocket: WebSocket):
+async def websocket_endpoint(websocket: WebSocket) -> None:
     """WebSocket endpoint for real-time event broadcasting to dashboard."""
     await connection_manager.connect(websocket)
     try:
@@ -323,7 +323,7 @@ async def websocket_endpoint(websocket: WebSocket):
 
 
 @app.get("/api/config/agent")
-async def get_agent_config():
+async def get_agent_config() -> dict:
     """Return the current agent orchestration configuration."""
     return {
         "use_advanced_engine": server_state.goal_selector.use_advanced_engine,
@@ -332,7 +332,7 @@ async def get_agent_config():
 
 
 @app.post("/api/config/agent")
-async def update_agent_config(config: dict):
+async def update_agent_config(config: dict) -> dict:
     """Update agent orchestration configuration."""
     enabled = config.get("use_advanced_engine", True)
     await server_state.goal_selector.orchestrate(enabled)
@@ -340,7 +340,7 @@ async def update_agent_config(config: dict):
 
 
 @app.get("/api/config/edge")
-async def get_edge_config():
+async def get_edge_config() -> dict:
     """Return the current edge compute simulation configuration."""
     return {
         "edge_config": server_state.edge_config.model_dump(mode="json"),
@@ -349,7 +349,7 @@ async def get_edge_config():
 
 
 @app.post("/api/config/edge")
-async def update_edge_config(config: dict):
+async def update_edge_config(config: dict) -> dict:
     """Update edge compute simulation configuration (supports partial updates)."""
     try:
         server_state.edge_config = apply_edge_compute_update(server_state.edge_config, config)
@@ -374,12 +374,12 @@ if logfire:
 class LogBufferHandler(logging.Handler):
     """Ring buffer log handler for dashboard access."""
 
-    def __init__(self, capacity: int = 50):
+    def __init__(self, capacity: int = 50) -> None:
         super().__init__()
         self.capacity = capacity
         self.buffer: list[dict] = []
 
-    def emit(self, record: logging.LogRecord):
+    def emit(self, record: logging.LogRecord) -> None:
         """Store formatted log records in a bounded in-memory buffer."""
         try:
             log_entry = {
@@ -400,7 +400,7 @@ logging.getLogger().addHandler(log_buffer)
 
 
 @app.get("/api/logs")
-async def get_logs():
+async def get_logs() -> dict:
     """Return the recent log buffer for the dashboard."""
     return {"logs": log_buffer.buffer}
 
@@ -609,8 +609,7 @@ async def get_env_template() -> dict:
 
 @app.post("/api/execution_event")
 async def receive_execution_event(event_data: dict) -> dict:
-    """
-    Receive execution event from client for WebSocket broadcast.
+    """Receive execution event from client for WebSocket broadcast.
 
     Args:
         event_data: Execution event data from client
@@ -633,8 +632,7 @@ async def receive_execution_event(event_data: dict) -> dict:
 
 @app.post("/feedback")
 async def receive_feedback(feedback: DecisionFeedback) -> dict:
-    """
-    Receive feedback from client about decision execution outcomes.
+    """Receive feedback from client about decision execution outcomes.
 
     This endpoint allows the client to report back on how decisions played out,
     enabling the outcome tracker to close the feedback loop for learning.
@@ -785,8 +783,7 @@ async def receive_feedback(feedback: DecisionFeedback) -> dict:
 
 @app.post("/state", response_model=DecisionResponse)
 async def receive_state(state: VehicleStateRequest) -> DecisionResponse:
-    """
-    Receive vehicle state and return decision.
+    """Receive vehicle state and return decision.
 
     This is the main endpoint called by the agent client.
     """
@@ -946,10 +943,9 @@ async def receive_state(state: VehicleStateRequest) -> DecisionResponse:
     )
 
 
-async def _make_decision(snapshot, risk: RiskAssessment) -> tuple[Decision, Goal | None]:
+async def _make_decision(snapshot: WorldSnapshot, risk: RiskAssessment) -> tuple[Decision, Goal | None]:
     # pylint: disable=too-many-return-statements
-    """
-    Core decision-making logic.
+    """Core decision-making logic.
 
     Combines goal selection with risk assessment to produce a decision.
     """
@@ -1020,7 +1016,7 @@ async def _make_decision(snapshot, risk: RiskAssessment) -> tuple[Decision, Goal
 
 # Vision API Endpoints
 @app.get("/api/vision/statistics")
-async def get_vision_statistics():
+async def get_vision_statistics() -> dict:
     """Get vision system statistics."""
     if not server_state.vision_enabled or not server_state.vision_service:
         raise HTTPException(status_code=503, detail="Vision service not available")
@@ -1033,7 +1029,7 @@ async def get_vision_statistics():
 
 
 @app.get("/api/vision/observations")
-async def get_vision_observations(limit: int = 100):
+async def get_vision_observations(limit: int = 100) -> dict:
     """Get recent vision observations."""
     if not server_state.vision_enabled or not server_state.vision_service:
         raise HTTPException(status_code=503, detail="Vision service not available")
@@ -1058,7 +1054,7 @@ async def get_vision_observations(limit: int = 100):
 
 
 @app.get("/api/vision/observations/{asset_id}")
-async def get_asset_observations(asset_id: str):
+async def get_asset_observations(asset_id: str) -> dict:
     """Get vision observations for a specific asset."""
     if not server_state.vision_enabled or not server_state.vision_service:
         raise HTTPException(status_code=503, detail="Vision service not available")

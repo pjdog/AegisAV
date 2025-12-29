@@ -1,5 +1,4 @@
-"""
-Agent Client Package
+"""Agent Client Package.
 
 Lightweight components for vehicle-side execution.
 """

@@ -1,5 +1,4 @@
-"""
-Advanced Agentic Decision Making
+"""Advanced Agentic Decision Making.
 
 Implements sophisticated decision-making capabilities for truly autonomous aerial monitoring.
 This module provides hierarchical planning, adaptive learning, and explainable AI reasoning.
@@ -166,7 +165,7 @@ class PredictiveModel(ABC):
 class BatteryPredictor(PredictiveModel):
     """Predicts battery consumption and remaining flight time."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.consumption_history = deque(maxlen=100)
         self.weather_factors = {}
 
@@ -239,7 +238,7 @@ class BatteryPredictor(PredictiveModel):
 class WeatherPredictor(PredictiveModel):
     """Predicts weather changes and their impact on operations."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.weather_history = deque(maxlen=50)
         self.wind_patterns = {}
 
@@ -295,7 +294,7 @@ class WeatherPredictor(PredictiveModel):
 class GoalHierarchy:
     """Hierarchical goal planning with multi-level objectives."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.goal_stack = []
         self.current_level = 0
         self.max_depth = 5
@@ -413,7 +412,7 @@ class GoalHierarchy:
 class MetaCognitiveMonitor:
     """Meta-cognitive monitoring for self-awareness."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.decision_history = deque(maxlen=100)
         self.performance_metrics = {}
         self.learning_rate = 0.1
@@ -476,7 +475,7 @@ class DecisionModules:
 class AdvancedDecisionEngine:
     """Advanced agentic decision engine with learning and prediction."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.modules = DecisionModules(
             battery_predictor=BatteryPredictor(),
             weather_predictor=WeatherPredictor(),
@@ -908,10 +907,10 @@ async def create_advanced_decision_engine() -> AdvancedDecisionEngine:
 class EnhancedGoalSelector:
     """Enhanced goal selector using advanced decision engine."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.advanced_engine = None  # Will be initialized asynchronously
 
-    async def initialize(self):
+    async def initialize(self) -> None:
         """Initialize advanced components."""
         self.advanced_engine = await create_advanced_decision_engine()
 

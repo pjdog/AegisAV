@@ -1,5 +1,4 @@
-"""
-Critic Orchestrator
+"""Critic Orchestrator.
 
 Coordinates multiple critic agents and implements the escalation authority model.
 Manages parallel critic execution and consensus-based decision validation.
@@ -35,8 +34,7 @@ class AuthorityModel(Enum):
 
 
 class CriticOrchestrator:
-    """
-    Orchestrates multiple critics and applies authority model.
+    """Orchestrates multiple critics and applies authority model.
 
     The orchestrator:
     1. Runs all critics in parallel for efficiency
@@ -49,9 +47,8 @@ class CriticOrchestrator:
         self,
         authority_model: str | AuthorityModel = AuthorityModel.ESCALATION,
         enable_llm: bool = True,
-    ):
-        """
-        Initialize critic orchestrator.
+    ) -> None:
+        """Initialize critic orchestrator.
 
         Args:
             authority_model: Which authority model to use
@@ -80,8 +77,7 @@ class CriticOrchestrator:
     async def validate_decision(
         self, decision: Decision, world: WorldSnapshot, risk: RiskAssessment
     ) -> tuple[bool, EscalationDecision | None]:
-        """
-        Validate decision using all critics.
+        """Validate decision using all critics.
 
         Args:
             decision: The decision to validate
@@ -121,8 +117,7 @@ class CriticOrchestrator:
         risk: RiskAssessment,
         force_llm: bool = False,
     ) -> list[CriticResponse]:
-        """
-        Run all critics in parallel.
+        """Run all critics in parallel.
 
         Args:
             decision: Decision to evaluate
@@ -156,8 +151,7 @@ class CriticOrchestrator:
     async def _apply_advisory_model(
         self, _decision: Decision, _risk: RiskAssessment, responses: list[CriticResponse]
     ) -> tuple[bool, EscalationDecision | None]:
-        """
-        Advisory mode: Always approve, just log concerns.
+        """Advisory mode: Always approve, just log concerns.
 
         Returns:
             (True, None) - Always approved
@@ -177,8 +171,7 @@ class CriticOrchestrator:
     async def _apply_blocking_model(
         self, _decision: Decision, _risk: RiskAssessment, responses: list[CriticResponse]
     ) -> tuple[bool, EscalationDecision | None]:
-        """
-        Blocking mode: Reject if ANY critic rejects.
+        """Blocking mode: Reject if ANY critic rejects.
 
         Returns:
             (approved, escalation_decision)
@@ -213,8 +206,7 @@ class CriticOrchestrator:
         risk: RiskAssessment,
         responses: list[CriticResponse],
     ) -> tuple[bool, EscalationDecision | None]:
-        """
-        Escalation mode: Advisory → Blocking → Hierarchical based on risk.
+        """Escalation mode: Advisory → Blocking → Hierarchical based on risk.
 
         Rules:
         - risk >= 0.7: HIERARCHICAL (re-evaluate with LLM, full review)
@@ -271,8 +263,7 @@ class CriticOrchestrator:
         risk: RiskAssessment,
         responses: list[CriticResponse],
     ) -> tuple[bool, EscalationDecision | None]:
-        """
-        Hierarchical mode: Always use full LLM review.
+        """Hierarchical mode: Always use full LLM review.
 
         Returns:
             (approved, escalation_decision)
@@ -287,8 +278,7 @@ class CriticOrchestrator:
         risk: RiskAssessment,
         _initial_responses: list[CriticResponse],
     ) -> tuple[bool, EscalationDecision | None]:
-        """
-        Perform hierarchical review with full LLM evaluation.
+        """Perform hierarchical review with full LLM evaluation.
 
         Re-evaluates with all critics using LLM for deeper analysis.
 
@@ -355,8 +345,7 @@ class CriticOrchestrator:
         return approved, escalation
 
     def _calculate_consensus(self, responses: list[CriticResponse]) -> float:
-        """
-        Calculate consensus score among critics.
+        """Calculate consensus score among critics.
 
         Consensus is based on:
         - Agreement on verdict
@@ -396,8 +385,7 @@ class CriticOrchestrator:
         return consensus
 
     def get_stats(self) -> dict:
-        """
-        Get orchestrator statistics.
+        """Get orchestrator statistics.
 
         Returns:
             Dictionary with critic stats and orchestrator metrics

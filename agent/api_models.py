@@ -1,5 +1,4 @@
-"""
-Pydantic models for API validation and serialization.
+"""Pydantic models for API validation and serialization.
 
 These models complement the dataclasses in vehicle_state.py by providing
 validation, serialization, and API request/response models.
@@ -50,7 +49,7 @@ class PositionModel(BaseModel):
 
     @field_validator("latitude", "longitude")
     @classmethod
-    def validate_coordinates(cls, v):
+    def validate_coordinates(cls, v: float) -> float:
         """Validate coordinate ranges."""
         return float(v)
 
@@ -119,7 +118,7 @@ class BatteryModel(BaseModel):
 
     @field_validator("voltage")
     @classmethod
-    def validate_voltage(cls, v):
+    def validate_voltage(cls, v: float) -> float:
         """Validate reasonable voltage range."""
         if v < 10 or v > 30:  # Typical drone battery range
             raise ValueError("Voltage outside typical drone battery range")

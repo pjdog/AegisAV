@@ -1,5 +1,4 @@
-"""
-Cost Tracking and Monitoring for LLM Calls
+"""Cost Tracking and Monitoring for LLM Calls.
 
 Tracks LLM usage, estimates costs, and provides budget monitoring.
 Helps ensure we stay within the target cost budget (~$0.52/day).
@@ -8,6 +7,7 @@ Helps ensure we stay within the target cost budget (~$0.52/day).
 import logging
 import time
 from collections import defaultdict
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
@@ -131,16 +131,14 @@ class CostStatistics:
 
 
 class CostTracker:
-    """
-    Tracks LLM usage and costs across the system.
+    """Tracks LLM usage and costs across the system.
 
     Thread-safe implementation for concurrent critic evaluations.
     Provides cost statistics, budget monitoring, and usage reports.
     """
 
-    def __init__(self, daily_budget: float = 1.0):
-        """
-        Initialize cost tracker.
+    def __init__(self, daily_budget: float = 1.0) -> None:
+        """Initialize cost tracker.
 
         Args:
             daily_budget: Daily cost budget in USD (default: $1.00/day)
@@ -151,8 +149,7 @@ class CostTracker:
         logger.info(f"Initialized CostTracker with daily budget: ${daily_budget:.2f}")
 
     def estimate_cost(self, model: str, prompt_tokens: int, completion_tokens: int) -> float:
-        """
-        Estimate cost for an LLM call.
+        """Estimate cost for an LLM call.
 
         Args:
             model: Model name (e.g., "gpt-4o-mini")
@@ -178,8 +175,7 @@ class CostTracker:
         return input_cost + output_cost
 
     def record_call(self, details: CallDetails) -> LLMCallRecord:
-        """
-        Record an LLM call.
+        """Record an LLM call.
 
         Args:
             details: Call details to record
@@ -221,8 +217,7 @@ class CostTracker:
         return record
 
     def get_statistics(self, since: datetime | None = None) -> CostStatistics:
-        """
-        Get aggregated cost statistics.
+        """Get aggregated cost statistics.
 
         Args:
             since: Only include calls since this timestamp (default: all calls)
@@ -274,8 +269,7 @@ class CostTracker:
         return self.get_statistics(since=since)
 
     def check_budget(self, timeframe: str = "daily") -> dict[str, Any]:
-        """
-        Check budget usage.
+        """Check budget usage.
 
         Args:
             timeframe: "daily" or "hourly"
@@ -324,7 +318,7 @@ class CostTracker:
 
         return status
 
-    def reset(self):
+    def reset(self) -> None:
         """Reset all recorded calls (use with caution)."""
         with self._lock:
             num_calls = len(self._calls)
@@ -332,8 +326,7 @@ class CostTracker:
         logger.info(f"Cost tracker reset - cleared {num_calls} records")
 
     def export_calls(self, since: datetime | None = None) -> list[dict[str, Any]]:
-        """
-        Export call records as dictionaries.
+        """Export call records as dictionaries.
 
         Args:
             since: Only export calls since this timestamp
@@ -364,8 +357,7 @@ class CostTracker:
 
 
 def get_cost_tracker(daily_budget: float = 1.0) -> CostTracker:
-    """
-    Get the global cost tracker instance (singleton pattern).
+    """Get the global cost tracker instance (singleton pattern).
 
     Args:
         daily_budget: Daily budget (only used on first initialization)
@@ -383,9 +375,8 @@ def get_cost_tracker(daily_budget: float = 1.0) -> CostTracker:
 @asynccontextmanager
 async def track_llm_call(  # noqa: RUF029
     model: str, context: str, tracker: CostTracker | None = None
-):
-    """
-    Context manager for tracking LLM calls automatically.
+) -> "AsyncGenerator[_LLMTracking, None]":
+    """Context manager for tracking LLM calls automatically.
 
     Usage:
         async with track_llm_call("gpt-4o-mini", "safety_critic") as tracking:
@@ -432,19 +423,18 @@ async def track_llm_call(  # noqa: RUF029
 class _LLMTracking:
     """Helper class for tracking within context manager."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.prompt_tokens = 0
         self.completion_tokens = 0
 
-    def set_tokens(self, prompt_tokens: int, completion_tokens: int):
+    def set_tokens(self, prompt_tokens: int, completion_tokens: int) -> None:
         """Set token counts for the LLM call."""
         self.prompt_tokens = prompt_tokens
         self.completion_tokens = completion_tokens
 
 
 def estimate_tokens(text: str) -> int:
-    """
-    Rough estimate of token count for text.
+    """Rough estimate of token count for text.
 
     Uses ~4 characters per token heuristic (conservative estimate).
 

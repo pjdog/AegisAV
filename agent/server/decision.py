@@ -1,5 +1,4 @@
-"""
-Decision Data Models
+"""Decision Data Models.
 
 Defines the Decision type which is the primary output of the agent server.
 """
@@ -14,8 +13,7 @@ from autonomy.vehicle_state import Position
 
 
 class Decision(BaseModel):
-    """
-    The primary output of the agent's decision-making process.
+    """The primary output of the agent's decision-making process.
 
     Each decision includes:
     - The action to take
@@ -38,7 +36,7 @@ class Decision(BaseModel):
     decision_id: str = Field(default="")
     supersedes: str | None = None  # ID of decision this replaces
 
-    def model_post_init(self, __context: Any) -> None:
+    def model_post_init(self, __context: object) -> None:
         """Generate decision ID if not provided."""
         if not self.decision_id:
             self.decision_id = f"dec_{self.timestamp.strftime('%Y%m%d_%H%M%S_%f')}"

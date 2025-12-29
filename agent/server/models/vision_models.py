@@ -1,5 +1,4 @@
-"""
-Server-Side Vision Models
+"""Server-Side Vision Models.
 
 Data models for vision observations, defects, and analysis results.
 Used by the server for tracking and processing vision data.
@@ -16,8 +15,7 @@ from autonomy.vehicle_state import Position
 
 
 class DefectType(str, Enum):
-    """
-    Detailed defect classification for server-side processing.
+    """Detailed defect classification for server-side processing.
 
     More granular than client-side DetectionClass.
     """
@@ -56,8 +54,7 @@ class DefectType(str, Enum):
 
 
 class CameraMetadata(BaseModel, frozen=True):
-    """
-    Metadata about camera and capture conditions.
+    """Metadata about camera and capture conditions.
 
     Stored with vision observations for analysis and debugging.
 
@@ -83,8 +80,7 @@ class CameraMetadata(BaseModel, frozen=True):
 
 
 class VisionObservation(BaseModel):
-    """
-    Record of a vision observation during inspection.
+    """Record of a vision observation during inspection.
 
     Tracks what was seen, where, when, and the analysis results.
     Used for building inspection history and anomaly tracking.
@@ -145,8 +141,7 @@ class VisionObservation(BaseModel):
 
 
 class InspectionVisionSummary(BaseModel, frozen=True):
-    """
-    Summary of vision observations for a complete inspection.
+    """Summary of vision observations for a complete inspection.
 
     Aggregates results from all captures during an inspection.
 
@@ -178,8 +173,7 @@ class InspectionVisionSummary(BaseModel, frozen=True):
 
 
 class VisionAnalysisRequest(BaseModel, frozen=True):
-    """
-    Request for server-side vision analysis.
+    """Request for server-side vision analysis.
 
     Sent from client to server for detailed processing.
 
@@ -205,8 +199,7 @@ class VisionAnalysisRequest(BaseModel, frozen=True):
 
 
 class VisionAnalysisResponse(BaseModel, frozen=True):
-    """
-    Response from server-side vision analysis.
+    """Response from server-side vision analysis.
 
     Contains detailed detection results and any anomalies created.
 

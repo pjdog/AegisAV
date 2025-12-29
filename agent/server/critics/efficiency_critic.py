@@ -1,5 +1,4 @@
-"""
-Efficiency Critic
+"""Efficiency Critic.
 
 Evaluates resource usage and goal efficiency for decisions.
 Focuses on battery consumption, path optimization, and mission progress.
@@ -48,8 +47,7 @@ class EfficiencyCriticConfig(CriticConfig):
 
 
 class EfficiencyCritic(BaseCritic):
-    """
-    Efficiency critic evaluates resource usage and goal efficiency.
+    """Efficiency critic evaluates resource usage and goal efficiency.
 
     Checks:
     - Battery consumption vs. mission value
@@ -59,7 +57,7 @@ class EfficiencyCritic(BaseCritic):
     - Resource allocation
     """
 
-    def __init__(self, config: EfficiencyCriticConfig | None = None, llm_model: str | None = None):
+    def __init__(self, config: EfficiencyCriticConfig | None = None, llm_model: str | None = None) -> None:
         """Initialize efficiency critic with configuration."""
         self.efficiency_config = config or EfficiencyCriticConfig()
         super().__init__(config=self.efficiency_config, llm_model=llm_model)
@@ -71,8 +69,7 @@ class EfficiencyCritic(BaseCritic):
     async def evaluate_fast(
         self, decision: Decision, world: WorldSnapshot, _risk: RiskAssessment
     ) -> CriticResponse:
-        """
-        Fast classical efficiency evaluation.
+        """Fast classical efficiency evaluation.
 
         Performs rule-based checks on:
         - Battery consumption efficiency
@@ -114,8 +111,7 @@ class EfficiencyCritic(BaseCritic):
     def _check_battery_efficiency(
         self, decision: Decision, world: WorldSnapshot
     ) -> tuple[list[str], list[str], float]:
-        """
-        Check battery usage efficiency.
+        """Check battery usage efficiency.
 
         Returns:
             (concerns, alternatives, risk_score)
@@ -141,8 +137,7 @@ class EfficiencyCritic(BaseCritic):
     def _check_mission_progress(
         self, _decision: Decision, world: WorldSnapshot
     ) -> tuple[list[str], list[str], float]:
-        """
-        Check mission progress efficiency.
+        """Check mission progress efficiency.
 
         Returns:
             (concerns, alternatives, risk_score)
@@ -172,8 +167,7 @@ class EfficiencyCritic(BaseCritic):
     def _check_path_efficiency(
         self, decision: Decision, world: WorldSnapshot
     ) -> tuple[list[str], list[str], float]:
-        """
-        Check path/flight efficiency.
+        """Check path/flight efficiency.
 
         Returns:
             (concerns, alternatives, risk_score)
@@ -201,8 +195,7 @@ class EfficiencyCritic(BaseCritic):
     def _check_resource_allocation(
         self, decision: Decision, _world: WorldSnapshot
     ) -> tuple[list[str], list[str], float]:
-        """
-        Check resource allocation efficiency.
+        """Check resource allocation efficiency.
 
         Returns:
             (concerns, alternatives, risk_score)
@@ -224,8 +217,7 @@ class EfficiencyCritic(BaseCritic):
     async def evaluate_llm(
         self, decision: Decision, world: WorldSnapshot, risk: RiskAssessment
     ) -> CriticResponse:
-        """
-        LLM-based efficiency evaluation for complex resource optimization scenarios.
+        """LLM-based efficiency evaluation for complex resource optimization scenarios.
 
         Uses language model to provide nuanced efficiency analysis when:
         - Multiple resource trade-offs exist
@@ -432,8 +424,7 @@ Provide your efficiency verdict and reasoning."""
     def _determine_verdict(
         self, concerns: list[str], max_risk_score: float, _decision: Decision
     ) -> tuple[CriticVerdict, str, float]:
-        """
-        Determine final verdict based on efficiency concerns.
+        """Determine final verdict based on efficiency concerns.
 
         Returns:
             (verdict, reasoning, confidence)
@@ -478,8 +469,7 @@ Provide your efficiency verdict and reasoning."""
     def _check_battery_efficiency(
         self, decision: Decision, world: WorldSnapshot
     ) -> tuple[list[str], list[str], float]:
-        """
-        Check battery usage efficiency.
+        """Check battery usage efficiency.
 
         Returns:
             (concerns, alternatives, risk_score)
@@ -521,8 +511,7 @@ Provide your efficiency verdict and reasoning."""
     def _check_mission_progress(
         self, decision: Decision, world: WorldSnapshot
     ) -> tuple[list[str], list[str], float]:
-        """
-        Check mission progress efficiency.
+        """Check mission progress efficiency.
 
         Returns:
             (concerns, alternatives, risk_score)
@@ -562,8 +551,7 @@ Provide your efficiency verdict and reasoning."""
     def _check_path_efficiency(
         self, decision: Decision, world: WorldSnapshot
     ) -> tuple[list[str], list[str], float]:
-        """
-        Check path efficiency for movement decisions.
+        """Check path efficiency for movement decisions.
 
         Returns:
             (concerns, alternatives, risk_score)
@@ -603,8 +591,7 @@ Provide your efficiency verdict and reasoning."""
     def _check_resource_allocation(
         self, decision: Decision, world: WorldSnapshot
     ) -> tuple[list[str], list[str], float]:
-        """
-        Check resource allocation efficiency.
+        """Check resource allocation efficiency.
 
         Returns:
             (concerns, alternatives, risk_score)

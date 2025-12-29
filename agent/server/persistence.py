@@ -1,5 +1,4 @@
-"""
-Redis Persistence Layer
+"""Redis Persistence Layer.
 
 Provides persistent storage for AegisAV using Redis.
 Stores assets, anomalies, inspection history, and mission state.
@@ -51,8 +50,7 @@ class RedisConfig(BaseModel):
 
 
 class RedisStore:
-    """
-    Redis-based persistence layer for AegisAV.
+    """Redis-based persistence layer for AegisAV.
 
     Provides async methods for storing and retrieving:
     - Assets (infrastructure being monitored)
@@ -75,9 +73,8 @@ class RedisStore:
         await store.disconnect()
     """
 
-    def __init__(self, config: RedisConfig | None = None):
-        """
-        Initialize Redis store.
+    def __init__(self, config: RedisConfig | None = None) -> None:
+        """Initialize Redis store.
 
         Args:
             config: Redis configuration. Uses defaults if None.
@@ -93,8 +90,7 @@ class RedisStore:
         self.logger = logger
 
     async def connect(self) -> bool:
-        """
-        Connect to Redis server.
+        """Connect to Redis server.
 
         Returns:
             True if connection successful
@@ -145,8 +141,7 @@ class RedisStore:
     # ==================== Asset Operations ====================
 
     async def set_asset(self, asset_id: str, asset: BaseModel | dict) -> bool:
-        """
-        Store an asset.
+        """Store an asset.
 
         Args:
             asset_id: Unique asset identifier
@@ -176,8 +171,7 @@ class RedisStore:
             return False
 
     async def get_asset(self, asset_id: str) -> dict | None:
-        """
-        Get an asset by ID.
+        """Get an asset by ID.
 
         Args:
             asset_id: Asset identifier
@@ -197,8 +191,7 @@ class RedisStore:
             return None
 
     async def get_all_assets(self) -> list[dict]:
-        """
-        Get all stored assets.
+        """Get all stored assets.
 
         Returns:
             List of asset data dicts
@@ -238,8 +231,7 @@ class RedisStore:
     # ==================== Anomaly Operations ====================
 
     async def add_anomaly(self, anomaly_id: str, anomaly: BaseModel | dict) -> bool:
-        """
-        Store an anomaly.
+        """Store an anomaly.
 
         Args:
             anomaly_id: Unique anomaly identifier
@@ -292,8 +284,7 @@ class RedisStore:
             return None
 
     async def get_recent_anomalies(self, limit: int = 100) -> list[dict]:
-        """
-        Get recent anomalies, sorted by timestamp (newest first).
+        """Get recent anomalies, sorted by timestamp (newest first).
 
         Args:
             limit: Maximum number to return
@@ -368,8 +359,7 @@ class RedisStore:
         detection: BaseModel | dict,
         timestamp: datetime | None = None
     ) -> bool:
-        """
-        Store a detection result.
+        """Store a detection result.
 
         Args:
             asset_id: Asset the detection is for
@@ -412,8 +402,7 @@ class RedisStore:
         limit: int = 50,
         since: datetime | None = None
     ) -> list[dict]:
-        """
-        Get detections for an asset.
+        """Get detections for an asset.
 
         Args:
             asset_id: Asset identifier
@@ -453,8 +442,7 @@ class RedisStore:
     # ==================== Telemetry Operations ====================
 
     async def add_telemetry(self, vehicle_id: str, telemetry: dict) -> bool:
-        """
-        Store vehicle telemetry (time-series data).
+        """Store vehicle telemetry (time-series data).
 
         Uses a sorted set for efficient time-range queries.
 
@@ -494,8 +482,7 @@ class RedisStore:
         since: datetime | None = None,
         limit: int = 100
     ) -> list[dict]:
-        """
-        Get telemetry for a vehicle.
+        """Get telemetry for a vehicle.
 
         Args:
             vehicle_id: Vehicle identifier
@@ -530,8 +517,7 @@ class RedisStore:
     # ==================== Mission Operations ====================
 
     async def save_mission(self, mission_id: str, mission: dict) -> bool:
-        """
-        Save a mission record.
+        """Save a mission record.
 
         Args:
             mission_id: Mission identifier
@@ -598,7 +584,7 @@ class RedisStore:
 
     # ==================== System State Operations ====================
 
-    async def set_state(self, key: str, value: Any) -> bool:
+    async def set_state(self, key: str, value: object) -> bool:
         """Set a system state value."""
         if not self.is_connected:
             return False
@@ -612,7 +598,7 @@ class RedisStore:
             self.logger.error(f"Failed to set state {key}: {e}")
             return False
 
-    async def get_state(self, key: str, default: Any = None) -> Any:
+    async def get_state(self, key: str, default: object = None) -> object:
         """Get a system state value."""
         if not self.is_connected:
             return default
@@ -633,8 +619,7 @@ class RedisStore:
     # ==================== Utility Operations ====================
 
     async def clear_all(self) -> bool:
-        """
-        Clear all AegisAV data from Redis.
+        """Clear all AegisAV data from Redis.
 
         WARNING: This deletes all stored data!
 
@@ -695,14 +680,13 @@ class RedisStore:
 
 # In-memory fallback for when Redis is not available
 class InMemoryStore:
-    """
-    In-memory fallback store when Redis is not available.
+    """In-memory fallback store when Redis is not available.
 
     Provides the same interface as RedisStore but stores data in memory.
     Data is lost when the process exits.
     """
 
-    def __init__(self, config: RedisConfig | None = None):
+    def __init__(self, config: RedisConfig | None = None) -> None:
         """Initialize in-memory store."""
         self.config = config or RedisConfig()
         self._assets: dict[str, dict] = {}
@@ -810,11 +794,11 @@ class InMemoryStore:
     async def get_recent_missions(self, limit: int = 20) -> list[dict]:
         return list(self._missions.values())[:limit]
 
-    async def set_state(self, key: str, value: Any) -> bool:
+    async def set_state(self, key: str, value: object) -> bool:
         self._state[key] = value
         return True
 
-    async def get_state(self, key: str, default: Any = None) -> Any:
+    async def get_state(self, key: str, default: object = None) -> object:
         return self._state.get(key, default)
 
     async def clear_all(self) -> bool:
@@ -837,8 +821,7 @@ class InMemoryStore:
 
 
 def create_store(config: RedisConfig | None = None) -> RedisStore | InMemoryStore:
-    """
-    Factory function to create appropriate store.
+    """Factory function to create appropriate store.
 
     Uses Redis if available, falls back to in-memory.
 

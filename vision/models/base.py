@@ -1,5 +1,4 @@
-"""
-Model Interface Protocol
+"""Model Interface Protocol.
 
 Defines the common interface for all detection models.
 Supports YOLO, custom models, and mock detectors.
@@ -13,15 +12,13 @@ from vision.data_models import DetectionResult
 
 @runtime_checkable
 class ModelInterface(Protocol):
-    """
-    Protocol defining the detection model interface.
+    """Protocol defining the detection model interface.
 
     All model implementations (YOLO, custom, mock) must implement this interface.
     """
 
     async def initialize(self) -> bool:
-        """
-        Initialize the model.
+        """Initialize the model.
 
         Performs:
         - Model loading
@@ -35,8 +32,7 @@ class ModelInterface(Protocol):
         ...
 
     async def analyze_image(self, image_path: Path) -> DetectionResult:
-        """
-        Analyze an image for defects/objects.
+        """Analyze an image for defects/objects.
 
         Args:
             image_path: Path to image file to analyze
@@ -52,8 +48,7 @@ class ModelInterface(Protocol):
         ...
 
     def get_model_info(self) -> dict:
-        """
-        Get model information.
+        """Get model information.
 
         Returns:
             Dictionary with model name, version, device, etc.
@@ -61,8 +56,7 @@ class ModelInterface(Protocol):
         ...
 
     async def shutdown(self) -> None:
-        """
-        Gracefully shutdown the model.
+        """Gracefully shutdown the model.
 
         Cleanup:
         - Release GPU memory

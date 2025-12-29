@@ -1,5 +1,4 @@
-"""
-Action Executor
+"""Action Executor.
 
 Translates high-level decisions from the agent server into
 MAVLink commands for the flight controller.
@@ -44,8 +43,7 @@ class ExecutionResult:
 
 
 class ActionExecutor:
-    """
-    Executes decisions by translating them to flight commands.
+    """Executes decisions by translating them to flight commands.
 
     The action executor receives decisions from the agent server
     and uses MissionPrimitives to execute them on the vehicle.
@@ -65,7 +63,7 @@ class ActionExecutor:
                 logger.error(f"Execution failed: {result.message}")
     """
 
-    def __init__(self, mavlink: MAVLinkInterface, vision_client: "VisionClient | None" = None):
+    def __init__(self, mavlink: MAVLinkInterface, vision_client: "VisionClient | None" = None) -> None:
         self.mavlink = mavlink
         self.primitives = MissionPrimitives(mavlink)
         self.vision_client = vision_client
@@ -85,8 +83,7 @@ class ActionExecutor:
         self._state = ExecutionState.ABORTED
 
     async def execute(self, decision: dict) -> ExecutionResult:
-        """
-        Execute a decision from the agent server.
+        """Execute a decision from the agent server.
 
         Args:
             decision: Decision dict from server

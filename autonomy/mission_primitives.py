@@ -1,5 +1,4 @@
-"""
-Mission Primitives
+"""Mission Primitives.
 
 High-level mission actions built on top of MAVLink commands.
 These primitives provide reliable, monitored execution of common flight operations.
@@ -61,8 +60,7 @@ class DockPlan:
 
 
 class MissionPrimitives:
-    """
-    High-level mission primitives for common flight operations.
+    """High-level mission primitives for common flight operations.
 
     Each primitive:
     - Sends appropriate MAVLink commands
@@ -82,7 +80,7 @@ class MissionPrimitives:
         self,
         mavlink: MAVLinkInterface,
         config: PrimitiveConfig | None = None,
-    ):
+    ) -> None:
         self.mavlink = mavlink
         self.config = config or PrimitiveConfig()
         self._abort_requested = False
@@ -100,8 +98,7 @@ class MissionPrimitives:
         altitude: float,
         timeout: float | None = None,
     ) -> PrimitiveResult:
-        """
-        Arm the vehicle and take off to specified altitude.
+        """Arm the vehicle and take off to specified altitude.
 
         Args:
             altitude: Target altitude in meters AGL
@@ -146,8 +143,7 @@ class MissionPrimitives:
         speed: float | None = None,
         timeout: float | None = None,
     ) -> PrimitiveResult:
-        """
-        Fly to target position.
+        """Fly to target position.
 
         Args:
             target: Target position (lat, lon, alt MSL)
@@ -175,8 +171,7 @@ class MissionPrimitives:
         return await self._wait_for_position(target, timeout)
 
     async def orbit(self, center: Position, plan: OrbitPlan) -> PrimitiveResult:
-        """
-        Orbit around a center point.
+        """Orbit around a center point.
 
         Args:
             center: Center position to orbit around
@@ -218,8 +213,7 @@ class MissionPrimitives:
         self,
         timeout: float | None = None,
     ) -> PrimitiveResult:
-        """
-        Land at current position.
+        """Land at current position.
 
         Args:
             timeout: Maximum time to wait for landing
@@ -241,8 +235,7 @@ class MissionPrimitives:
         self,
         timeout: float | None = None,
     ) -> PrimitiveResult:
-        """
-        Return to launch point and land.
+        """Return to launch point and land.
 
         Args:
             timeout: Maximum time to wait
@@ -261,8 +254,7 @@ class MissionPrimitives:
         return await self._wait_for_disarm(timeout)
 
     async def dock(self, dock_position: Position, plan: DockPlan | None = None) -> PrimitiveResult:
-        """
-        Perform precision landing at dock position.
+        """Perform precision landing at dock position.
 
         This is a multi-phase operation:
         1. Fly to approach point above dock

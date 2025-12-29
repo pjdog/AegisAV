@@ -1,5 +1,4 @@
-"""
-Vision Subsystem
+"""Vision Subsystem.
 
 Computer vision capabilities for anomaly detection during drone inspections.
 

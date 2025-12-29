@@ -331,6 +331,19 @@ class TestCleanupOldImages:
         assert deleted_count == 0
         assert recent_dir.exists()
 
+    def test_cleanup_ignores_files_in_base_dir(self, manager):
+        """Test that cleanup ignores loose files in base directory."""
+        # Create a file directly in base_dir (not in a date directory)
+        loose_file = manager.base_dir / "some_file.txt"
+        loose_file.write_text("loose file content")
+
+        # Run cleanup
+        deleted_count = manager.cleanup_old_images()
+
+        # File should still exist, not be processed as a directory
+        assert loose_file.exists()
+        assert deleted_count == 0
+
 
 class TestGetStorageUsage:
     """Tests for get_storage_usage method."""

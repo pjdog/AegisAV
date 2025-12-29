@@ -1,5 +1,4 @@
-"""
-Computer Vision Models
+"""Computer Vision Models.
 
 Object detection and classification models:
 - YOLO-based detectors

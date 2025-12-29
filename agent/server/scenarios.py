@@ -1,5 +1,4 @@
-"""
-Multi-Drone Simulation Scenarios
+"""Multi-Drone Simulation Scenarios.
 
 Preloaded scenarios for demonstrating the AegisAV decision system with
 multiple drones, each with their own edge cases and operational challenges.

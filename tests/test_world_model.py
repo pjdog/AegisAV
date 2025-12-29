@@ -132,28 +132,41 @@ class TestAssetOperations:
         assert world_model._assets[0].name == "Updated Asset"
         assert world_model._assets[0].priority == 2
 
-    def test_get_asset(self, world_model, sample_asset):
-        """Test getting an asset by ID."""
+    def test_get_asset_by_id(self, world_model, sample_asset):
+        """Test accessing an asset by ID from internal list."""
         world_model.add_asset(sample_asset)
 
-        found = world_model.get_asset("test_asset_001")
+        # Find asset from internal list
+        found = None
+        for asset in world_model._assets:
+            if asset.asset_id == "test_asset_001":
+                found = asset
+                break
+
         assert found is not None
         assert found.name == "Test Asset"
 
-        not_found = world_model.get_asset("nonexistent")
+        # Check for non-existent asset
+        not_found = None
+        for asset in world_model._assets:
+            if asset.asset_id == "nonexistent":
+                not_found = asset
+                break
         assert not_found is None
 
-    def test_get_pending_assets(self, world_model, sample_asset):
-        """Test getting pending assets."""
+    def test_asset_needs_inspection(self, world_model, sample_asset):
+        """Test asset needs_inspection property."""
         world_model.add_asset(sample_asset)
 
-        pending = world_model.get_pending_assets()
-        assert len(pending) == 1
+        # Asset should need inspection initially (no next_scheduled)
+        asset = world_model._assets[0]
+        assert asset.needs_inspection is True
 
-        # Record inspection to mark as no longer pending
+        # Record inspection to set next_scheduled in the future
         world_model.record_inspection("test_asset_001", cadence_minutes=60)
-        pending = world_model.get_pending_assets()
-        assert len(pending) == 0
+
+        # Now it shouldn't need inspection
+        assert asset.needs_inspection is False
 
     def test_update_asset_status(self, world_model, sample_asset):
         """Test updating asset status."""
@@ -173,7 +186,7 @@ class TestAssetOperations:
 
         world_model.record_inspection("test_asset_001", cadence_minutes=60)
 
-        asset = world_model.get_asset("test_asset_001")
+        asset = world_model._assets[0]
         assert asset.last_inspection is not None
         assert asset.next_scheduled is not None
         # Next scheduled should be about 60 minutes from now
@@ -220,8 +233,11 @@ class TestLoadAssetsFromConfig:
         world_model.load_assets_from_config(config)
 
         assert len(world_model._assets) == 2
-        assert world_model.get_asset("building_001").name == "Office Building"
-        assert world_model.get_asset("substation_001").asset_type == AssetType.SUBSTATION
+        # Find assets by ID
+        building = next(a for a in world_model._assets if a.asset_id == "building_001")
+        substation = next(a for a in world_model._assets if a.asset_id == "substation_001")
+        assert building.name == "Office Building"
+        assert substation.asset_type == AssetType.SUBSTATION
 
     def test_load_assets_from_config_with_inspection(self, world_model):
         """Test loading assets with inspection parameters."""
@@ -243,7 +259,7 @@ class TestLoadAssetsFromConfig:
 
         world_model.load_assets_from_config(config)
 
-        asset = world_model.get_asset("solar_001")
+        asset = next(a for a in world_model._assets if a.asset_id == "solar_001")
         assert asset.inspection_altitude_agl == 30
         assert asset.orbit_radius_m == 25
         assert asset.dwell_time_s == 45
@@ -269,7 +285,7 @@ class TestLoadAssetsFromConfig:
 
         world_model.load_assets_from_config(config)
 
-        asset = world_model.get_asset("minimal_001")
+        asset = next(a for a in world_model._assets if a.asset_id == "minimal_001")
         assert asset.name == "minimal_001"  # Defaults to ID
         assert asset.asset_type == AssetType.OTHER
         assert asset.priority == 1
@@ -293,7 +309,8 @@ class TestAnomalyOperations:
 
         assert len(world_model._anomalies) == 1
         # Asset status should be updated
-        assert world_model.get_asset("test_asset_001").status == AssetStatus.ANOMALY
+        asset = world_model._assets[0]
+        assert asset.status == AssetStatus.ANOMALY
 
     def test_resolve_anomaly(self, world_model, sample_asset):
         """Test resolving an anomaly."""
@@ -452,18 +469,31 @@ class TestTimeSinceUpdate:
 
 
 class TestGetAnomalyAssetsDuplicate:
-    """Test the duplicate get_anomaly_assets method (line 209-213)."""
+    """Test the get_anomaly_assets method."""
 
     def test_get_anomaly_assets_method(self, world_model, sample_asset):
-        """Test get_anomaly_assets returns correct assets."""
+        """Test get_anomaly_assets returns correct asset IDs."""
         world_model.add_asset(sample_asset)
 
-        # Initially empty
+        # Initially empty (no anomalies)
         result = world_model.get_anomaly_assets()
         assert result == []
 
-        # Change status to anomaly
-        sample_asset.status = AssetStatus.ANOMALY
+        # Add an anomaly for the asset
+        anomaly = Anomaly(
+            anomaly_id="test_anom",
+            asset_id="test_asset_001",
+            severity=0.5,
+            detected_at=datetime.now(),
+            description="Test anomaly",
+        )
+        world_model.add_anomaly(anomaly)
+
+        # Now should return the asset ID
         result = world_model.get_anomaly_assets()
-        # This method returns Asset objects, not IDs
-        # Let me check which method this is...
+        assert "test_asset_001" in result
+
+        # Resolve the anomaly
+        world_model.resolve_anomaly("test_anom")
+        result = world_model.get_anomaly_assets()
+        assert result == []

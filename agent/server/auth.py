@@ -120,7 +120,7 @@ class APIKeyAuth:
 
         # Check if this is a public endpoint
         path = request.url.path
-        if any(path.startswith(ep) for ep in self.config.public_endpoints):
+        if any(self._matches_public_endpoint(path, ep) for ep in self.config.public_endpoints):
             return {"authenticated": True, "method": "public"}
 
         # Also allow static files and dashboard
@@ -175,6 +175,23 @@ class APIKeyAuth:
 
         # Use constant-time comparison to prevent timing attacks
         return secrets.compare_digest(provided_key, self.config.api_key)
+
+    @staticmethod
+    def _matches_public_endpoint(path: str, endpoint: str) -> bool:
+        """
+        Determine whether a request path matches a configured public endpoint.
+
+        Notes:
+        - For "/" we only allow the root path, not every route.
+        - For other entries we allow the exact path or any subpath (prefix + "/...").
+        """
+        if endpoint == "/":
+            return path == "/"
+
+        normalized = endpoint.rstrip("/")
+        if not normalized:
+            return path == "/"
+        return path == normalized or path.startswith(f"{normalized}/")
 
     def _get_client_ip(self, request: Request) -> str:
         """Get client IP address, handling proxies."""

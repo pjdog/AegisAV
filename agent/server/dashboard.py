@@ -2,6 +2,7 @@
 Dashboard routes for monitoring agent activity.
 """
 
+import asyncio
 import json
 import math
 from pathlib import Path
@@ -10,6 +11,38 @@ from typing import Any
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
+
+from agent.server.scenario_runner import ScenarioRunner
+from agent.server.scenarios import (
+    ScenarioCategory,
+    get_all_scenarios,
+    get_scenario,
+    get_scenarios_by_category,
+    get_scenarios_by_difficulty,
+)
+
+
+class RunnerStartRequest(BaseModel):
+    """Request to start scenario runner."""
+
+    scenario_id: str
+    time_scale: float = 1.0
+    max_duration_s: float | None = None
+
+
+class RunnerState:
+    """Global state for the scenario runner."""
+
+    def __init__(self) -> None:
+        self.runner: Any = None
+        self.run_task: asyncio.Task | None = None
+        self.is_running: bool = False
+        self.last_error: str | None = None
+
+
+# Global runner state
+_runner_state = RunnerState()
 
 
 def _load_entries(run_file: Path) -> list[dict[str, Any]]:
@@ -170,4 +203,237 @@ def add_dashboard_routes(app: FastAPI, log_dir: Path) -> None:
             "risk_series": risk_series,
             "battery_series": battery_series,
             "recent": recent,
+        })
+
+    # Scenario API endpoints
+
+    @app.get("/api/dashboard/scenarios", response_class=JSONResponse)
+    def list_scenarios(
+        category: str | None = None,
+        difficulty: str | None = None,
+    ) -> JSONResponse:
+        """List all available scenarios with optional filtering."""
+        if category:
+            try:
+                cat_enum = ScenarioCategory(category)
+                scenarios = get_scenarios_by_category(cat_enum)
+            except ValueError as e:
+                raise HTTPException(
+                    status_code=400, detail=f"Invalid category: {category}"
+                ) from e
+        elif difficulty:
+            scenarios = get_scenarios_by_difficulty(difficulty)
+        else:
+            scenarios = get_all_scenarios()
+
+        return JSONResponse({
+            "scenarios": [s.to_dict() for s in scenarios],
+            "total": len(scenarios),
+            "categories": [c.value for c in ScenarioCategory],
+            "difficulties": ["easy", "normal", "hard", "extreme"],
+        })
+
+    @app.get("/api/dashboard/scenarios/{scenario_id}", response_class=JSONResponse)
+    def scenario_detail(scenario_id: str) -> JSONResponse:
+        """Get detailed information about a specific scenario."""
+        scenario = get_scenario(scenario_id)
+        if not scenario:
+            raise HTTPException(status_code=404, detail="Scenario not found")
+
+        return JSONResponse({
+            "scenario_id": scenario.scenario_id,
+            "name": scenario.name,
+            "description": scenario.description,
+            "category": scenario.category.value,
+            "duration_minutes": scenario.duration_minutes,
+            "difficulty": scenario.difficulty,
+            "tags": scenario.tags,
+            "drones": [
+                {
+                    "drone_id": d.drone_id,
+                    "name": d.name,
+                    "battery_percent": d.battery_percent,
+                    "state": d.state.value,
+                    "latitude": d.latitude,
+                    "longitude": d.longitude,
+                    "gps_fix_type": d.gps_fix_type,
+                    "sensors_healthy": d.sensors_healthy,
+                    "gps_healthy": d.gps_healthy,
+                    "motors_healthy": d.motors_healthy,
+                }
+                for d in scenario.drones
+            ],
+            "assets": [
+                {
+                    "asset_id": a.asset_id,
+                    "name": a.name,
+                    "asset_type": a.asset_type,
+                    "latitude": a.latitude,
+                    "longitude": a.longitude,
+                    "has_anomaly": a.has_anomaly,
+                    "anomaly_severity": a.anomaly_severity,
+                    "priority": a.priority,
+                }
+                for a in scenario.assets
+            ],
+            "environment": {
+                "wind_speed_ms": scenario.environment.wind_speed_ms,
+                "visibility_m": scenario.environment.visibility_m,
+                "precipitation": scenario.environment.precipitation,
+                "is_daylight": scenario.environment.is_daylight,
+            },
+            "events": [
+                {
+                    "timestamp_offset_s": e.timestamp_offset_s,
+                    "event_type": e.event_type,
+                    "description": e.description,
+                }
+                for e in scenario.events
+            ],
+        })
+
+    # Scenario Runner API endpoints
+
+    @app.post("/api/dashboard/runner/start", response_class=JSONResponse)
+    async def start_runner(request: RunnerStartRequest) -> JSONResponse:
+        """Start running a scenario simulation."""
+        global _runner_state
+
+        if _runner_state.is_running:
+            raise HTTPException(status_code=409, detail="Runner already active")
+
+        # Create and load scenario
+        _runner_state.runner = ScenarioRunner(log_dir=log_dir)
+        loaded = await _runner_state.runner.load_scenario(request.scenario_id)
+        if not loaded:
+            raise HTTPException(status_code=404, detail=f"Scenario not found: {request.scenario_id}")
+
+        _runner_state.is_running = True
+        _runner_state.last_error = None
+
+        # Run in background task
+        async def run_scenario() -> None:
+            global _runner_state
+            try:
+                await _runner_state.runner.run(
+                    time_scale=request.time_scale,
+                    max_duration_s=request.max_duration_s,
+                )
+                # Save log when complete
+                if _runner_state.runner.run_state:
+                    _runner_state.runner.save_decision_log()
+            except Exception as e:
+                _runner_state.last_error = str(e)
+            finally:
+                _runner_state.is_running = False
+
+        _runner_state.run_task = asyncio.create_task(run_scenario())
+
+        return JSONResponse({
+            "status": "started",
+            "scenario_id": request.scenario_id,
+            "time_scale": request.time_scale,
+        })
+
+    @app.post("/api/dashboard/runner/stop", response_class=JSONResponse)
+    async def stop_runner() -> JSONResponse:
+        """Stop the currently running scenario."""
+        global _runner_state
+
+        if not _runner_state.is_running or not _runner_state.runner:
+            raise HTTPException(status_code=409, detail="No runner active")
+
+        _runner_state.runner.stop()
+
+        # Wait briefly for task to complete
+        if _runner_state.run_task:
+            try:
+                await asyncio.wait_for(_runner_state.run_task, timeout=2.0)
+            except asyncio.TimeoutError:
+                pass
+
+        # Save decision log
+        log_path = None
+        if _runner_state.runner.run_state:
+            log_path = _runner_state.runner.save_decision_log()
+
+        summary = _runner_state.runner.get_summary()
+
+        return JSONResponse({
+            "status": "stopped",
+            "summary": summary,
+            "log_path": str(log_path) if log_path else None,
+        })
+
+    @app.get("/api/dashboard/runner/status", response_class=JSONResponse)
+    def runner_status() -> JSONResponse:
+        """Get current runner status."""
+        global _runner_state
+
+        if not _runner_state.runner or not _runner_state.runner.run_state:
+            return JSONResponse({
+                "is_running": _runner_state.is_running,
+                "scenario_id": None,
+                "elapsed_seconds": 0,
+                "drones": [],
+                "last_error": _runner_state.last_error,
+            })
+
+        run_state = _runner_state.runner.run_state
+
+        # Build drone status list
+        drones = []
+        for drone_id, ds in run_state.drone_states.items():
+            drones.append({
+                "drone_id": drone_id,
+                "name": ds.drone.name,
+                "battery_percent": ds.drone.battery_percent,
+                "state": ds.drone.state.value,
+                "in_air": ds.drone.in_air,
+                "latitude": ds.drone.latitude,
+                "longitude": ds.drone.longitude,
+                "current_goal": ds.current_goal.goal_type.value if ds.current_goal else None,
+                "decisions_made": ds.decisions_made,
+                "inspections_completed": ds.inspections_completed,
+                "sensors_healthy": ds.drone.sensors_healthy,
+                "gps_healthy": ds.drone.gps_healthy,
+                "motors_healthy": ds.drone.motors_healthy,
+            })
+
+        return JSONResponse({
+            "is_running": _runner_state.is_running,
+            "scenario_id": run_state.scenario.scenario_id,
+            "scenario_name": run_state.scenario.name,
+            "elapsed_seconds": run_state.elapsed_seconds,
+            "is_complete": run_state.is_complete,
+            "decision_count": len(run_state.decision_log),
+            "drones": drones,
+            "environment": {
+                "wind_speed_ms": run_state.environment.wind_speed_ms if run_state.environment else 0,
+                "visibility_m": run_state.environment.visibility_m if run_state.environment else 10000,
+            },
+            "last_error": _runner_state.last_error,
+        })
+
+    @app.get("/api/dashboard/runner/decisions", response_class=JSONResponse)
+    def runner_decisions(limit: int = 20, offset: int = 0) -> JSONResponse:
+        """Get recent decisions from the running scenario."""
+        global _runner_state
+
+        if not _runner_state.runner or not _runner_state.runner.run_state:
+            return JSONResponse({"decisions": [], "total": 0})
+
+        log = _runner_state.runner.run_state.decision_log
+        total = len(log)
+
+        # Get slice of decisions
+        start = max(0, total - offset - limit)
+        end = total - offset
+        decisions = log[start:end][::-1]  # Reverse for most recent first
+
+        return JSONResponse({
+            "decisions": decisions,
+            "total": total,
+            "offset": offset,
+            "limit": limit,
         })

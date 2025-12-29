@@ -94,7 +94,8 @@ class TestAPIKeyAuth:
 
         return app
 
-    def test_auth_disabled(self):
+    @pytest.mark.asyncio
+    async def test_auth_disabled(self):
         """Test that disabled auth allows all requests."""
         config = AuthConfig(enabled=False)
         handler = APIKeyAuth(config)
@@ -104,115 +105,100 @@ class TestAPIKeyAuth:
         request.client.host = "127.0.0.1"
         request.headers = {}
 
-        import asyncio
-        result = asyncio.get_event_loop().run_until_complete(
-            handler(request, None, None)
-        )
+        result = await handler(request, None, None)
         assert result["authenticated"] is True
         assert result["method"] == "disabled"
 
-    def test_public_endpoint(self, auth_handler):
+    @pytest.mark.asyncio
+    async def test_public_endpoint(self, auth_handler):
         """Test that public endpoints don't require auth."""
         request = MagicMock()
         request.url.path = "/health"
         request.client.host = "127.0.0.1"
         request.headers = {}
 
-        import asyncio
-        result = asyncio.get_event_loop().run_until_complete(
-            auth_handler(request, None, None)
-        )
+        result = await auth_handler(request, None, None)
         assert result["authenticated"] is True
         assert result["method"] == "public"
 
-    def test_static_endpoint_public(self, auth_handler):
+    @pytest.mark.asyncio
+    async def test_static_endpoint_public(self, auth_handler):
         """Test that static endpoints are public."""
         request = MagicMock()
         request.url.path = "/static/main.js"
         request.client.host = "127.0.0.1"
         request.headers = {}
 
-        import asyncio
-        result = asyncio.get_event_loop().run_until_complete(
-            auth_handler(request, None, None)
-        )
+        result = await auth_handler(request, None, None)
         assert result["authenticated"] is True
         assert result["method"] == "public"
 
-    def test_dashboard_endpoint_public(self, auth_handler):
+    @pytest.mark.asyncio
+    async def test_dashboard_endpoint_public(self, auth_handler):
         """Test that dashboard endpoints are public."""
         request = MagicMock()
         request.url.path = "/dashboard"
         request.client.host = "127.0.0.1"
         request.headers = {}
 
-        import asyncio
-        result = asyncio.get_event_loop().run_until_complete(
-            auth_handler(request, None, None)
-        )
+        result = await auth_handler(request, None, None)
         assert result["authenticated"] is True
         assert result["method"] == "public"
 
-    def test_valid_api_key_header(self, auth_handler):
+    @pytest.mark.asyncio
+    async def test_valid_api_key_header(self, auth_handler):
         """Test authentication with valid API key in header."""
         request = MagicMock()
         request.url.path = "/protected"
         request.client.host = "127.0.0.1"
         request.headers = {}
 
-        import asyncio
-        result = asyncio.get_event_loop().run_until_complete(
-            auth_handler(request, "test-api-key-12345", None)
-        )
+        result = await auth_handler(request, "test-api-key-12345", None)
         assert result["authenticated"] is True
         assert result["method"] == "api_key"
 
-    def test_valid_api_key_query(self, auth_handler):
+    @pytest.mark.asyncio
+    async def test_valid_api_key_query(self, auth_handler):
         """Test authentication with valid API key in query parameter."""
         request = MagicMock()
         request.url.path = "/protected"
         request.client.host = "127.0.0.1"
         request.headers = {}
 
-        import asyncio
-        result = asyncio.get_event_loop().run_until_complete(
-            auth_handler(request, None, "test-api-key-12345")
-        )
+        result = await auth_handler(request, None, "test-api-key-12345")
         assert result["authenticated"] is True
         assert result["method"] == "api_key"
 
+    @pytest.mark.asyncio
     @pytest.mark.allow_error_logs
-    def test_invalid_api_key(self, auth_handler):
+    async def test_invalid_api_key(self, auth_handler):
         """Test authentication with invalid API key."""
         request = MagicMock()
         request.url.path = "/protected"
         request.client.host = "127.0.0.1"
         request.headers = {}
 
-        import asyncio
         with pytest.raises(HTTPException) as exc_info:
-            asyncio.get_event_loop().run_until_complete(
-                auth_handler(request, "invalid-key", None)
-            )
+            await auth_handler(request, "invalid-key", None)
         assert exc_info.value.status_code == 401
         assert "Invalid API key" in exc_info.value.detail
 
-    def test_missing_api_key(self, auth_handler):
+    @pytest.mark.asyncio
+    async def test_missing_api_key(self, auth_handler):
         """Test authentication with missing API key."""
         request = MagicMock()
         request.url.path = "/protected"
         request.client.host = "127.0.0.1"
         request.headers = {}
 
-        import asyncio
         with pytest.raises(HTTPException) as exc_info:
-            asyncio.get_event_loop().run_until_complete(
-                auth_handler(request, None, None)
-            )
+            await auth_handler(request, None, None)
         assert exc_info.value.status_code == 401
         assert "API key required" in exc_info.value.detail
 
-    def test_rate_limiting(self, auth_config):
+    @pytest.mark.asyncio
+    @pytest.mark.allow_error_logs
+    async def test_rate_limiting(self, auth_config):
         """Test rate limiting blocks excessive requests."""
         # Create handler with very low rate limit
         config = AuthConfig(
@@ -227,20 +213,14 @@ class TestAPIKeyAuth:
         request.client.host = "127.0.0.1"
         request.headers = {}
 
-        import asyncio
-
         # First 2 requests should succeed
         for _ in range(2):
-            result = asyncio.get_event_loop().run_until_complete(
-                handler(request, "test-key", None)
-            )
+            result = await handler(request, "test-key", None)
             assert result["authenticated"] is True
 
         # 3rd request should be rate limited
         with pytest.raises(HTTPException) as exc_info:
-            asyncio.get_event_loop().run_until_complete(
-                handler(request, "test-key", None)
-            )
+            await handler(request, "test-key", None)
         assert exc_info.value.status_code == 429
         assert "Rate limit" in exc_info.value.detail
 

@@ -100,6 +100,7 @@ class TestHealthEndpoint:
 
         response = HealthResponse(
             status="healthy",
+            timestamp=datetime.now(),
             uptime_seconds=100.0,
             decisions_made=5,
         )
@@ -290,13 +291,14 @@ class TestServerStateManagement:
         )
 
         world.update_vehicle(state)
-        # WorldModel stores state - check it was stored
-        assert world.vehicle_state is not None
+        # WorldModel stores state in _vehicle - check it was stored
+        assert world._vehicle is not None
 
-    def test_goal_selector_with_world_model(self):
+    @pytest.mark.asyncio
+    async def test_goal_selector_with_world_model(self):
         """Test goal selector works with world model."""
         from agent.server.goal_selector import GoalSelector
-        from agent.server.world_model import WorldModel
+        from agent.server.world_model import DockStatus, WorldModel
         from autonomy.vehicle_state import (
             Attitude,
             BatteryState,
@@ -331,9 +333,19 @@ class TestServerStateManagement:
         )
 
         world.update_vehicle(state)
+        # Set a dock position (required for get_snapshot to return a snapshot)
+        dock_position = Position(
+            latitude=37.7740, longitude=-122.4180,
+            altitude_msl=50.0, altitude_agl=0.0
+        )
+        world.set_dock(dock_position, DockStatus.AVAILABLE)
+
+        # Get snapshot for goal selection (select_goal expects WorldSnapshot)
+        snapshot = world.get_snapshot()
+        assert snapshot is not None
 
         # Goal selection should work
-        goal = selector.select_goal(world)
+        goal = await selector.select_goal(snapshot)
         assert goal is not None
 
 

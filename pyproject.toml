@@ -76,6 +76,8 @@ sim = [
     "matplotlib>=3.9.0",
     "plotly>=5.22.0",
     "jupyter>=1.0.0",
+    "airsim>=1.8.1",
+    "msgpack-rpc-python>=0.4.1",
 ]
 
 docs = [
@@ -106,6 +108,14 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["agent", "autonomy", "metrics", "vision", "simulation"]
+
+# AirSim's build step imports numpy but does not declare it.
+[tool.uv.extra-build-dependencies]
+airsim = [
+    "numpy",
+    "msgpack-rpc-python",
+    "backports.ssl_match_hostname",
+]
 
 # Ruff configuration with AegisAV-specific rules
 [tool.ruff]

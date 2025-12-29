@@ -35,6 +35,11 @@ logs/
 install_log.txt
 pymav_test.txt
 data/vision/
+.setup_state/
+y/
+.aegis_setup.json
+scripts/start_server.bat
+scripts/run_demo.bat
 
 # Editor and OS files
 .DS_Store

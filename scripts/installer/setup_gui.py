@@ -15,12 +15,18 @@ Or on Windows:
 from __future__ import annotations
 
 import json
+import os
 import platform
 import shutil
+import socket
 import subprocess
 import sys
 import threading
+import time
 import webbrowser
+from collections.abc import Callable
+from datetime import datetime
+import tempfile
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
@@ -58,6 +64,15 @@ PROJECT_ROOT = SCRIPT_DIR.parents[1]
 IS_WINDOWS = platform.system() == "Windows"
 IS_LINUX = platform.system() == "Linux"
 IS_MAC = platform.system() == "Darwin"
+
+if IS_WINDOWS:
+    local_root = Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData" / "Local"))
+    LOG_DIR = local_root / "AegisAV" / "logs"
+else:
+    LOG_DIR = PROJECT_ROOT / "logs"
+LOG_FILE_PRIMARY = LOG_DIR / "setup_wizard.log"
+LOG_FILE_FALLBACK = Path(tempfile.gettempdir()) / "aegis_setup.log"
+LOG_FILE_ACTIVE = LOG_FILE_PRIMARY
 
 # URLs
 URLS = {
@@ -107,6 +122,7 @@ class SetupConfig:
     unreal_engine_path: Path | None = None
     airsim_path: Path | None = None
     python_path: Path | None = None
+    uv_root: Path | None = None
     use_redis: bool = False
     use_gpu: bool = False
     create_shortcuts: bool = True
@@ -118,6 +134,7 @@ class SetupConfig:
             "unreal_engine_path": str(self.unreal_engine_path) if self.unreal_engine_path else None,
             "airsim_path": str(self.airsim_path) if self.airsim_path else None,
             "python_path": str(self.python_path) if self.python_path else None,
+            "uv_root": str(self.uv_root) if self.uv_root else None,
             "use_redis": self.use_redis,
             "use_gpu": self.use_gpu,
             "create_shortcuts": self.create_shortcuts,
@@ -142,7 +159,7 @@ def run_command(cmd: list[str], cwd: Path | None = None, timeout: int = 300) -> 
             capture_output=True,
             text=True,
             timeout=timeout,
-            shell=IS_WINDOWS,
+            shell=False,
         )
         return result.returncode == 0, result.stdout, result.stderr
     except subprocess.TimeoutExpired:
@@ -152,6 +169,203 @@ def run_command(cmd: list[str], cwd: Path | None = None, timeout: int = 300) -> 
     except Exception as e:
         return False, "", str(e)
 
+
+def run_command_stream(
+    cmd: list[str],
+    cwd: Path | None = None,
+    timeout: int = 300,
+    on_output: Callable[[str], None] | None = None,
+    env: dict[str, str] | None = None,
+) -> tuple[bool, str, int | None]:
+    """Run a command and stream output line-by-line."""
+    output_lines: list[str] = []
+    process: subprocess.Popen[str] | None = None
+    try:
+        process = subprocess.Popen(
+            cmd,
+            cwd=cwd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            env=env,
+        )
+        if process.stdout:
+            for line in process.stdout:
+                line = line.rstrip("\n")
+                output_lines.append(line)
+                if on_output:
+                    on_output(line)
+        process.wait(timeout=timeout)
+        return process.returncode == 0, "\n".join(output_lines), process.returncode
+    except subprocess.TimeoutExpired:
+        if process is not None:
+            process.kill()
+        return False, "Command timed out", None
+    except Exception as e:
+        return False, str(e), None
+
+def is_version_at_least(version: tuple[int, int, int], minimum: str) -> bool:
+    """Compare a version tuple to a minimum version string."""
+    parts = []
+    for item in minimum.split("."):
+        try:
+            parts.append(int(item))
+        except ValueError:
+            parts.append(0)
+    return version[:len(parts)] >= tuple(parts)
+
+
+def find_uv_executable() -> str | None:
+    """Locate uv executable, including common install locations."""
+    exists, path = check_command_exists("uv")
+    if exists:
+        return path
+
+    candidates = get_uv_candidate_paths()
+    for candidate in candidates:
+        if candidate and candidate.exists():
+            return str(candidate)
+
+    if IS_WINDOWS:
+        # Best-effort search under common roots
+        local_appdata = Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData" / "Local"))
+        search_roots = [
+            local_appdata / "Programs",
+            Path(os.environ.get("USERPROFILE", Path.home())),
+        ]
+        seen = 0
+        for root in search_roots:
+            if not root.exists():
+                continue
+            for candidate in root.rglob("uv.exe"):
+                seen += 1
+                if candidate.exists():
+                    return str(candidate)
+                if seen > 200:
+                    break
+    return None
+
+
+def get_uv_candidate_paths() -> list[Path]:
+    """Return common install paths for uv."""
+    candidates: list[Path] = []
+    if IS_WINDOWS:
+        local_appdata = Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData" / "Local"))
+        roaming_appdata = Path(os.environ.get("APPDATA", Path.home() / "AppData" / "Roaming"))
+        user_profile = Path(os.environ.get("USERPROFILE", Path.home()))
+        program_files = Path(os.environ.get("ProgramFiles", "C:/Program Files"))
+        program_files_x86 = Path(os.environ.get("ProgramFiles(x86)", "C:/Program Files (x86)"))
+        candidates.extend([
+            local_appdata / "Programs" / "uv" / "uv.exe",
+            local_appdata / "Programs" / "uv" / "bin" / "uv.exe",
+            roaming_appdata / "uv" / "uv.exe",
+            roaming_appdata / "uv" / "bin" / "uv.exe",
+            user_profile / ".cargo" / "bin" / "uv.exe",
+            user_profile / ".local" / "bin" / "uv.exe",
+            program_files / "uv" / "uv.exe",
+            program_files_x86 / "uv" / "uv.exe",
+        ])
+    else:
+        home = Path.home()
+        candidates.extend([
+            home / ".local" / "bin" / "uv",
+            home / ".cargo" / "bin" / "uv",
+            Path("/usr/local/bin/uv"),
+            Path("/usr/bin/uv"),
+        ])
+    return candidates
+
+
+def log_uv_candidates() -> None:
+    """Log uv candidate paths and whether they exist."""
+    append_log("Checking uv candidate paths:")
+    for candidate in get_uv_candidate_paths():
+        append_log(f"  {candidate} exists={candidate.exists()}")
+
+
+def get_uv_python_path(uv_root: Path | None = None) -> Path | None:
+    """Return the uv-managed Python interpreter if present."""
+    if IS_WINDOWS:
+        local_root = Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData" / "Local"))
+        base_root = uv_root or (local_root / "AegisAV")
+        candidate = base_root / "venvs" / "aegisav" / "Scripts" / "python.exe"
+    else:
+        home = Path.home()
+        base_root = uv_root or (home / ".local" / "share" / "aegisav")
+        candidate = base_root / "venvs" / "aegisav" / "bin" / "python"
+
+    return candidate if candidate.exists() else None
+
+
+def detect_unreal_engine_path() -> Path | None:
+    """Detect a local Unreal Engine install path."""
+    if not IS_WINDOWS:
+        return None
+
+    roots = [
+        Path("C:/Program Files/Epic Games"),
+        Path("D:/Program Files/Epic Games"),
+        Path("C:/Program Files (x86)/Epic Games"),
+        Path("D:/Program Files (x86)/Epic Games"),
+        Path("D:/game_pass_games"),
+        Path("C:/game_pass_games"),
+    ]
+
+    candidates: list[Path] = []
+    for root in roots:
+        if not root.exists():
+            continue
+        for child in root.iterdir():
+            if child.is_dir() and child.name.startswith("UE_"):
+                candidates.append(child)
+
+    if not candidates:
+        return None
+
+    def version_key(path: Path) -> tuple[int, int, int]:
+        name = path.name
+        if "_" not in name:
+            return (0, 0, 0)
+        version_str = name.split("_", 1)[1]
+        parts = []
+        for item in version_str.split("."):
+            if item.isdigit():
+                parts.append(int(item))
+        while len(parts) < 3:
+            parts.append(0)
+        return tuple(parts[:3])
+
+    return sorted(candidates, key=version_key, reverse=True)[0]
+
+
+def detect_airsimnh_path() -> Path | None:
+    """Detect AirSimNH installation path."""
+    if not IS_WINDOWS:
+        return None
+
+    user_profile = Path(os.environ.get("USERPROFILE", Path.home()))
+    candidates = [
+        user_profile / "AirSim" / "AirSimNH",
+        user_profile / "Desktop" / "AirSimNH",
+        Path("C:/AirSim/AirSimNH"),
+        Path("D:/AirSim/AirSimNH"),
+    ]
+
+    for base in candidates:
+        if (base / "AirSimNH.exe").exists():
+            return base
+    return None
+
+
+def wait_for_uv(timeout_seconds: int = 30) -> str | None:
+    """Poll for uv to appear after installation."""
+    deadline = time.time() + timeout_seconds
+    while time.time() < deadline:
+        uv_path = find_uv_executable()
+        if uv_path:
+            return uv_path
+        time.sleep(1)
+    return None
 
 def check_command_exists(cmd: str) -> tuple[bool, str]:
     """Check if a command exists and return its path."""
@@ -179,6 +393,43 @@ def open_url(url: str) -> None:
     webbrowser.open(url)
 
 
+def open_path(path: Path) -> None:
+    """Open a file or folder in the default OS handler."""
+    if IS_WINDOWS:
+        os.startfile(str(path))
+        return
+    if IS_MAC:
+        subprocess.Popen(["open", str(path)])
+        return
+    subprocess.Popen(["xdg-open", str(path)])
+
+
+def append_log(text: str) -> None:
+    """Append a line to the installer log file."""
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    lines = text.splitlines() or [text]
+    targets = [LOG_FILE_ACTIVE]
+    if LOG_FILE_FALLBACK not in targets:
+        targets.append(LOG_FILE_FALLBACK)
+
+    for path in targets:
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with open(path, "a", encoding="utf-8") as log_file:
+                for line in lines:
+                    log_file.write(f"[{timestamp}] {line}\n")
+            globals()["LOG_FILE_ACTIVE"] = path
+            return
+        except OSError:
+            continue
+
+
+def init_log() -> None:
+    """Create the log file early so it exists even before UI logs."""
+    if not LOG_FILE_ACTIVE.exists():
+        append_log("Setup wizard log started.")
+
+
 # =============================================================================
 # Dependency Definitions
 # =============================================================================
@@ -188,14 +439,14 @@ def get_dependencies() -> list[Dependency]:
     return [
         Dependency(
             name="Python",
-            check_cmd=["python3" if not IS_WINDOWS else "python", "--version"],
+            check_cmd=[sys.executable, "--version"],
             required=True,
             min_version="3.10",
             install_url=URLS["python"],
         ),
         Dependency(
             name="pip",
-            check_cmd=["pip3" if not IS_WINDOWS else "pip", "--version"],
+            check_cmd=[sys.executable, "-m", "pip", "--version"],
             required=True,
             install_url=URLS["python"],
         ),
@@ -224,7 +475,7 @@ def get_dependencies() -> list[Dependency]:
             check_cmd=["uv", "--version"],
             required=False,
             install_cmd_linux="curl -LsSf https://astral.sh/uv/install.sh | sh",
-            install_cmd_windows="powershell -c \"irm https://astral.sh/uv/install.ps1 | iex\"",
+            install_cmd_windows="powershell -NoProfile -ExecutionPolicy Bypass -Command \"irm https://astral.sh/uv/install.ps1 | iex\"",
         ),
     ]
 
@@ -473,12 +724,42 @@ class DependencyStep(StepFrame):
         """Check a single dependency."""
         labels = self.dep_labels[dep.name]
 
+        if dep.name == "Python":
+            current_version = platform.python_version()
+            if dep.min_version and not is_version_at_least(sys.version_info[:3], dep.min_version):
+                dep.found = False
+                dep.version = f"{current_version} (need {dep.min_version}+)"
+            else:
+                dep.found = True
+                dep.version = current_version
+            self.after(0, lambda: self._update_dep_ui(dep, labels, dep.found))
+            return
+
+        if dep.name.startswith("uv"):
+            log_uv_candidates()
+            uv_path = find_uv_executable()
+            if uv_path:
+                uv_dir = str(Path(uv_path).parent)
+                os.environ["PATH"] = f"{uv_dir}{os.pathsep}{os.environ.get('PATH', '')}"
+                success, stdout, stderr = run_command([uv_path, "--version"])
+                if success:
+                    dep.found = True
+                    dep.version = (stdout.strip() or stderr.strip())[:50]
+                else:
+                    dep.found = False
+                    dep.version = "Found but failed to run"
+            else:
+                dep.found = False
+                dep.version = "Not found"
+            self.after(0, lambda: self._update_dep_ui(dep, labels, dep.found))
+            return
+
         # Check if command exists
-        success, stdout, _ = run_command(dep.check_cmd)
+        success, stdout, stderr = run_command(dep.check_cmd)
 
         if success:
             dep.found = True
-            dep.version = stdout.strip()[:50]  # Truncate long output
+            dep.version = (stdout.strip() or stderr.strip())[:50]  # Truncate long output
 
             # Update UI (must be done in main thread)
             self.after(0, lambda: self._update_dep_ui(dep, labels, True))
@@ -494,10 +775,13 @@ class DependencyStep(StepFrame):
         else:
             if dep.required:
                 labels["status"].config(text="❌")
-                labels["version"].config(text="Missing (Required!)", foreground="red")
+                labels["version"].config(
+                    text=dep.version or "Missing (Required!)",
+                    foreground="red",
+                )
             else:
                 labels["status"].config(text="⚠️")
-                labels["version"].config(text="Not found", foreground="orange")
+                labels["version"].config(text=dep.version or "Not found", foreground="orange")
 
             # Show install button if we have install info
             if dep.install_url or (IS_LINUX and dep.install_cmd_linux) or (IS_WINDOWS and dep.install_cmd_windows):
@@ -505,22 +789,135 @@ class DependencyStep(StepFrame):
 
     def _install_dependency(self, dep: Dependency) -> None:
         """Handle install button click."""
+        append_log(f"Dependency install requested: {dep.name}")
         if dep.install_url:
             if messagebox.askyesno(
                 "Install Dependency",
                 f"Open download page for {dep.name}?\n\n{dep.install_url}"
             ):
+                append_log(f"Opening download page for {dep.name}: {dep.install_url}")
                 open_url(dep.install_url)
         elif IS_LINUX and dep.install_cmd_linux:
             if messagebox.askyesno(
                 "Install Dependency",
                 f"Run the following command?\n\n{dep.install_cmd_linux}"
             ):
+                append_log(f"Running install command for {dep.name} (linux)")
                 # Run in terminal
                 subprocess.Popen(
                     ["x-terminal-emulator", "-e", f"bash -c '{dep.install_cmd_linux}; read -p \"Press Enter...\"'"],
                     start_new_session=True,
                 )
+        elif IS_WINDOWS and dep.install_cmd_windows:
+            if messagebox.askyesno(
+                "Install Dependency",
+                f"Run the following command?\n\n{dep.install_cmd_windows}"
+            ):
+                append_log(f"Running install command for {dep.name} (windows)")
+                thread = threading.Thread(
+                    target=self._run_windows_install,
+                    args=(dep,),
+                    daemon=True,
+                )
+                thread.start()
+                messagebox.showinfo(
+                    "Install Started",
+                    f"Installing {dep.name}...\n\nLogs: {LOG_FILE_ACTIVE}",
+                )
+        else:
+            messagebox.showinfo(
+                "Install Dependency",
+                f"No installer available for {dep.name}.",
+            )
+
+    def _run_windows_install(self, dep: Dependency) -> None:
+        """Run a Windows install command in the background."""
+        append_log(f"Dependency install started: {dep.name}")
+        if dep.name.startswith("uv"):
+            cmd = [
+                "powershell",
+                "-NoProfile",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-Command",
+                "$ErrorActionPreference='Stop'; try { irm https://astral.sh/uv/install.ps1 | iex } catch { $_ | Out-String; exit 1 }",
+            ]
+        else:
+            cmd = ["cmd", "/c", dep.install_cmd_windows] if dep.install_cmd_windows else []
+        append_log(f"Running: {' '.join(cmd)}")
+        success, output, exit_code = run_command_stream(
+            cmd,
+            timeout=600,
+            on_output=append_log,
+        )
+        if not output.strip():
+            append_log("Installer produced no output.")
+        append_log(f"Installer exit code: {exit_code}")
+        if dep.name.startswith("uv"):
+            uv_path = None
+            if success:
+                append_log("Waiting for uv to appear on disk...")
+                uv_path = wait_for_uv()
+            if not uv_path:
+                winget_exists, _ = check_command_exists("winget")
+                if winget_exists:
+                    append_log("uv not found; attempting winget install.")
+                    winget_cmd = [
+                        "winget",
+                        "install",
+                        "--id",
+                        "Astral.uv",
+                        "--exact",
+                        "--silent",
+                        "--accept-package-agreements",
+                        "--accept-source-agreements",
+                    ]
+                    append_log(f"Running: {' '.join(winget_cmd)}")
+                    winget_success, winget_output, winget_exit = run_command_stream(
+                        winget_cmd,
+                        timeout=900,
+                        on_output=append_log,
+                    )
+                    if not winget_output.strip():
+                        append_log("winget produced no output.")
+                    append_log(f"winget exit code: {winget_exit}")
+                    if winget_success:
+                        append_log("winget install completed; rechecking for uv.")
+                        uv_path = wait_for_uv(timeout_seconds=60)
+                else:
+                    append_log("winget not available; cannot attempt winget install.")
+            if uv_path:
+                append_log(f"uv installed at: {uv_path}")
+                uv_dir = str(Path(uv_path).parent)
+                os.environ["PATH"] = f"{uv_dir}{os.pathsep}{os.environ.get('PATH', '')}"
+                append_log(f"Added uv to PATH: {uv_dir}")
+                success = True
+            else:
+                append_log("uv install did not produce an executable in known paths.")
+                success = False
+                self.after(
+                    0,
+                    lambda: messagebox.showwarning(
+                        "uv Not Found",
+                        "uv install completed but no uv.exe was found.\n\n"
+                        f"Log: {LOG_FILE_ACTIVE}\n\n"
+                        "This may be blocked by policy. Try installing with winget or "
+                        "run a new PowerShell and check `where uv`.",
+                    ),
+                )
+
+        if success:
+            append_log(f"Dependency install succeeded: {dep.name}")
+            if dep.name.startswith("uv"):
+                log_uv_candidates()
+                uv_path = find_uv_executable()
+                if uv_path:
+                    uv_dir = str(Path(uv_path).parent)
+                    os.environ["PATH"] = f"{uv_dir}{os.pathsep}{os.environ.get('PATH', '')}"
+                    append_log(f"Added uv to PATH: {uv_dir}")
+        else:
+            append_log(f"Dependency install failed: {dep.name}")
+        self.after(0, lambda: self._check_single_dependency(dep))
 
     def _install_all_missing(self) -> None:
         """Install all missing optional dependencies."""
@@ -562,6 +959,9 @@ class PythonSetupStep(StepFrame):
     def __init__(self, parent: tk.Widget, wizard: SetupWizard):
         super().__init__(parent, wizard)
         self.install_complete = False
+        self.install_failed = False
+        self.uv_root_var = tk.StringVar()
+        self.uv_path: str | None = None
         self._build_ui()
 
     def _build_ui(self) -> None:
@@ -601,6 +1001,33 @@ class PythonSetupStep(StepFrame):
         )
         dev_check.pack(anchor="w", pady=(5, 0))
 
+        if IS_WINDOWS:
+            storage_frame = ttk.LabelFrame(self, text="Storage Location", padding=15)
+            storage_frame.pack(fill="x", padx=50, pady=10)
+
+            local_root = Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData" / "Local"))
+            default_root = local_root / "AegisAV"
+            self.uv_root_var.set(str(default_root))
+
+            ttk.Label(
+                storage_frame,
+                text="UV cache and virtualenv location (choose a disk with free space):",
+                font=("Helvetica", 10),
+            ).pack(anchor="w")
+
+            path_frame = ttk.Frame(storage_frame)
+            path_frame.pack(fill="x", pady=(5, 0))
+
+            path_entry = ttk.Entry(path_frame, textvariable=self.uv_root_var)
+            path_entry.pack(side="left", fill="x", expand=True)
+
+            browse_btn = ttk.Button(
+                path_frame,
+                text="Browse...",
+                command=self._browse_uv_root,
+            )
+            browse_btn.pack(side="left", padx=(10, 0))
+
         # Console output
         console_frame = ttk.LabelFrame(self, text="Installation Output", padding=10)
         console_frame.pack(fill="both", expand=True, padx=50, pady=10)
@@ -631,18 +1058,39 @@ class PythonSetupStep(StepFrame):
         self.status_label = ttk.Label(self, text="Click 'Install' to begin", font=("Helvetica", 10))
         self.status_label.pack()
 
+        self.log_btn = ttk.Button(
+            self,
+            text="Open Log File",
+            command=self._open_log,
+        )
+        self.log_btn.pack(pady=(5, 0))
+
     def _log(self, text: str) -> None:
         """Append text to console."""
+        append_log(text)
         self.console.config(state="normal")
         self.console.insert("end", text + "\n")
         self.console.see("end")
         self.console.config(state="disabled")
 
+    def _open_log(self) -> None:
+        """Open the installer log file."""
+        append_log("Opening log file on user request.")
+        open_path(LOG_FILE_ACTIVE)
+
+    def _browse_uv_root(self) -> None:
+        """Browse for UV storage location."""
+        path = filedialog.askdirectory(title="Select UV Storage Location")
+        if path:
+            self.uv_root_var.set(path)
+
     def _start_install(self) -> None:
         """Start installation in background."""
+        append_log("Python setup: install button clicked.")
         self.install_btn.config(state="disabled")
         self.progress.start(10)
         self.status_label.config(text="Installing...")
+        self._log("Starting Python package installation...")
 
         thread = threading.Thread(target=self._run_install, daemon=True)
         thread.start()
@@ -650,44 +1098,191 @@ class PythonSetupStep(StepFrame):
     def _run_install(self) -> None:
         """Run the installation (background thread)."""
         try:
+            def log_line(line: str) -> None:
+                self.after(0, lambda: self._log(line))
+
             # Check for uv
             use_uv = self.use_uv_var.get()
             uv_available, _ = check_command_exists("uv")
+            self.after(0, lambda: self._log(f"use_uv={use_uv}, uv_available={uv_available}"))
 
             if use_uv and not uv_available:
                 self.after(0, lambda: self._log("Installing uv package manager..."))
                 if IS_WINDOWS:
-                    cmd = ["powershell", "-c", "irm https://astral.sh/uv/install.ps1 | iex"]
+                    cmd = [
+                        "powershell",
+                        "-NoProfile",
+                        "-ExecutionPolicy",
+                        "Bypass",
+                        "-Command",
+                        "irm https://astral.sh/uv/install.ps1 | iex",
+                    ]
                 else:
-                    cmd = ["bash", "-c", "curl -LsSf https://astral.sh/uv/install.sh | sh"]
-                success, stdout, stderr = run_command(cmd, timeout=120)
-                self.after(0, lambda: self._log(stdout or stderr))
+                    cmd = ["bash", "-lc", "curl -LsSf https://astral.sh/uv/install.sh | sh"]
+                self.after(0, lambda: self._log(f"Running: {' '.join(cmd)}"))
+                success, output, exit_code = run_command_stream(cmd, timeout=300, on_output=log_line)
+                if not output.strip():
+                    self.after(0, lambda: self._log("uv installer produced no output."))
+                self.after(0, lambda: self._log(f"uv installer exit code: {exit_code}"))
+                if not success:
+                    self.after(0, lambda: self._log("uv install failed. Falling back to pip."))
+
+            uv_path = find_uv_executable()
+            if uv_path:
+                uv_dir = str(Path(uv_path).parent)
+                os.environ["PATH"] = f"{uv_dir}{os.pathsep}{os.environ.get('PATH', '')}"
+                uv_available = True
+                self.uv_path = uv_path
+                self.after(0, lambda: self._log(f"Found uv at {uv_path}"))
+            else:
+                uv_available = False
+                if use_uv:
+                    self.after(0, lambda: self._log("uv still not found; using pip."))
+                    use_uv = False
 
             # Install dependencies
             if use_uv and (uv_available or check_command_exists("uv")[0]):
                 self.after(0, lambda: self._log("\n📦 Installing with uv..."))
-                cmd = ["uv", "sync"]
+                cmd = ["uv", "sync", "--preview-features", "extra-build-dependencies"]
                 if self.install_dev_var.get():
                     cmd.append("--all-extras")
+                env = None
+                if IS_WINDOWS:
+                    uv_root = self.uv_root_var.get().strip() or str(
+                        Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData" / "Local")) / "AegisAV"
+                    )
+                    uv_root_path = Path(uv_root)
+                    self.config.uv_root = uv_root_path
+                    uv_env_dir = uv_root_path / "venvs" / "aegisav"
+                    uv_cache_dir = uv_root_path / "uv_cache"
+                    uv_env_dir.mkdir(parents=True, exist_ok=True)
+                    uv_cache_dir.mkdir(parents=True, exist_ok=True)
+                    env = os.environ.copy()
+                    env["UV_PROJECT_ENVIRONMENT"] = str(uv_env_dir)
+                    env["UV_CACHE_DIR"] = str(uv_cache_dir)
+                    self.after(0, lambda: self._log(f"Using UV_ROOT={uv_root_path}"))
+                    self.after(0, lambda: self._log(f"Using UV_PROJECT_ENVIRONMENT={uv_env_dir}"))
+                    self.after(0, lambda: self._log(f"Using UV_CACHE_DIR={uv_cache_dir}"))
             else:
                 self.after(0, lambda: self._log("\n📦 Installing with pip..."))
-                pip_cmd = "pip3" if not IS_WINDOWS else "pip"
-                cmd = [pip_cmd, "install", "-e", "."]
+                pip_cmd = [sys.executable, "-m", "pip"]
+                cmd = [*pip_cmd, "install", "-e", "."]
                 if self.install_dev_var.get():
-                    cmd = [pip_cmd, "install", "-e", ".[dev,test]"]
+                    cmd = [*pip_cmd, "install", "-e", ".[dev,test]"]
+                env = None
 
-            success, stdout, stderr = run_command(cmd, cwd=PROJECT_ROOT, timeout=600)
-            self.after(0, lambda: self._log(stdout))
-            if stderr:
-                self.after(0, lambda: self._log(f"STDERR: {stderr}"))
+            self.after(0, lambda: self._log(f"Running: {' '.join(cmd)}"))
+            success, output, exit_code = run_command_stream(
+                cmd,
+                cwd=PROJECT_ROOT,
+                timeout=600,
+                on_output=log_line,
+                env=env,
+            )
+            if not output.strip():
+                self.after(0, lambda: self._log("Install command produced no output."))
+            self.after(0, lambda: self._log(f"Install command exit code: {exit_code}"))
 
             if success:
-                self.after(0, self._install_success)
+                target_python = sys.executable
+                uv_python = get_uv_python_path(self.config.uv_root)
+                if use_uv and uv_python:
+                    target_python = str(uv_python)
+                    self.after(0, lambda: self._log(f"Using uv Python for AirSim: {target_python}"))
+                airsim_ok = self._ensure_airsim_package(target_python, log_line)
+                if airsim_ok:
+                    self.after(0, self._install_success)
+                else:
+                    self.after(0, lambda: self._install_failed("AirSim package install failed"))
             else:
-                self.after(0, lambda: self._install_failed(stderr))
+                if output and ("not enough space" in output.lower() or "os error 112" in output.lower()):
+                    self.after(
+                        0,
+                        lambda: messagebox.showwarning(
+                            "Out of Disk Space",
+                            "UV ran out of disk space while extracting packages.\n\n"
+                            "Choose a different storage location and retry.",
+                        ),
+                    )
+                self.after(0, lambda: self._install_failed("Install command failed"))
 
-        except Exception:
+        except Exception as e:
             self.after(0, lambda: self._install_failed(str(e)))
+
+    def _ensure_airsim_package(
+        self,
+        python_exec: str,
+        log_line: Callable[[str], None],
+    ) -> bool:
+        """Ensure AirSim Python package is installed in the target environment."""
+        self.after(0, lambda: self._log("\n🔎 Checking AirSim Python package..."))
+        check_cmd = [python_exec, "-c", "import airsim; print('OK')"]
+        success, output, exit_code = run_command_stream(
+            check_cmd,
+            timeout=30,
+            on_output=log_line,
+        )
+        if success and "OK" in output:
+            self.after(0, lambda: self._log("✅ AirSim already installed."))
+            return True
+
+        self.after(0, lambda: self._log("Installing AirSim Python package..."))
+        uv_path = self.uv_path or find_uv_executable()
+        if uv_path:
+            self.after(0, lambda: self._log(f"Using uv at {uv_path} for AirSim install."))
+            install_cmd = [
+                uv_path,
+                "pip",
+                "install",
+                "--python",
+                python_exec,
+                "airsim",
+                "msgpack-rpc-python",
+                "backports.ssl_match_hostname",
+            ]
+            self.after(0, lambda: self._log(f"Running: {' '.join(install_cmd)}"))
+            install_success, output, exit_code = run_command_stream(
+                install_cmd,
+                timeout=600,
+                on_output=log_line,
+            )
+        else:
+            ensure_cmd = [python_exec, "-m", "ensurepip", "--upgrade"]
+            self.after(0, lambda: self._log(f"Running: {' '.join(ensure_cmd)}"))
+            run_command_stream(ensure_cmd, timeout=300, on_output=log_line)
+            install_cmd = [
+                python_exec,
+                "-m",
+                "pip",
+                "install",
+                "airsim",
+                "msgpack-rpc-python",
+                "backports.ssl_match_hostname",
+            ]
+            self.after(0, lambda: self._log(f"Running: {' '.join(install_cmd)}"))
+            install_success, output, exit_code = run_command_stream(
+                install_cmd,
+                timeout=600,
+                on_output=log_line,
+            )
+
+        if not output.strip():
+            self.after(0, lambda: self._log("AirSim install produced no output."))
+        self.after(0, lambda: self._log(f"AirSim install exit code: {exit_code}"))
+        if not install_success:
+            return False
+
+        success, output, exit_code = run_command_stream(
+            check_cmd,
+            timeout=30,
+            on_output=log_line,
+        )
+        if success and "OK" in output:
+            self.after(0, lambda: self._log("✅ AirSim installed successfully."))
+            return True
+
+        self.after(0, lambda: self._log(f"AirSim import failed: {output}"))
+        return False
 
     def _install_success(self) -> None:
         """Handle successful installation."""
@@ -703,6 +1298,9 @@ class PythonSetupStep(StepFrame):
         self.status_label.config(text="❌ Installation failed", foreground="red")
         self._log(f"\n❌ Installation failed: {error}")
         self.install_btn.config(state="normal")
+        if messagebox.askyesno("Open Log File?", f"Open log file?\n\n{LOG_FILE_ACTIVE}"):
+            append_log("Opening log file on user request.")
+            open_path(LOG_FILE_ACTIVE)
 
     def can_proceed(self) -> bool:
         if not self.install_complete:
@@ -783,9 +1381,14 @@ class UnrealSetupStep(StepFrame):
         )
         detect_btn.pack(side="left", padx=(5, 0))
 
+        detected_path = detect_unreal_engine_path()
+        if detected_path:
+            self.ue_path_var.set(str(detected_path))
+            self.config.unreal_engine_path = detected_path
+
         # Default paths hint
         if IS_WINDOWS:
-            default_path = "C:\\Program Files\\Epic Games\\UE_5.x"
+            default_path = str(detected_path) if detected_path else "C:\\Program Files\\Epic Games\\UE_5.x"
         else:
             default_path = "~/UnrealEngine or via Epic Games Launcher"
 
@@ -1011,6 +1614,11 @@ We'll create an optimized configuration for AegisAV."""
         path_frame.pack(fill="x", padx=20, pady=10)
 
         self.airsim_path_var = tk.StringVar()
+        detected_airsim = detect_airsimnh_path()
+        if detected_airsim:
+            self.airsim_path_var.set(str(detected_airsim))
+            self.config.airsim_path = detected_airsim
+
         path_entry = ttk.Entry(path_frame, textvariable=self.airsim_path_var, width=50)
         path_entry.pack(side="left", fill="x", expand=True)
 
@@ -1038,7 +1646,7 @@ We'll create an optimized configuration for AegisAV."""
             "ViewMode": "SpringArmChase",
             "ClockSpeed": 1.0,
             "Vehicles": {
-                "drone_001": {
+                "Drone1": {
                     "VehicleType": "SimpleFlight",
                     "X": 0, "Y": 0, "Z": 0,
                     "EnableCollisionPassthroable": True,
@@ -1054,7 +1662,7 @@ We'll create an optimized configuration for AegisAV."""
                 }
             },
             "SubWindows": [
-                {"WindowID": 0, "CameraName": "front_center", "ImageType": 0, "VehicleName": "drone_001"}
+                {"WindowID": 0, "CameraName": "front_center", "ImageType": 0, "VehicleName": "Drone1"}
             ],
             "Recording": {
                 "RecordOnMove": False,
@@ -1082,13 +1690,46 @@ We'll create an optimized configuration for AegisAV."""
         self.update()
 
         try:
+            try:
+                with socket.create_connection(("127.0.0.1", 41451), timeout=1.5):
+                    append_log("AirSim RPC reachable on 127.0.0.1:41451")
+            except OSError as e:
+                append_log(f"AirSim RPC not reachable on 127.0.0.1:41451: {e}")
+
             # Try to import airsim
             import importlib.util
             spec = importlib.util.find_spec("airsim")
 
             if spec is None:
+                append_log("AirSim package not found in current interpreter.")
+                uv_python = get_uv_python_path(self.config.uv_root)
+                if uv_python:
+                    append_log(f"Testing AirSim with uv Python: {uv_python}")
+                    cmd = [
+                        str(uv_python),
+                        "-c",
+                        "import airsim; c=airsim.MultirotorClient(); c.confirmConnection(); print('OK')",
+                    ]
+                    success, output, _ = run_command_stream(
+                        cmd,
+                        timeout=30,
+                        on_output=append_log,
+                    )
+                    if success and "OK" in output:
+                        self.connection_status.config(
+                            text="✅ Connected to AirSim successfully! (uv environment)",
+                            foreground="green"
+                        )
+                        return
+                    append_log(f"uv AirSim test failed: {output}")
+                    self.connection_status.config(
+                        text="❌ AirSim not available in uv environment.",
+                        foreground="red"
+                    )
+                    return
+
                 self.connection_status.config(
-                    text="❌ airsim package not installed. Run: pip install airsim",
+                    text="❌ airsim package not installed for this Python.",
                     foreground="red"
                 )
                 return
@@ -1295,21 +1936,37 @@ class InstallStep(StepFrame):
         )
         self.install_btn.pack(pady=10)
 
+        self.log_btn = ttk.Button(
+            self,
+            text="Open Log File",
+            command=self._open_log,
+        )
+        self.log_btn.pack(pady=(0, 10))
+
     def _log(self, text: str) -> None:
         """Log to console."""
+        append_log(text)
         self.console.config(state="normal")
         self.console.insert("end", text + "\n")
         self.console.see("end")
         self.console.config(state="disabled")
 
+    def _open_log(self) -> None:
+        """Open the installer log file."""
+        append_log("Opening log file on user request.")
+        open_path(LOG_FILE_ACTIVE)
+
     def _start_install(self) -> None:
         """Start installation."""
+        append_log("Final install: run installation button clicked.")
         self.install_btn.config(state="disabled")
         thread = threading.Thread(target=self._run_install, daemon=True)
         thread.start()
 
     def _run_install(self) -> None:
         """Run all installation tasks."""
+        append_log("Final install: installation thread started.")
+        self.install_failed = False
         for i, (task_name, task_func) in enumerate(self.tasks):
             self.after(0, lambda i=i: self.task_labels[i].config(text="🔄"))
             self.after(0, lambda n=task_name: self._log(f"\n▶ {n}..."))
@@ -1319,8 +1976,10 @@ class InstallStep(StepFrame):
                 if success:
                     self.after(0, lambda i=i: self.task_labels[i].config(text="✅"))
                 else:
+                    self.install_failed = True
                     self.after(0, lambda i=i: self.task_labels[i].config(text="⚠️"))
             except Exception as e:
+                self.install_failed = True
                 self.after(0, lambda i=i: self.task_labels[i].config(text="❌"))
                 self.after(0, lambda e=e: self._log(f"Error: {e}"))
 
@@ -1329,6 +1988,15 @@ class InstallStep(StepFrame):
         self.install_complete = True
         self.after(0, lambda: self._log("\n✅ Installation complete!"))
         self.after(0, lambda: self.install_btn.config(text="Re-run", state="normal"))
+        if self.install_failed:
+            self.after(
+                0,
+                lambda: messagebox.askyesno(
+                    "Open Log File?",
+                    f"Some steps reported issues. Open log file?\n\n{LOG_FILE_ACTIVE}",
+                )
+                and open_path(LOG_FILE_ACTIVE),
+            )
 
     def _generate_configs(self) -> bool:
         """Generate configuration files."""
@@ -1389,17 +2057,18 @@ class InstallStep(StepFrame):
 
         if IS_WINDOWS:
             # Windows batch scripts
+            python_cmd = f"\"{sys.executable}\""
             start_server = scripts_dir / "start_server.bat"
             start_server.write_text(f"""@echo off
 cd /d "{PROJECT_ROOT}"
-python -m agent.server.main
+{python_cmd} -m agent.server.main
 pause
 """)
 
             run_demo = scripts_dir / "run_demo.bat"
             run_demo.write_text(f"""@echo off
 cd /d "{PROJECT_ROOT}"
-start python -m agent.server.main
+start "" {python_cmd} -m agent.server.main
 timeout /t 3
 start http://localhost:8080/overlay/
 start http://localhost:8080/api/docs
@@ -1409,17 +2078,18 @@ pause
             self._log(f"  Created {run_demo}")
         else:
             # Linux/Mac shell scripts
+            python_cmd = f"\"{sys.executable}\""
             start_server = scripts_dir / "start_server.sh"
             start_server.write_text(f"""#!/bin/bash
 cd "{PROJECT_ROOT}"
-python -m agent.server.main
+{python_cmd} -m agent.server.main
 """)
             start_server.chmod(0o755)
 
             run_demo = scripts_dir / "run_demo.sh"
             run_demo.write_text(f"""#!/bin/bash
 cd "{PROJECT_ROOT}"
-python -m agent.server.main &
+{python_cmd} -m agent.server.main &
 SERVER_PID=$!
 sleep 3
 xdg-open http://localhost:8080/overlay/ 2>/dev/null || open http://localhost:8080/overlay/
@@ -1534,7 +2204,7 @@ class CompleteStep(StepFrame):
                 subprocess.Popen(["cmd", "/c", str(script)], start_new_session=True)
             else:
                 subprocess.Popen(
-                    ["cmd", "/c", f"cd /d {PROJECT_ROOT} && python -m agent.server.main"],
+                    ["cmd", "/c", f"cd /d {PROJECT_ROOT} && \"{sys.executable}\" -m agent.server.main"],
                     start_new_session=True,
                 )
         else:
@@ -1543,7 +2213,7 @@ class CompleteStep(StepFrame):
                 subprocess.Popen(["bash", str(script)], start_new_session=True)
             else:
                 subprocess.Popen(
-                    ["bash", "-c", f"cd {PROJECT_ROOT} && python -m agent.server.main"],
+                    ["bash", "-c", f"cd {PROJECT_ROOT} && \"{sys.executable}\" -m agent.server.main"],
                     start_new_session=True,
                 )
 
@@ -1575,6 +2245,14 @@ class SetupWizard:
         self.config = SetupConfig()
         self.current_step = 0
 
+        init_log()
+        append_log(f"Started {APP_NAME} v{APP_VERSION}")
+        append_log(f"Project root: {PROJECT_ROOT}")
+        append_log(f"Python: {platform.python_version()} ({sys.executable})")
+        append_log(f"Log file: {LOG_FILE_ACTIVE}")
+        if LOG_FILE_ACTIVE != LOG_FILE_FALLBACK:
+            append_log(f"Fallback log: {LOG_FILE_FALLBACK}")
+
         self._setup_styles()
         self._build_ui()
         self._create_steps()
@@ -1591,6 +2269,32 @@ class SetupWizard:
                 style.theme_use(theme)
                 break
 
+        strong_font = ("TkDefaultFont", 10, "bold")
+
+        style.configure("Nav.TButton", font=strong_font, padding=(12, 6))
+        style.map(
+            "Nav.TButton",
+            foreground=[("disabled", "#9ca3af")],
+            background=[("active", "#e5e7eb"), ("pressed", "#d1d5db")],
+        )
+
+        style.configure(
+            "PrimaryNav.TButton",
+            font=strong_font,
+            padding=(12, 6),
+            foreground="#ffffff",
+            background="#2563eb",
+        )
+        style.map(
+            "PrimaryNav.TButton",
+            foreground=[("disabled", "#e5e7eb")],
+            background=[
+                ("active", "#1d4ed8"),
+                ("pressed", "#1e40af"),
+                ("disabled", "#93c5fd"),
+            ],
+        )
+
     def _build_ui(self) -> None:
         """Build the main UI structure."""
         # Header with steps indicator
@@ -1605,8 +2309,34 @@ class SetupWizard:
         ttk.Separator(self.root).pack(fill="x", padx=20)
 
         # Content area
-        self.content = ttk.Frame(self.root)
-        self.content.pack(fill="both", expand=True, padx=20, pady=10)
+        self.content_container = ttk.Frame(self.root)
+        self.content_container.pack(fill="both", expand=True, padx=20, pady=10)
+
+        self.content_canvas = tk.Canvas(
+            self.content_container,
+            highlightthickness=0,
+            borderwidth=0,
+            background=self.root.cget("background"),
+        )
+        self.content_scrollbar = ttk.Scrollbar(
+            self.content_container,
+            orient="vertical",
+            command=self.content_canvas.yview,
+        )
+        self.content_canvas.configure(yscrollcommand=self.content_scrollbar.set)
+
+        self.content_canvas.pack(side="left", fill="both", expand=True)
+        self.content_scrollbar.pack(side="right", fill="y")
+
+        self.content = ttk.Frame(self.content_canvas)
+        self._content_window = self.content_canvas.create_window(
+            (0, 0),
+            window=self.content,
+            anchor="nw",
+        )
+
+        self.content.bind("<Configure>", self._on_content_configure)
+        self.content_canvas.bind("<Configure>", self._on_canvas_configure)
 
         # Separator
         ttk.Separator(self.root).pack(fill="x", padx=20)
@@ -1619,13 +2349,23 @@ class SetupWizard:
             self.nav_frame,
             text="← Back",
             command=self._go_back,
+            style="Nav.TButton",
         )
         self.back_btn.pack(side="left")
+
+        self.open_log_btn = ttk.Button(
+            self.nav_frame,
+            text="Open Log",
+            command=self._open_log,
+            style="Nav.TButton",
+        )
+        self.open_log_btn.pack(side="left", padx=(10, 0))
 
         self.next_btn = ttk.Button(
             self.nav_frame,
             text="Next →",
             command=self._go_next,
+            style="PrimaryNav.TButton",
         )
         self.next_btn.pack(side="right")
 
@@ -1633,8 +2373,22 @@ class SetupWizard:
             self.nav_frame,
             text="Cancel",
             command=self._cancel,
+            style="Nav.TButton",
         )
         self.cancel_btn.pack(side="right", padx=(0, 10))
+
+    def _open_log(self) -> None:
+        """Open the installer log file."""
+        append_log("Opening log file on user request.")
+        open_path(LOG_FILE_ACTIVE)
+
+    def _on_content_configure(self, _event: tk.Event) -> None:
+        """Update scroll region when content size changes."""
+        self.content_canvas.configure(scrollregion=self.content_canvas.bbox("all"))
+
+    def _on_canvas_configure(self, event: tk.Event) -> None:
+        """Keep the content frame width in sync with the canvas."""
+        self.content_canvas.itemconfigure(self._content_window, width=event.width)
 
     def _create_steps(self) -> None:
         """Create all wizard steps."""
@@ -1670,6 +2424,7 @@ class SetupWizard:
         # Show current step
         self.steps[index].pack(fill="both", expand=True)
         self.steps[index].on_enter()
+        self.content_canvas.yview_moveto(0)
 
         # Update indicators
         for i, indicator in enumerate(self.step_indicators):

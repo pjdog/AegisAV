@@ -10,6 +10,7 @@ from typing import Any
 
 try:
     from pydantic_ai import Agent
+
     try:
         from pydantic_ai.models.openai import OpenAIChatModel as OpenAIModel
     except ImportError:  # pragma: no cover - older pydantic-ai
@@ -129,7 +130,7 @@ class GoalAlignmentCritic(BaseCritic):
         if world.mission.assets_inspected >= world.mission.assets_total:
             if decision.action.value not in {"RETURN", "DOCK", "RECHARGE"}:
                 mission_summary = (
-                    f"({world.mission.assets_inspected}/" f"{world.mission.assets_total} assets)"
+                    f"({world.mission.assets_inspected}/{world.mission.assets_total} assets)"
                 )
                 concerns.append(
                     f"Mission complete {mission_summary} but decision is {decision.action.value}"

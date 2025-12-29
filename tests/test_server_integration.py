@@ -207,12 +207,15 @@ class TestInMemoryStorePersistence:
         await mock_store.set_asset("asset_001", {"id": "asset_001", "inspected": True})
 
         # Detection creates anomaly
-        await mock_store.add_anomaly("anomaly_001", {
-            "id": "anomaly_001",
-            "asset_id": "asset_001",
-            "severity": 0.9,
-            "resolved": False,
-        })
+        await mock_store.add_anomaly(
+            "anomaly_001",
+            {
+                "id": "anomaly_001",
+                "asset_id": "asset_001",
+                "severity": 0.9,
+                "resolved": False,
+            },
+        )
 
         # Get unresolved anomalies for asset
         anomalies = await mock_store.get_anomalies_for_asset("asset_001")
@@ -271,8 +274,7 @@ class TestServerStateManagement:
         state = VehicleState(
             timestamp=datetime.now(),
             position=Position(
-                latitude=37.7749, longitude=-122.4194,
-                altitude_msl=100.0, altitude_agl=50.0
+                latitude=37.7749, longitude=-122.4194, altitude_msl=100.0, altitude_agl=50.0
             ),
             velocity=Velocity(north=0, east=0, down=0),
             attitude=Attitude(roll=0, pitch=0, yaw=0),
@@ -282,8 +284,11 @@ class TestServerStateManagement:
             in_air=True,
             gps=GPSState(fix_type=3, satellites_visible=12, hdop=0.8, vdop=1.0),
             health=VehicleHealth(
-                sensors_healthy=True, gps_healthy=True, battery_healthy=True,
-                motors_healthy=True, ekf_healthy=True
+                sensors_healthy=True,
+                gps_healthy=True,
+                battery_healthy=True,
+                motors_healthy=True,
+                ekf_healthy=True,
             ),
         )
 
@@ -313,8 +318,7 @@ class TestServerStateManagement:
         state = VehicleState(
             timestamp=datetime.now(),
             position=Position(
-                latitude=37.7749, longitude=-122.4194,
-                altitude_msl=100.0, altitude_agl=50.0
+                latitude=37.7749, longitude=-122.4194, altitude_msl=100.0, altitude_agl=50.0
             ),
             velocity=Velocity(north=0, east=0, down=0),
             attitude=Attitude(roll=0, pitch=0, yaw=0),
@@ -324,16 +328,18 @@ class TestServerStateManagement:
             in_air=True,
             gps=GPSState(fix_type=3, satellites_visible=12, hdop=0.8, vdop=1.0),
             health=VehicleHealth(
-                sensors_healthy=True, gps_healthy=True, battery_healthy=True,
-                motors_healthy=True, ekf_healthy=True
+                sensors_healthy=True,
+                gps_healthy=True,
+                battery_healthy=True,
+                motors_healthy=True,
+                ekf_healthy=True,
             ),
         )
 
         world.update_vehicle(state)
         # Set a dock position (required for get_snapshot to return a snapshot)
         dock_position = Position(
-            latitude=37.7740, longitude=-122.4180,
-            altitude_msl=50.0, altitude_agl=0.0
+            latitude=37.7740, longitude=-122.4180, altitude_msl=50.0, altitude_agl=0.0
         )
         world.set_dock(dock_position, DockStatus.AVAILABLE)
 

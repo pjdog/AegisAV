@@ -151,9 +151,7 @@ def extreme_wind_environment():
     )
 
 
-def create_vehicle_state(
-    position=None, battery=None, gps=None, health=None, home_position=None
-):
+def create_vehicle_state(position=None, battery=None, gps=None, health=None, home_position=None):
     """Helper to create a VehicleState with customizable components."""
     return VehicleState(
         timestamp=datetime.now(),
@@ -170,9 +168,7 @@ def create_vehicle_state(
     )
 
 
-def create_world_snapshot(
-    vehicle=None, environment=None, dock_position=None, assets=None
-):
+def create_world_snapshot(vehicle=None, environment=None, dock_position=None, assets=None):
     """Helper to create a WorldSnapshot with customizable components."""
     if vehicle is None:
         vehicle = create_vehicle_state()
@@ -320,9 +316,7 @@ class TestRiskAssessment:
 
     def test_risk_assessment_with_factors(self):
         """Test RiskAssessment with risk factors."""
-        battery_factor = RiskFactor(
-            name="battery", value=0.3, threshold=0.6, critical=0.9
-        )
+        battery_factor = RiskFactor(name="battery", value=0.3, threshold=0.6, critical=0.9)
         assessment = RiskAssessment(
             overall_level=RiskLevel.LOW,
             overall_score=0.3,
@@ -448,7 +442,9 @@ class TestRiskEvaluatorBattery:
     def test_battery_ok(self, healthy_battery, good_gps, healthy_vehicle, calm_environment):
         """Test battery assessment with healthy battery."""
         evaluator = RiskEvaluator()
-        vehicle = create_vehicle_state(battery=healthy_battery, gps=good_gps, health=healthy_vehicle)
+        vehicle = create_vehicle_state(
+            battery=healthy_battery, gps=good_gps, health=healthy_vehicle
+        )
         world = create_world_snapshot(vehicle=vehicle, environment=calm_environment)
 
         assessment = evaluator.evaluate(world)
@@ -469,12 +465,16 @@ class TestRiskEvaluatorBattery:
 
         assert battery_factor is not None
         assert battery_factor.value > 0.5  # Higher risk
-        assert "low" in battery_factor.description.lower() or "Battery" in battery_factor.description
+        assert (
+            "low" in battery_factor.description.lower() or "Battery" in battery_factor.description
+        )
 
     def test_battery_critical(self, critical_battery, good_gps, healthy_vehicle, calm_environment):
         """Test battery assessment with critical battery."""
         evaluator = RiskEvaluator()
-        vehicle = create_vehicle_state(battery=critical_battery, gps=good_gps, health=healthy_vehicle)
+        vehicle = create_vehicle_state(
+            battery=critical_battery, gps=good_gps, health=healthy_vehicle
+        )
         world = create_world_snapshot(vehicle=vehicle, environment=calm_environment)
 
         assessment = evaluator.evaluate(world)
@@ -493,8 +493,12 @@ class TestRiskEvaluatorBattery:
         dock_pos = Position(latitude=37.0, longitude=-122.0, altitude_msl=50.0)
 
         battery = BatteryState(voltage=22.0, current=5.0, remaining_percent=35.0)
-        vehicle = create_vehicle_state(position=far_position, battery=battery, gps=good_gps, health=healthy_vehicle)
-        world = create_world_snapshot(vehicle=vehicle, environment=calm_environment, dock_position=dock_pos)
+        vehicle = create_vehicle_state(
+            position=far_position, battery=battery, gps=good_gps, health=healthy_vehicle
+        )
+        world = create_world_snapshot(
+            vehicle=vehicle, environment=calm_environment, dock_position=dock_pos
+        )
 
         assessment = evaluator.evaluate(world)
         battery_factor = assessment.factors.get("battery")
@@ -509,7 +513,9 @@ class TestRiskEvaluatorWind:
     def test_wind_calm(self, healthy_battery, good_gps, healthy_vehicle, calm_environment):
         """Test wind assessment with calm conditions."""
         evaluator = RiskEvaluator()
-        vehicle = create_vehicle_state(battery=healthy_battery, gps=good_gps, health=healthy_vehicle)
+        vehicle = create_vehicle_state(
+            battery=healthy_battery, gps=good_gps, health=healthy_vehicle
+        )
         world = create_world_snapshot(vehicle=vehicle, environment=calm_environment)
 
         assessment = evaluator.evaluate(world)
@@ -522,7 +528,9 @@ class TestRiskEvaluatorWind:
     def test_wind_elevated(self, healthy_battery, good_gps, healthy_vehicle, windy_environment):
         """Test wind assessment with elevated wind."""
         evaluator = RiskEvaluator()
-        vehicle = create_vehicle_state(battery=healthy_battery, gps=good_gps, health=healthy_vehicle)
+        vehicle = create_vehicle_state(
+            battery=healthy_battery, gps=good_gps, health=healthy_vehicle
+        )
         world = create_world_snapshot(vehicle=vehicle, environment=windy_environment)
 
         assessment = evaluator.evaluate(world)
@@ -532,10 +540,14 @@ class TestRiskEvaluatorWind:
         assert wind_factor.value > 0.6  # High risk
         assert "high" in wind_factor.description.lower() or "Wind" in wind_factor.description
 
-    def test_wind_critical(self, healthy_battery, good_gps, healthy_vehicle, extreme_wind_environment):
+    def test_wind_critical(
+        self, healthy_battery, good_gps, healthy_vehicle, extreme_wind_environment
+    ):
         """Test wind assessment with extreme wind."""
         evaluator = RiskEvaluator()
-        vehicle = create_vehicle_state(battery=healthy_battery, gps=good_gps, health=healthy_vehicle)
+        vehicle = create_vehicle_state(
+            battery=healthy_battery, gps=good_gps, health=healthy_vehicle
+        )
         world = create_world_snapshot(vehicle=vehicle, environment=extreme_wind_environment)
 
         assessment = evaluator.evaluate(world)
@@ -552,7 +564,9 @@ class TestRiskEvaluatorGPS:
     def test_gps_good(self, healthy_battery, good_gps, healthy_vehicle, calm_environment):
         """Test GPS assessment with good signal."""
         evaluator = RiskEvaluator()
-        vehicle = create_vehicle_state(battery=healthy_battery, gps=good_gps, health=healthy_vehicle)
+        vehicle = create_vehicle_state(
+            battery=healthy_battery, gps=good_gps, health=healthy_vehicle
+        )
         world = create_world_snapshot(vehicle=vehicle, environment=calm_environment)
 
         assessment = evaluator.evaluate(world)
@@ -565,7 +579,9 @@ class TestRiskEvaluatorGPS:
     def test_gps_degraded(self, healthy_battery, degraded_gps, healthy_vehicle, calm_environment):
         """Test GPS assessment with degraded signal."""
         evaluator = RiskEvaluator()
-        vehicle = create_vehicle_state(battery=healthy_battery, gps=degraded_gps, health=healthy_vehicle)
+        vehicle = create_vehicle_state(
+            battery=healthy_battery, gps=degraded_gps, health=healthy_vehicle
+        )
         world = create_world_snapshot(vehicle=vehicle, environment=calm_environment)
 
         assessment = evaluator.evaluate(world)
@@ -607,7 +623,9 @@ class TestRiskEvaluatorHealth:
     def test_health_ok(self, healthy_battery, good_gps, healthy_vehicle, calm_environment):
         """Test health assessment with healthy vehicle."""
         evaluator = RiskEvaluator()
-        vehicle = create_vehicle_state(battery=healthy_battery, gps=good_gps, health=healthy_vehicle)
+        vehicle = create_vehicle_state(
+            battery=healthy_battery, gps=good_gps, health=healthy_vehicle
+        )
         world = create_world_snapshot(vehicle=vehicle, environment=calm_environment)
 
         assessment = evaluator.evaluate(world)
@@ -621,7 +639,9 @@ class TestRiskEvaluatorHealth:
     def test_health_degraded(self, healthy_battery, good_gps, unhealthy_vehicle, calm_environment):
         """Test health assessment with degraded vehicle."""
         evaluator = RiskEvaluator()
-        vehicle = create_vehicle_state(battery=healthy_battery, gps=good_gps, health=unhealthy_vehicle)
+        vehicle = create_vehicle_state(
+            battery=healthy_battery, gps=good_gps, health=unhealthy_vehicle
+        )
         world = create_world_snapshot(vehicle=vehicle, environment=calm_environment)
 
         assessment = evaluator.evaluate(world)
@@ -630,10 +650,14 @@ class TestRiskEvaluatorHealth:
         assert health_factor is not None
         assert health_factor.value > 0  # Some risk
 
-    def test_health_critical_motors(self, healthy_battery, good_gps, critical_health, calm_environment):
+    def test_health_critical_motors(
+        self, healthy_battery, good_gps, critical_health, calm_environment
+    ):
         """Test health assessment with critical motor issues."""
         evaluator = RiskEvaluator()
-        vehicle = create_vehicle_state(battery=healthy_battery, gps=good_gps, health=critical_health)
+        vehicle = create_vehicle_state(
+            battery=healthy_battery, gps=good_gps, health=critical_health
+        )
         world = create_world_snapshot(vehicle=vehicle, environment=calm_environment)
 
         assessment = evaluator.evaluate(world)
@@ -683,7 +707,9 @@ class TestRiskEvaluatorDistance:
     def test_distance_close(self, healthy_battery, good_gps, healthy_vehicle, calm_environment):
         """Test distance assessment when close to dock."""
         evaluator = RiskEvaluator()
-        vehicle = create_vehicle_state(battery=healthy_battery, gps=good_gps, health=healthy_vehicle)
+        vehicle = create_vehicle_state(
+            battery=healthy_battery, gps=good_gps, health=healthy_vehicle
+        )
         world = create_world_snapshot(vehicle=vehicle, environment=calm_environment)
 
         assessment = evaluator.evaluate(world)
@@ -700,8 +726,12 @@ class TestRiskEvaluatorDistance:
         far_position = Position(latitude=37.81, longitude=-122.4194, altitude_msl=100.0)
         dock_pos = Position(latitude=37.7749, longitude=-122.4194, altitude_msl=50.0)
 
-        vehicle = create_vehicle_state(position=far_position, battery=healthy_battery, gps=good_gps, health=healthy_vehicle)
-        world = create_world_snapshot(vehicle=vehicle, environment=calm_environment, dock_position=dock_pos)
+        vehicle = create_vehicle_state(
+            position=far_position, battery=healthy_battery, gps=good_gps, health=healthy_vehicle
+        )
+        world = create_world_snapshot(
+            vehicle=vehicle, environment=calm_environment, dock_position=dock_pos
+        )
 
         assessment = evaluator.evaluate(world)
         distance_factor = assessment.factors.get("distance")
@@ -716,8 +746,12 @@ class TestRiskEvaluatorDistance:
         far_position = Position(latitude=38.0, longitude=-122.0, altitude_msl=100.0)
         dock_pos = Position(latitude=37.0, longitude=-122.0, altitude_msl=50.0)
 
-        vehicle = create_vehicle_state(position=far_position, battery=healthy_battery, gps=good_gps, health=healthy_vehicle)
-        world = create_world_snapshot(vehicle=vehicle, environment=calm_environment, dock_position=dock_pos)
+        vehicle = create_vehicle_state(
+            position=far_position, battery=healthy_battery, gps=good_gps, health=healthy_vehicle
+        )
+        world = create_world_snapshot(
+            vehicle=vehicle, environment=calm_environment, dock_position=dock_pos
+        )
 
         assessment = evaluator.evaluate(world)
         distance_factor = assessment.factors.get("distance")
@@ -732,7 +766,9 @@ class TestRiskEvaluatorOverall:
     def test_overall_low_risk(self, healthy_battery, good_gps, healthy_vehicle, calm_environment):
         """Test overall assessment with low risk conditions."""
         evaluator = RiskEvaluator()
-        vehicle = create_vehicle_state(battery=healthy_battery, gps=good_gps, health=healthy_vehicle)
+        vehicle = create_vehicle_state(
+            battery=healthy_battery, gps=good_gps, health=healthy_vehicle
+        )
         world = create_world_snapshot(vehicle=vehicle, environment=calm_environment)
 
         assessment = evaluator.evaluate(world)
@@ -753,10 +789,14 @@ class TestRiskEvaluatorOverall:
         # Should have some warnings but not abort
         assert len(assessment.warnings) > 0
 
-    def test_overall_critical_risk(self, critical_battery, good_gps, healthy_vehicle, extreme_wind_environment):
+    def test_overall_critical_risk(
+        self, critical_battery, good_gps, healthy_vehicle, extreme_wind_environment
+    ):
         """Test overall assessment with critical risk conditions."""
         evaluator = RiskEvaluator()
-        vehicle = create_vehicle_state(battery=critical_battery, gps=good_gps, health=healthy_vehicle)
+        vehicle = create_vehicle_state(
+            battery=critical_battery, gps=good_gps, health=healthy_vehicle
+        )
         world = create_world_snapshot(vehicle=vehicle, environment=extreme_wind_environment)
 
         assessment = evaluator.evaluate(world)
@@ -765,7 +805,9 @@ class TestRiskEvaluatorOverall:
         assert assessment.abort_recommended is True
         assert assessment.abort_reason is not None
 
-    def test_abort_on_any_critical_factor(self, healthy_battery, no_gps, healthy_vehicle, calm_environment):
+    def test_abort_on_any_critical_factor(
+        self, healthy_battery, no_gps, healthy_vehicle, calm_environment
+    ):
         """Test that any critical factor triggers abort recommendation."""
         evaluator = RiskEvaluator()
         vehicle = create_vehicle_state(battery=healthy_battery, gps=no_gps, health=healthy_vehicle)
@@ -775,10 +817,14 @@ class TestRiskEvaluatorOverall:
 
         assert assessment.abort_recommended is True
 
-    def test_warnings_collected_from_concerning_factors(self, low_battery, degraded_gps, unhealthy_vehicle, windy_environment):
+    def test_warnings_collected_from_concerning_factors(
+        self, low_battery, degraded_gps, unhealthy_vehicle, windy_environment
+    ):
         """Test that warnings are collected from concerning factors."""
         evaluator = RiskEvaluator()
-        vehicle = create_vehicle_state(battery=low_battery, gps=degraded_gps, health=unhealthy_vehicle)
+        vehicle = create_vehicle_state(
+            battery=low_battery, gps=degraded_gps, health=unhealthy_vehicle
+        )
         world = create_world_snapshot(vehicle=vehicle, environment=windy_environment)
 
         assessment = evaluator.evaluate(world)
@@ -850,7 +896,9 @@ class TestRiskEvaluatorEdgeCases:
         """Test with zero wind."""
         evaluator = RiskEvaluator()
         environment = EnvironmentState(timestamp=datetime.now(), wind_speed_ms=0.0)
-        vehicle = create_vehicle_state(battery=healthy_battery, gps=good_gps, health=healthy_vehicle)
+        vehicle = create_vehicle_state(
+            battery=healthy_battery, gps=good_gps, health=healthy_vehicle
+        )
         world = create_world_snapshot(vehicle=vehicle, environment=environment)
 
         assessment = evaluator.evaluate(world)
@@ -912,13 +960,17 @@ class TestRiskEvaluatorEdgeCases:
         assert assessment.abort_recommended is False
         assert len(assessment.warnings) == 0
 
-    def test_custom_thresholds_affect_assessment(self, healthy_battery, good_gps, healthy_vehicle, calm_environment):
+    def test_custom_thresholds_affect_assessment(
+        self, healthy_battery, good_gps, healthy_vehicle, calm_environment
+    ):
         """Test that custom thresholds affect the assessment."""
         # Create evaluator with stricter battery threshold
         thresholds = RiskThresholds(battery_warning_percent=90.0, battery_critical_percent=80.0)
         evaluator = RiskEvaluator(thresholds)
 
-        vehicle = create_vehicle_state(battery=healthy_battery, gps=good_gps, health=healthy_vehicle)
+        vehicle = create_vehicle_state(
+            battery=healthy_battery, gps=good_gps, health=healthy_vehicle
+        )
         world = create_world_snapshot(vehicle=vehicle, environment=calm_environment)
 
         assessment = evaluator.evaluate(world)

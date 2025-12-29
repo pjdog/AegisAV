@@ -64,6 +64,7 @@ class UnrealMessageType(str, Enum):
 
 class CognitiveLevel(str, Enum):
     """Agent cognitive processing level."""
+
     REACTIVE = "reactive"  # Fast, rule-based
     DELIBERATIVE = "deliberative"  # Planning, reasoning
     REFLECTIVE = "reflective"  # Self-evaluation
@@ -72,6 +73,7 @@ class CognitiveLevel(str, Enum):
 
 class CriticVerdict(str, Enum):
     """Critic evaluation verdict."""
+
     APPROVE = "approve"
     APPROVE_WITH_CONCERNS = "approve_with_concerns"
     ESCALATE = "escalate"
@@ -188,10 +190,7 @@ class UnrealConnectionManager:
         self._lock = asyncio.Lock()
 
     async def connect(
-        self,
-        websocket: WebSocket,
-        connection_id: str,
-        drone_ids: list[str] | None = None
+        self, websocket: WebSocket, connection_id: str, drone_ids: list[str] | None = None
     ) -> None:
         """Accept a new Unreal connection."""
         await websocket.accept()
@@ -212,10 +211,7 @@ class UnrealConnectionManager:
             return self._sequence
 
     async def broadcast(
-        self,
-        message_type: UnrealMessageType,
-        data: dict[str, Any],
-        drone_id: str | None = None
+        self, message_type: UnrealMessageType, data: dict[str, Any], drone_id: str | None = None
     ) -> None:
         """Broadcast message to all connected Unreal clients.
 
@@ -228,7 +224,7 @@ class UnrealConnectionManager:
             "type": message_type.value,
             "sequence": await self.next_sequence(),
             "timestamp_ms": time.time() * 1000,
-            **data
+            **data,
         }
 
         disconnected = []
@@ -251,10 +247,7 @@ class UnrealConnectionManager:
             self.disconnect(conn_id)
 
     async def send_to(
-        self,
-        connection_id: str,
-        message_type: UnrealMessageType,
-        data: dict[str, Any]
+        self, connection_id: str, message_type: UnrealMessageType, data: dict[str, Any]
     ) -> bool:
         """Send message to specific connection."""
         websocket = self.connections.get(connection_id)
@@ -266,7 +259,7 @@ class UnrealConnectionManager:
                 "type": message_type.value,
                 "sequence": await self.next_sequence(),
                 "timestamp_ms": time.time() * 1000,
-                **data
+                **data,
             }
             await websocket.send_json(message)
             return True
@@ -311,7 +304,7 @@ class ThinkingStateTracker:
         drone_id: str,
         goal: str | None = None,
         target: str | None = None,
-        cognitive_level: CognitiveLevel = CognitiveLevel.DELIBERATIVE
+        cognitive_level: CognitiveLevel = CognitiveLevel.DELIBERATIVE,
     ) -> None:
         """Signal that agent is beginning to think."""
         state = ThinkingState(
@@ -321,14 +314,12 @@ class ThinkingStateTracker:
             cognitive_level=cognitive_level,
             current_goal=goal,
             target_asset=target,
-            situation="Evaluating current situation..."
+            situation="Evaluating current situation...",
         )
         self._states[drone_id] = state
 
         await self.manager.broadcast(
-            UnrealMessageType.THINKING_START,
-            state.model_dump(),
-            drone_id=drone_id
+            UnrealMessageType.THINKING_START, state.model_dump(), drone_id=drone_id
         )
 
     async def update_thinking(
@@ -339,7 +330,7 @@ class ThinkingStateTracker:
         options: list[dict] | None = None,
         risk_score: float | None = None,
         risk_level: str | None = None,
-        risk_factors: dict[str, float] | None = None
+        risk_factors: dict[str, float] | None = None,
     ) -> None:
         """Update current thinking state."""
         state = self._states.get(drone_id)
@@ -363,9 +354,7 @@ class ThinkingStateTracker:
         state.timestamp_ms = time.time() * 1000
 
         await self.manager.broadcast(
-            UnrealMessageType.THINKING_UPDATE,
-            state.model_dump(),
-            drone_id=drone_id
+            UnrealMessageType.THINKING_UPDATE, state.model_dump(), drone_id=drone_id
         )
 
     async def report_critic(
@@ -376,7 +365,7 @@ class ThinkingStateTracker:
         confidence: float,
         concerns: list[str] | None = None,
         processing_time_ms: float = 0.0,
-        used_llm: bool = False
+        used_llm: bool = False,
     ) -> None:
         """Report a critic evaluation result."""
         eval_msg = CriticEvaluation(
@@ -388,7 +377,7 @@ class ThinkingStateTracker:
             confidence=confidence,
             concerns=concerns or [],
             processing_time_ms=processing_time_ms,
-            used_llm=used_llm
+            used_llm=used_llm,
         )
 
         # Update state
@@ -397,13 +386,11 @@ class ThinkingStateTracker:
             state.critics[critic_name] = {
                 "verdict": verdict.value,
                 "confidence": confidence,
-                "concerns": concerns or []
+                "concerns": concerns or [],
             }
 
         await self.manager.broadcast(
-            UnrealMessageType.CRITIC_RESULT,
-            eval_msg.model_dump(),
-            drone_id=drone_id
+            UnrealMessageType.CRITIC_RESULT, eval_msg.model_dump(), drone_id=drone_id
         )
 
     async def complete_thinking(
@@ -424,9 +411,7 @@ class ThinkingStateTracker:
             state.timestamp_ms = time.time() * 1000
 
             await self.manager.broadcast(
-                UnrealMessageType.THINKING_COMPLETE,
-                state.model_dump(),
-                drone_id=drone_id
+                UnrealMessageType.THINKING_COMPLETE, state.model_dump(), drone_id=drone_id
             )
 
     def get_state(self, drone_id: str) -> ThinkingState | None:
@@ -443,10 +428,7 @@ thinking_tracker = ThinkingStateTracker(unreal_manager)
 # =============================================================================
 
 
-async def handle_unreal_websocket(
-    websocket: WebSocket,
-    connection_id: str | None = None
-) -> None:
+async def handle_unreal_websocket(websocket: WebSocket, connection_id: str | None = None) -> None:
     """Handle WebSocket connection from Unreal client.
 
     Protocol:
@@ -472,23 +454,15 @@ async def handle_unreal_websocket(
             {
                 "connection_id": connection_id,
                 "protocol_version": "1.0",
-                "capabilities": [
-                    "telemetry",
-                    "thinking",
-                    "critics",
-                    "decisions"
-                ]
-            }
+                "capabilities": ["telemetry", "thinking", "critics", "decisions"],
+            },
         )
 
         # Message handling loop
         while True:
             try:
                 # Receive with timeout for heartbeat
-                message = await asyncio.wait_for(
-                    websocket.receive_json(),
-                    timeout=30.0
-                )
+                message = await asyncio.wait_for(websocket.receive_json(), timeout=30.0)
 
                 # Handle subscription
                 if "subscribe" in message:
@@ -499,18 +473,12 @@ async def handle_unreal_websocket(
                 # Handle ping
                 if message.get("type") == "ping":
                     await unreal_manager.send_to(
-                        connection_id,
-                        UnrealMessageType.HEARTBEAT,
-                        {"pong": True}
+                        connection_id, UnrealMessageType.HEARTBEAT, {"pong": True}
                     )
 
             except asyncio.TimeoutError:
                 # Send heartbeat
-                await unreal_manager.send_to(
-                    connection_id,
-                    UnrealMessageType.HEARTBEAT,
-                    {}
-                )
+                await unreal_manager.send_to(connection_id, UnrealMessageType.HEARTBEAT, {})
 
     except WebSocketDisconnect:
         logger.info(f"Unreal client {connection_id} disconnected")
@@ -545,9 +513,7 @@ def add_unreal_routes(app: Any) -> None:
         """Get Unreal streaming status."""
         return {
             "active_connections": unreal_manager.active_connections,
-            "subscriptions": {
-                k: list(v) for k, v in unreal_manager.drone_subscriptions.items()
-            }
+            "subscriptions": {k: list(v) for k, v in unreal_manager.drone_subscriptions.items()},
         }
 
     logger.info("Unreal streaming routes registered")

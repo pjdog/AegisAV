@@ -212,6 +212,7 @@ class ConfigManager:
         if self.config.auth.enabled and not self.config.auth.api_key:
             self.config.auth.api_key = secrets.token_hex(32)
             self.logger.info("Auto-generated API key")
+            self.save()
 
         self._loaded = True
         return self.config
@@ -315,7 +316,10 @@ class ConfigManager:
 
         # Vision validation
         if self.config.vision.enabled:
-            if self.config.vision.confidence_threshold < 0 or self.config.vision.confidence_threshold > 1:
+            if (
+                self.config.vision.confidence_threshold < 0
+                or self.config.vision.confidence_threshold > 1
+            ):
                 errors.append("Vision confidence threshold must be between 0 and 1")
 
         # Auth validation
@@ -330,12 +334,15 @@ class ConfigManager:
 
         return errors
 
-    def generate_api_key(self) -> str:
+    def generate_api_key(self) -> tuple[str, bool]:
         """Generate a new API key and save it."""
         new_key = secrets.token_hex(32)
         self.config.auth.api_key = new_key
         self.config.auth.enabled = True
-        return new_key
+        saved = self.save()
+        if not saved:
+            self.logger.warning("Generated API key but failed to save config")
+        return new_key, saved
 
     def _apply_dict(self, data: dict) -> None:
         """Apply a dict to the current config."""
@@ -351,28 +358,23 @@ class ConfigManager:
             "AEGIS_REDIS_PORT": ("redis", "port", int),
             "AEGIS_REDIS_PASSWORD": ("redis", "password"),
             "AEGIS_REDIS_ENABLED": ("redis", "enabled", self._parse_bool),
-
             # Auth
             "AEGIS_API_KEY": ("auth", "api_key"),
             "AEGIS_AUTH_ENABLED": ("auth", "enabled", self._parse_bool),
-
             # Vision
             "AEGIS_VISION_ENABLED": ("vision", "enabled", self._parse_bool),
             "AEGIS_VISION_MODEL": ("vision", "model_path"),
             "AEGIS_VISION_DEVICE": ("vision", "device"),
             "AEGIS_VISION_REAL_DETECTOR": ("vision", "use_real_detector", self._parse_bool),
-
             # Simulation
             "AEGIS_SIM_ENABLED": ("simulation", "enabled", self._parse_bool),
             "AEGIS_AIRSIM_ENABLED": ("simulation", "airsim_enabled", self._parse_bool),
             "AEGIS_SITL_ENABLED": ("simulation", "sitl_enabled", self._parse_bool),
             "AEGIS_ARDUPILOT_PATH": ("simulation", "ardupilot_path"),
-
             # Server
             "AEGIS_HOST": ("server", "host"),
             "AEGIS_PORT": ("server", "port", int),
             "AEGIS_LOG_LEVEL": ("server", "log_level"),
-
             # Agent
             "AEGIS_USE_LLM": ("agent", "use_llm", self._parse_bool),
             "AEGIS_LLM_MODEL": ("agent", "llm_model"),
@@ -392,6 +394,11 @@ class ConfigManager:
                     self.update_section(section, current)
                 except Exception as e:
                     self.logger.warning(f"Failed to apply env var {env_var}: {e}")
+
+        api_key_env = os.environ.get("AEGIS_API_KEY")
+        auth_enabled_env = os.environ.get("AEGIS_AUTH_ENABLED")
+        if api_key_env and auth_enabled_env is None:
+            self.config.auth.enabled = True
 
     def _parse_bool(self, value: str) -> bool:
         """Parse boolean from string."""

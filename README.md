@@ -57,7 +57,7 @@
 
 ## Quick Start
 
-### Option 1: Demo Mode (No External Dependencies)
+### Option 1: Vision Demo (No External Dependencies)
 
 ```bash
 # Clone and setup
@@ -68,13 +68,33 @@ uv sync
 uv run python examples/demo_integrated_vision.py
 ```
 
-This runs a complete inspection simulation with:
-- Simulated camera generating realistic images
-- Vision pipeline detecting defects
-- AI agent making inspection decisions
-- Dashboard available at http://localhost:8000/dashboard
+This generates a visual report with annotated images and a timeline:
+- Output directory: `data/vision/demo_visual/`
+- HTML report: `data/vision/demo_visual/reports/demo_report.html`
 
-### Option 2: Full Simulation (Recommended)
+Open the HTML report in your browser to view the demo.
+
+### Option 2: Lightweight Simulation (Laptop-Friendly)
+
+Run the lightweight simulator server and built-in visualizer:
+
+```bash
+uv run python -m simulation.lightweight.server
+```
+
+- Visualizer: `http://localhost:8081/viz/`
+- API docs: `http://localhost:8081/docs`
+
+Optional: run the agent server alongside it:
+
+```bash
+uv run python -m agent.server.main
+```
+
+Note: live decision wiring is still in progress. See
+`docs/INTEGRATION_STATUS.md` for current gaps.
+
+### Option 3: Full Simulation (Recommended)
 
 1. **Setup Simulation**: Follow the [Simulation Setup](#-high-fidelity-simulation) guide.
 2. **Configure**: Copy `configs/aegis_config.development.yaml` to `configs/aegis_config.yaml`.
@@ -144,6 +164,22 @@ Optimize bandwidth and processing by configuring the client's behavior:
 - **Capture Cadence**: Dynamically adjust frame rates based on mission phase.
 - **Cost Budgeting**: LLM calls are tracked and capped daily (default $1.00/day).
 
+### Persistence (Redis)
+Enable Redis for persistent telemetry, detections, anomalies, and mission data:
+- Config: `configs/aegis_config.yaml` -> `redis.enabled: true`
+- Env: `AEGIS_REDIS_ENABLED=true`, `AEGIS_REDIS_HOST`, `AEGIS_REDIS_PORT`
+- Docker: `docker compose up --build` starts Redis automatically.
+
+### Authentication (API Key)
+Enable API key authentication for protected endpoints:
+- Config: `auth.enabled: true`, `auth.api_key: <key>`
+- Env: `AEGIS_API_KEY=<key>`
+- Header: `X-API-Key: <key>`
+
+The current dashboard does not send API keys. Keep auth disabled for UI use,
+or front it with a proxy that injects the header. See
+`docs/INTEGRATION_STATUS.md`.
+
 ---
 
 ## Vision Pipeline
@@ -173,7 +209,18 @@ The Aegis Onyx Dashboard provides real-time monitoring and configuration:
 | **Settings** | **[NEW]** Runtime configuration of thresholds and policies |
 | **Mission Status** | Current goal and progress |
 
-Access at: `http://localhost:8000/dashboard`
+Access at:
+- `http://localhost:8080/dashboard` (default server)
+- `http://localhost:8000/dashboard` (when using `simulation/run_simulation.py`)
+
+## Logs & Observability
+
+- Agent server (dashboard log feed): `GET /api/logs`
+- Decision logs: `logs/decisions_<run_id>.jsonl`
+- Telemetry logs: `logs/telemetry_<run_id>.jsonl`
+- Outcome logs: `logs/outcomes/outcomes_<run_id>.jsonl`
+- Lightweight sim log aggregation: `GET /api/logs` and `/api/logs/sources`
+  on the lightweight server (see Option 2).
 
 ---
 
@@ -253,6 +300,10 @@ uv run pytest tests/test_config_manager.py -v
 
 See [plan.md](plan.md) for the detailed project roadmap.
 
+## Integration Status
+
+See `docs/INTEGRATION_STATUS.md` for wiring gaps and pending connections.
+
 - [x] **Phase 1**: Foundation (Architecture, Simulation, Vision)
 - [x] **Phase 2**: Multi-Agent Validation (Critics, Safety, Integration)
 - [ ] **Phase 3**: Intelligence & Production (Optimization, Learning)
@@ -278,4 +329,3 @@ See [plan.md](plan.md) for the detailed project roadmap.
 Built for the future of autonomous infrastructure monitoring.
 
 </div>
-

@@ -1,5 +1,3 @@
-import { useMemo } from "react";
-
 type Asset = {
     id: string;
     x: number;
@@ -8,10 +6,8 @@ type Asset = {
 };
 
 const SpatialView = ({
-    vehiclePos,
     assets = []
 }: {
-    vehiclePos?: { x: number, y: number },
     assets?: Asset[]
 }) => {
     const size = 300;

@@ -207,10 +207,13 @@ class TestConfigManager:
             manager.load()
 
             # Update redis section
-            success = manager.update_section("redis", {
-                "host": "new-host",
-                "port": 6380,
-            })
+            success = manager.update_section(
+                "redis",
+                {
+                    "host": "new-host",
+                    "port": 6380,
+                },
+            )
 
             assert success is True
             assert manager.config.redis.host == "new-host"
@@ -314,12 +317,14 @@ class TestConfigManager:
 
             assert manager.config.auth.api_key is None
 
-            new_key = manager.generate_api_key()
+            new_key, saved = manager.generate_api_key()
 
             assert new_key is not None
             assert len(new_key) == 64  # 32 bytes hex = 64 chars
             assert manager.config.auth.api_key == new_key
             assert manager.config.auth.enabled is True
+            assert saved is True
+            assert manager.config_file.exists()
 
     def test_config_manager_export_env_template(self):
         """Test export_env_template() generates valid template."""
@@ -385,8 +390,24 @@ class TestConfigManagerEnvironmentOverrides:
                 manager.load()
 
                 assert manager.config.auth.api_key == "test-api-key-12345"
+                assert manager.config.auth.enabled is True
             finally:
                 del os.environ["AEGIS_API_KEY"]
+
+    def test_env_override_auth_disabled(self):
+        """Test AEGIS_AUTH_ENABLED=false overrides API key enablement."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            os.environ["AEGIS_API_KEY"] = "test-api-key-12345"
+            os.environ["AEGIS_AUTH_ENABLED"] = "false"
+            try:
+                manager = ConfigManager(config_dir=tmpdir)
+                manager.load()
+
+                assert manager.config.auth.api_key == "test-api-key-12345"
+                assert manager.config.auth.enabled is False
+            finally:
+                del os.environ["AEGIS_API_KEY"]
+                del os.environ["AEGIS_AUTH_ENABLED"]
 
 
 class TestConfigManagerYAMLLoading:

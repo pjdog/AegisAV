@@ -104,18 +104,14 @@ def make_async_client() -> Callable[[FastAPI], "AsyncClientContextManager"]:
         app: FastAPI, base_url: str = "http://test"
     ) -> AsyncGenerator[httpx.AsyncClient, None]:
         transport = httpx.ASGITransport(app=app)
-        async with httpx.AsyncClient(
-            transport=transport, base_url=base_url
-        ) as client:
+        async with httpx.AsyncClient(transport=transport, base_url=base_url) as client:
             yield client
 
     return _make_client
 
 
 # Type alias for the async client context manager
-AsyncClientContextManager = Callable[
-    [FastAPI], AsyncGenerator[httpx.AsyncClient, None]
-]
+AsyncClientContextManager = Callable[[FastAPI], AsyncGenerator[httpx.AsyncClient, None]]
 
 
 @pytest_asyncio.fixture
@@ -134,12 +130,11 @@ async def async_client_for_app():
     """
     clients: list[httpx.AsyncClient] = []
 
-    async def create_client(
-        app: FastAPI, base_url: str = "http://test"
-    ) -> httpx.AsyncClient:
+    async def create_client(app: FastAPI, base_url: str = "http://test") -> httpx.AsyncClient:
         transport = httpx.ASGITransport(app=app)
         client = httpx.AsyncClient(transport=transport, base_url=base_url)
         clients.append(client)
+        await asyncio.sleep(0)
         return client
 
     yield create_client

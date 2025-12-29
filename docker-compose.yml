@@ -14,6 +14,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.server
+    depends_on:
+      - redis
     ports:
       - "8080:8080"
     volumes:
@@ -38,6 +40,16 @@ services:
     environment:
       - SERVER_URL=http://aegis-server:8080
       - VEHICLE_URL=tcp:127.0.0.1:5760 # Assumes SITL is on host, but can be proxied
+    networks:
+      - aegis-net
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
     networks:
       - aegis-net
 

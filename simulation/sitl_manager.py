@@ -8,7 +8,8 @@ import asyncio
 import logging
 import os
 import signal
-import subprocess
+import socket
+import subprocess  # noqa: S404
 import time
 from dataclasses import dataclass, field
 from enum import Enum
@@ -19,6 +20,7 @@ logger = logging.getLogger(__name__)
 
 class SITLVehicle(Enum):
     """Supported SITL vehicle types."""
+
     COPTER = "ArduCopter"
     PLANE = "ArduPlane"
     ROVER = "Rover"
@@ -26,6 +28,7 @@ class SITLVehicle(Enum):
 
 class SITLFrame(Enum):
     """SITL frame types for different simulators."""
+
     # Standalone (built-in physics)
     QUAD = "quad"
     HEXA = "hexa"
@@ -56,20 +59,20 @@ class SITLConfig:
 
     # Network configuration
     sitl_host: str = "127.0.0.1"
-    sitl_port: int = 5760          # SITL native port
-    mavlink_port: int = 14550      # MAVLink output port
-    mavlink_port2: int = 14551     # Secondary MAVLink port
+    sitl_port: int = 5760  # SITL native port
+    mavlink_port: int = 14550  # MAVLink output port
+    mavlink_port2: int = 14551  # Secondary MAVLink port
 
     # Startup options
-    speedup: float = 1.0           # Simulation speed (1.0 = realtime)
-    home_lat: float = 37.7749      # Starting latitude
-    home_lon: float = -122.4194    # Starting longitude
-    home_alt: float = 0.0          # Starting altitude (m)
-    home_heading: float = 0.0      # Starting heading (degrees)
+    speedup: float = 1.0  # Simulation speed (1.0 = realtime)
+    home_lat: float = 37.7749  # Starting latitude
+    home_lon: float = -122.4194  # Starting longitude
+    home_alt: float = 0.0  # Starting altitude (m)
+    home_heading: float = 0.0  # Starting heading (degrees)
 
     # Console/map options
-    console: bool = True           # Show MAVProxy console
-    map_display: bool = True       # Show map display
+    console: bool = True  # Show MAVProxy console
+    map_display: bool = True  # Show map display
 
     # Logging
     log_dir: Path = field(default_factory=lambda: Path("logs/sitl"))
@@ -98,7 +101,7 @@ class SITLManager:
         await manager.stop()
     """
 
-    def __init__(self, config: SITLConfig | None = None):
+    def __init__(self, config: SITLConfig | None = None) -> None:
         """Initialize SITL manager."""
         self.config = config or SITLConfig()
         self.process: subprocess.Popen | None = None
@@ -110,8 +113,10 @@ class SITLManager:
         # Ensure log directory exists
         self.config.log_dir.mkdir(parents=True, exist_ok=True)
 
-        logger.info(f"SITLManager initialized (vehicle: {self.config.vehicle.value}, "
-                   f"frame: {self.config.frame.value})")
+        logger.info(
+            f"SITLManager initialized (vehicle: {self.config.vehicle.value}, "
+            f"frame: {self.config.frame.value})"
+        )
 
     def _validate_ardupilot_installation(self) -> None:
         """Validate ArduPilot installation exists."""
@@ -131,12 +136,18 @@ class SITLManager:
         cmd = [
             "python3",
             str(sim_vehicle),
-            "-v", self.config.vehicle.value,
-            "-f", self.config.frame.value,
-            "--speedup", str(self.config.speedup),
-            "-l", f"{self.config.home_lat},{self.config.home_lon},{self.config.home_alt},{self.config.home_heading}",
-            "--out", f"udp:{self.config.sitl_host}:{self.config.mavlink_port}",
-            "--out", f"udp:{self.config.sitl_host}:{self.config.mavlink_port2}",
+            "-v",
+            self.config.vehicle.value,
+            "-f",
+            self.config.frame.value,
+            "--speedup",
+            str(self.config.speedup),
+            "-l",
+            f"{self.config.home_lat},{self.config.home_lon},{self.config.home_alt},{self.config.home_heading}",
+            "--out",
+            f"udp:{self.config.sitl_host}:{self.config.mavlink_port}",
+            "--out",
+            f"udp:{self.config.sitl_host}:{self.config.mavlink_port2}",
         ]
 
         if self.config.console:
@@ -175,13 +186,13 @@ class SITLManager:
             logger.debug(f"Command: {' '.join(cmd)}")
 
             # Start process
-            self.process = subprocess.Popen(
+            self.process = subprocess.Popen(  # noqa: S603
                 cmd,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 cwd=str(self.config.ardupilot_path / self.config.vehicle.value),
                 env={**os.environ, "HOME": str(Path.home())},
-                preexec_fn=os.setsid  # Create new process group for clean shutdown
+                preexec_fn=os.setsid,  # Create new process group for clean shutdown
             )
 
             # Wait for SITL to be ready
@@ -190,7 +201,9 @@ class SITLManager:
             if ready:
                 self.running = True
                 logger.info(f"SITL started successfully (PID: {self.process.pid})")
-                logger.info(f"  MAVLink available at: udp:{self.config.sitl_host}:{self.config.mavlink_port}")
+                logger.info(
+                    f"  MAVLink available at: udp:{self.config.sitl_host}:{self.config.mavlink_port}"
+                )
                 return True
             else:
                 logger.error("SITL failed to start within timeout")
@@ -203,8 +216,6 @@ class SITLManager:
 
     async def _wait_for_ready(self, timeout: float) -> bool:
         """Wait for SITL to be ready to accept connections."""
-        import socket
-
         start_time = time.time()
         check_interval = 1.0
 
@@ -284,10 +295,8 @@ class SITLEnvironment:
     """
 
     def __init__(
-        self,
-        sitl_config: SITLConfig | None = None,
-        airsim_binary: Path | None = None
-    ):
+        self, sitl_config: SITLConfig | None = None, airsim_binary: Path | None = None
+    ) -> None:
         """Initialize environment."""
         self.sitl_manager = SITLManager(sitl_config)
         self.airsim_binary = airsim_binary
@@ -316,10 +325,10 @@ class SITLEnvironment:
         try:
             logger.info(f"Starting AirSim: {self.airsim_binary}")
 
-            self.airsim_process = subprocess.Popen(
+            self.airsim_process = subprocess.Popen(  # noqa: S603
                 [str(self.airsim_binary), "-ResX=1920", "-ResY=1080", "-windowed"],
                 stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT
+                stderr=subprocess.STDOUT,
             )
 
             # Wait for AirSim to initialize

@@ -346,9 +346,7 @@ class TestProcessInspectionResult:
                 Detection(
                     detection_class=DetectionClass.CRACK,
                     confidence=0.8,
-                    bounding_box=BoundingBox(
-                        x_min=0.2, y_min=0.3, x_max=0.6, y_max=0.7
-                    ),
+                    bounding_box=BoundingBox(x_min=0.2, y_min=0.3, x_max=0.6, y_max=0.7),
                     severity=0.6,
                 )
             ],
@@ -431,9 +429,7 @@ class TestShouldCreateAnomaly:
                 Detection(
                     detection_class=DetectionClass.CRACK,
                     confidence=0.85,
-                    bounding_box=BoundingBox(
-                        x_min=0.2, y_min=0.3, x_max=0.6, y_max=0.7
-                    ),
+                    bounding_box=BoundingBox(x_min=0.2, y_min=0.3, x_max=0.6, y_max=0.7),
                     severity=0.7,
                 )
             ]
@@ -450,9 +446,7 @@ class TestShouldCreateAnomaly:
                 Detection(
                     detection_class=DetectionClass.CRACK,
                     confidence=0.5,  # Below 0.7 threshold
-                    bounding_box=BoundingBox(
-                        x_min=0.2, y_min=0.3, x_max=0.6, y_max=0.7
-                    ),
+                    bounding_box=BoundingBox(x_min=0.2, y_min=0.3, x_max=0.6, y_max=0.7),
                     severity=0.7,
                 )
             ]
@@ -469,9 +463,7 @@ class TestShouldCreateAnomaly:
                 Detection(
                     detection_class=DetectionClass.CRACK,
                     confidence=0.85,
-                    bounding_box=BoundingBox(
-                        x_min=0.2, y_min=0.3, x_max=0.6, y_max=0.7
-                    ),
+                    bounding_box=BoundingBox(x_min=0.2, y_min=0.3, x_max=0.6, y_max=0.7),
                     severity=0.2,  # Below 0.4 threshold
                 )
             ]
@@ -501,9 +493,7 @@ class TestCreateAnomaly:
                 Detection(
                     detection_class=DetectionClass.CRACK,
                     confidence=0.9,
-                    bounding_box=BoundingBox(
-                        x_min=0.2, y_min=0.3, x_max=0.6, y_max=0.7
-                    ),
+                    bounding_box=BoundingBox(x_min=0.2, y_min=0.3, x_max=0.6, y_max=0.7),
                     severity=0.8,
                 )
             ]
@@ -529,9 +519,7 @@ class TestCreateAnomaly:
         anomaly_asset_ids = world_model.get_anomaly_assets()
         assert "asset_001" in anomaly_asset_ids
 
-    async def test_deduplication_prevents_duplicate(
-        self, vision_service, world_model
-    ):
+    async def test_deduplication_prevents_duplicate(self, vision_service, world_model):
         """Test that existing anomaly prevents duplicate creation."""
         # Add existing anomaly
         existing = Anomaly(
@@ -548,9 +536,7 @@ class TestCreateAnomaly:
                 Detection(
                     detection_class=DetectionClass.CORROSION,
                     confidence=0.9,
-                    bounding_box=BoundingBox(
-                        x_min=0.2, y_min=0.3, x_max=0.6, y_max=0.7
-                    ),
+                    bounding_box=BoundingBox(x_min=0.2, y_min=0.3, x_max=0.6, y_max=0.7),
                     severity=0.7,
                 )
             ]
@@ -571,26 +557,20 @@ class TestCreateAnomaly:
         # Should return None (no new anomaly created)
         assert anomaly is None
 
-    async def test_anomaly_description_includes_defect_types(
-        self, vision_service, world_model
-    ):
+    async def test_anomaly_description_includes_defect_types(self, vision_service, _world_model):
         """Test that anomaly description includes detected defect types."""
         detection = DetectionResult(
             detections=[
                 Detection(
                     detection_class=DetectionClass.CRACK,
                     confidence=0.9,
-                    bounding_box=BoundingBox(
-                        x_min=0.2, y_min=0.3, x_max=0.6, y_max=0.7
-                    ),
+                    bounding_box=BoundingBox(x_min=0.2, y_min=0.3, x_max=0.6, y_max=0.7),
                     severity=0.8,
                 ),
                 Detection(
                     detection_class=DetectionClass.CORROSION,
                     confidence=0.85,
-                    bounding_box=BoundingBox(
-                        x_min=0.4, y_min=0.5, x_max=0.8, y_max=0.9
-                    ),
+                    bounding_box=BoundingBox(x_min=0.4, y_min=0.5, x_max=0.8, y_max=0.9),
                     severity=0.6,
                 ),
             ]
@@ -741,9 +721,7 @@ class TestSimulateInspectionResult:
 class TestShutdown:
     """Tests for shutdown method."""
 
-    async def test_shutdown_calls_detector_shutdown(
-        self, world_model, image_manager
-    ):
+    async def test_shutdown_calls_detector_shutdown(self, world_model, image_manager):
         """Test that shutdown calls detector shutdown."""
         mock_detector = MagicMock(spec=SimulatedDetector)
         mock_detector.initialize = AsyncMock(return_value=True)
@@ -770,9 +748,7 @@ class TestShutdown:
 class TestWorldModelIntegration:
     """Tests for integration with WorldModel."""
 
-    async def test_anomaly_updates_asset_in_world_model(
-        self, world_model, detector, image_manager
-    ):
+    async def test_anomaly_updates_asset_in_world_model(self, world_model, _detector, image_manager):
         """Test that creating anomaly updates asset status."""
         # Create service with high probability detector
         high_prob_detector = SimulatedDetector(
@@ -804,21 +780,17 @@ class TestWorldModelIntegration:
 
         await service.shutdown()
 
-    async def test_observation_links_to_anomaly(self, vision_service, world_model):
+    async def test_observation_links_to_anomaly(self, vision_service, _world_model):
         """Test that observation correctly links to created anomaly."""
         # Create with high probability detection
-        with patch.object(
-            vision_service, "_should_create_anomaly", return_value=True
-        ):
+        with patch.object(vision_service, "_should_create_anomaly", return_value=True):
             # Also need to create a mock detection
             mock_detection = DetectionResult(
                 detections=[
                     Detection(
                         detection_class=DetectionClass.CRACK,
                         confidence=0.9,
-                        bounding_box=BoundingBox(
-                            x_min=0.2, y_min=0.3, x_max=0.6, y_max=0.7
-                        ),
+                        bounding_box=BoundingBox(x_min=0.2, y_min=0.3, x_max=0.6, y_max=0.7),
                         severity=0.8,
                     )
                 ]
@@ -887,7 +859,7 @@ class TestEdgeCases:
 
     async def test_multiple_observations_same_asset(self, vision_service):
         """Test multiple observations for same asset accumulate correctly."""
-        for i in range(10):
+        for _ in range(10):
             await vision_service.process_inspection_result(asset_id="asset_001")
 
         observations = vision_service.get_observations_for_asset("asset_001")

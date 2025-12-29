@@ -200,6 +200,7 @@ class Scenario:
 
 # Preloaded Scenarios
 
+
 def create_normal_operations_scenario() -> Scenario:
     """Standard multi-drone inspection scenario - everything works well."""
     return Scenario(
@@ -278,7 +279,7 @@ def create_battery_cascade_scenario() -> Scenario:
         scenario_id="battery_cascade_001",
         name="Battery Cascade Emergency",
         description="Three drones with varying battery levels. One critical, one low, one "
-                    "healthy. Tests priority-based return decisions.",
+        "healthy. Tests priority-based return decisions.",
         category=ScenarioCategory.BATTERY_CRITICAL,
         duration_minutes=15.0,
         difficulty="hard",
@@ -353,7 +354,7 @@ def create_gps_degradation_scenario() -> Scenario:
         scenario_id="gps_degrade_001",
         name="GPS Signal Degradation",
         description="Drones experience progressive GPS degradation. Tests graceful "
-                    "degradation and safe return protocols.",
+        "degradation and safe return protocols.",
         category=ScenarioCategory.GPS_DEGRADED,
         duration_minutes=25.0,
         difficulty="hard",
@@ -430,7 +431,7 @@ def create_weather_emergency_scenario() -> Scenario:
         scenario_id="weather_001",
         name="Sudden Weather Change",
         description="Weather deteriorates mid-mission. Wind increases, visibility drops. "
-                    "Tests coordinated fleet recall.",
+        "Tests coordinated fleet recall.",
         category=ScenarioCategory.WEATHER_ADVERSE,
         duration_minutes=20.0,
         difficulty="normal",
@@ -506,7 +507,7 @@ def create_sensor_cascade_scenario() -> Scenario:
         scenario_id="sensor_cascade_001",
         name="Sensor Failure Cascade",
         description="Progressive sensor failures across fleet. Tests redundancy, "
-                    "graceful degradation, and abort decisions.",
+        "graceful degradation, and abort decisions.",
         category=ScenarioCategory.SENSOR_FAILURE,
         duration_minutes=18.0,
         difficulty="extreme",
@@ -581,7 +582,7 @@ def create_multi_anomaly_scenario() -> Scenario:
         scenario_id="multi_anom_001",
         name="Multiple Anomaly Detection",
         description="Several assets have detected anomalies of varying severity. "
-                    "Tests prioritization and resource allocation.",
+        "Tests prioritization and resource allocation.",
         category=ScenarioCategory.MULTI_ANOMALY,
         duration_minutes=35.0,
         difficulty="normal",
@@ -666,7 +667,7 @@ def create_coordination_scenario() -> Scenario:
         scenario_id="coord_001",
         name="Fleet Coordination Challenge",
         description="Four drones must coordinate inspections in close proximity. "
-                    "Tests collision avoidance and task deconfliction.",
+        "Tests collision avoidance and task deconfliction.",
         category=ScenarioCategory.COORDINATION,
         duration_minutes=25.0,
         difficulty="hard",

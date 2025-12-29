@@ -80,9 +80,7 @@ class RedisStore:
             config: Redis configuration. Uses defaults if None.
         """
         if not REDIS_AVAILABLE:
-            raise ImportError(
-                "redis package not installed. Install with: pip install redis"
-            )
+            raise ImportError("redis package not installed. Install with: pip install redis")
 
         self.config = config or RedisConfig()
         self._client: Redis | None = None
@@ -96,9 +94,7 @@ class RedisStore:
             True if connection successful
         """
         try:
-            self.logger.info(
-                f"Connecting to Redis at {self.config.host}:{self.config.port}"
-            )
+            self.logger.info(f"Connecting to Redis at {self.config.host}:{self.config.port}")
 
             self._client = redis.Redis(
                 host=self.config.host,
@@ -262,7 +258,9 @@ class RedisStore:
 
         try:
             key = self._key("anomaly", anomaly_id)
-            data = anomaly.model_dump_json() if isinstance(anomaly, BaseModel) else json.dumps(anomaly)
+            data = (
+                anomaly.model_dump_json() if isinstance(anomaly, BaseModel) else json.dumps(anomaly)
+            )
 
             if self.config.anomaly_ttl > 0:
                 await self._client.setex(key, self.config.anomaly_ttl, data)
@@ -277,8 +275,7 @@ class RedisStore:
             anomaly_dict = anomaly.model_dump() if isinstance(anomaly, BaseModel) else anomaly
             if "asset_id" in anomaly_dict:
                 await self._client.sadd(
-                    self._key("anomalies", "asset", anomaly_dict["asset_id"]),
-                    anomaly_id
+                    self._key("anomalies", "asset", anomaly_dict["asset_id"]), anomaly_id
                 )
 
             return True
@@ -321,9 +318,7 @@ class RedisStore:
 
         try:
             # Get anomaly IDs sorted by score (timestamp) descending
-            anomaly_ids = await self._client.zrevrange(
-                self._key("anomalies"), 0, limit - 1
-            )
+            anomaly_ids = await self._client.zrevrange(self._key("anomalies"), 0, limit - 1)
 
             anomalies = []
             for anomaly_id in anomaly_ids:
@@ -350,9 +345,7 @@ class RedisStore:
             return []
 
         try:
-            anomaly_ids = await self._client.smembers(
-                self._key("anomalies", "asset", asset_id)
-            )
+            anomaly_ids = await self._client.smembers(self._key("anomalies", "asset", asset_id))
 
             anomalies = []
             for anomaly_id in anomaly_ids:
@@ -392,10 +385,7 @@ class RedisStore:
     # ==================== Detection Operations ====================
 
     async def add_detection(
-        self,
-        asset_id: str,
-        detection: BaseModel | dict,
-        timestamp: datetime | None = None
+        self, asset_id: str, detection: BaseModel | dict, timestamp: datetime | None = None
     ) -> bool:
         """Store a detection result.
 
@@ -415,7 +405,11 @@ class RedisStore:
             detection_id = f"{asset_id}:{ts.timestamp()}"
             key = self._key("detection", detection_id)
 
-            data = detection.model_dump_json() if isinstance(detection, BaseModel) else json.dumps(detection)
+            data = (
+                detection.model_dump_json()
+                if isinstance(detection, BaseModel)
+                else json.dumps(detection)
+            )
 
             if self.config.detection_ttl > 0:
                 await self._client.setex(key, self.config.detection_ttl, data)
@@ -424,8 +418,7 @@ class RedisStore:
 
             # Add to detection list for asset (sorted by timestamp)
             await self._client.zadd(
-                self._key("detections", asset_id),
-                {detection_id: ts.timestamp()}
+                self._key("detections", asset_id), {detection_id: ts.timestamp()}
             )
 
             return True
@@ -435,10 +428,7 @@ class RedisStore:
             return False
 
     async def get_detections_for_asset(
-        self,
-        asset_id: str,
-        limit: int = 50,
-        since: datetime | None = None
+        self, asset_id: str, limit: int = 50, since: datetime | None = None
     ) -> list[dict]:
         """Get detections for an asset.
 
@@ -457,11 +447,7 @@ class RedisStore:
             min_score = since.timestamp() if since else "-inf"
 
             detection_ids = await self._client.zrevrangebyscore(
-                self._key("detections", asset_id),
-                "+inf",
-                min_score,
-                start=0,
-                num=limit
+                self._key("detections", asset_id), "+inf", min_score, start=0, num=limit
             )
 
             detections = []
@@ -515,10 +501,7 @@ class RedisStore:
             return False
 
     async def get_telemetry(
-        self,
-        vehicle_id: str,
-        since: datetime | None = None,
-        limit: int = 100
+        self, vehicle_id: str, since: datetime | None = None, limit: int = 100
     ) -> list[dict]:
         """Get telemetry for a vehicle.
 
@@ -625,9 +608,7 @@ class RedisStore:
             return []
 
         try:
-            mission_ids = await self._client.zrevrange(
-                self._key("missions"), 0, limit - 1
-            )
+            mission_ids = await self._client.zrevrange(self._key("missions"), 0, limit - 1)
 
             missions = []
             for mission_id in mission_ids:
@@ -787,9 +768,7 @@ class InMemoryStore:
         Returns:
             True always, as in-memory is always available.
         """
-        self.logger.warning(
-            "Using in-memory store - data will not persist across restarts"
-        )
+        self.logger.warning("Using in-memory store - data will not persist across restarts")
         self._connected = True
         return True
 
@@ -1067,7 +1046,6 @@ def create_store(config: RedisConfig | None = None) -> RedisStore | InMemoryStor
         return RedisStore(config)
     else:
         logger.warning(
-            "redis package not available, using in-memory store. "
-            "Install with: pip install redis"
+            "redis package not available, using in-memory store. Install with: pip install redis"
         )
         return InMemoryStore(config)

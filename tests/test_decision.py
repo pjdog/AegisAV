@@ -20,7 +20,7 @@ class TestDecisionBasic:
         assert decision.action == ActionType.WAIT
         assert decision.parameters == {}
         assert decision.confidence == 1.0
-        assert decision.reasoning == ""
+        assert not decision.reasoning
         assert decision.risk_factors == {}
         assert decision.supersedes is None
         assert decision.decision_id.startswith("dec_")
@@ -351,7 +351,7 @@ class TestDecisionEdgeCases:
     def test_empty_reasoning(self):
         """Test decision with empty reasoning."""
         decision = Decision(action=ActionType.WAIT, reasoning="")
-        assert decision.reasoning == ""
+        assert not decision.reasoning
 
     def test_zero_confidence(self):
         """Test decision with zero confidence."""

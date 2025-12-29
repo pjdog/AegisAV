@@ -17,17 +17,19 @@ import argparse
 import asyncio
 import logging
 import os
-import subprocess
+import subprocess  # noqa: S404
 import sys
 from pathlib import Path
 
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+from autonomy.vehicle_state import Position
 from simulation.sitl_manager import SITLConfig, SITLFrame, SITLManager, SITLVehicle
 
 try:
     from simulation.airsim_bridge import AirSimBridge, AirSimCameraConfig
+
     AIRSIM_AVAILABLE = True
 except ImportError:
     AIRSIM_AVAILABLE = False
@@ -58,8 +60,8 @@ class FullSimulation:
         use_airsim: bool = True,
         use_sitl: bool = True,
         ardupilot_path: Path | None = None,
-        home_position: tuple[float, float, float] = (37.7749, -122.4194, 0.0)
-    ):
+        home_position: tuple[float, float, float] = (37.7749, -122.4194, 0.0),
+    ) -> None:
         """Initialize simulation components."""
         self.use_airsim = use_airsim and AIRSIM_AVAILABLE
         self.use_sitl = use_sitl
@@ -73,7 +75,7 @@ class FullSimulation:
             home_lon=home_position[1],
             home_alt=home_position[2],
             console=True,
-            map_display=True
+            map_display=True,
         )
 
         # Component references
@@ -109,10 +111,9 @@ class FullSimulation:
         # 2. Connect to AirSim
         if self.use_airsim:
             logger.info("[2/4] Connecting to AirSim...")
-            self.airsim_bridge = AirSimBridge(AirSimCameraConfig(
-                output_dir=Path("data/vision/simulation"),
-                save_images=True
-            ))
+            self.airsim_bridge = AirSimBridge(
+                AirSimCameraConfig(output_dir=Path("data/vision/simulation"), save_images=True)
+            )
 
             if not await self.airsim_bridge.connect():
                 logger.warning("AirSim not available - using mock vision")
@@ -127,9 +128,7 @@ class FullSimulation:
             logger.info("[3/4] Connecting MAVLink...")
             self.mavlink = MAVLinkInterface()
 
-            connected = await self.mavlink.connect(
-                self.sitl_manager.mavlink_connection_string
-            )
+            connected = await self.mavlink.connect(self.sitl_manager.mavlink_connection_string)
             if not connected:
                 logger.error("Failed to connect MAVLink")
                 return False
@@ -139,9 +138,19 @@ class FullSimulation:
 
         # 4. Start AegisAV server
         logger.info("[4/4] Starting AegisAV server...")
-        self.server_process = subprocess.Popen(
-            [sys.executable, "-m", "uvicorn", "agent.server.main:app",
-             "--host", "0.0.0.0", "--port", "8000", "--log-level", "warning"],
+        self.server_process = subprocess.Popen(  # noqa: S603
+            [
+                sys.executable,
+                "-m",
+                "uvicorn",
+                "agent.server.main:app",
+                "--host",
+                "127.0.0.1",
+                "--port",
+                "8000",
+                "--log-level",
+                "warning",
+            ],
             cwd=Path(__file__).parent.parent,
             env={**os.environ, "PYTHONPATH": str(Path(__file__).parent.parent)},
         )
@@ -149,10 +158,7 @@ class FullSimulation:
         logger.info("  ✓ Server running on http://localhost:8000")
 
         # Initialize vision detector
-        self.detector = MockYOLODetector(
-            model_variant="yolov8n",
-            confidence_threshold=0.4
-        )
+        self.detector = MockYOLODetector(model_variant="yolov8n", confidence_threshold=0.4)
         await self.detector.initialize()
 
         self.running = True
@@ -266,11 +272,7 @@ class FullSimulation:
         logger.info("Simulation stopped")
 
 
-# Import at end to avoid circular imports
-from autonomy.vehicle_state import Position
-
-
-async def main():
+async def main() -> int:
     """Main entry point."""
     parser = argparse.ArgumentParser(description="AegisAV Full Simulation")
     parser.add_argument("--airsim", action="store_true", help="Enable AirSim rendering")
@@ -288,7 +290,7 @@ async def main():
     sim = FullSimulation(
         use_airsim=args.airsim and not args.mock,
         use_sitl=args.sitl and not args.mock,
-        ardupilot_path=args.ardupilot
+        ardupilot_path=args.ardupilot,
     )
 
     try:

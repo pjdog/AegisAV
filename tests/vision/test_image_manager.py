@@ -94,9 +94,7 @@ class TestSaveImageWithMetadata:
         """Test that saving with asset_id creates asset subdirectory."""
         metadata = {"asset": "test_asset"}
 
-        saved_path = manager.save_image_with_metadata(
-            sample_image, metadata, asset_id="asset_001"
-        )
+        saved_path = manager.save_image_with_metadata(sample_image, metadata, asset_id="asset_001")
 
         # Check asset subdirectory
         assert "asset_001" in str(saved_path)
@@ -145,7 +143,7 @@ class TestSaveImageWithMetadata:
         assert saved_path.exists()
         assert saved_path != sample_image
 
-    def test_save_same_location_no_copy(self, manager, sample_image, temp_dir):
+    def test_save_same_location_no_copy(self, manager, sample_image, _temp_dir):
         """Test that no copy occurs if image already in destination."""
         # Move sample image into the manager's directory
         date_str = datetime.now().strftime("%Y-%m-%d")
@@ -238,7 +236,7 @@ class TestCleanupOldImages:
         """Create ImageManager with short retention."""
         return ImageManager(base_dir=temp_dir / "images", retention_days=7)
 
-    def test_cleanup_removes_old_directories(self, manager, temp_dir):
+    def test_cleanup_removes_old_directories(self, manager, _temp_dir):
         """Test that cleanup removes directories older than retention period."""
         # Create old directory (10 days ago)
         old_date = datetime.now() - timedelta(days=10)
@@ -601,12 +599,8 @@ class TestEdgeCases:
         source.write_bytes(b"\x89PNG data")
 
         # Save to different assets
-        path1 = manager.save_image_with_metadata(
-            source, {"asset": "001"}, asset_id="asset_001"
-        )
-        path2 = manager.save_image_with_metadata(
-            source, {"asset": "002"}, asset_id="asset_002"
-        )
+        path1 = manager.save_image_with_metadata(source, {"asset": "001"}, asset_id="asset_001")
+        path2 = manager.save_image_with_metadata(source, {"asset": "002"}, asset_id="asset_002")
 
         assert path1 != path2
         assert path1.exists()
@@ -623,7 +617,8 @@ class TestEdgeCases:
     def test_large_retention_period(self, temp_dir):
         """Test with large retention period."""
         manager = ImageManager(
-            base_dir=temp_dir / "images", retention_days=365 * 10  # 10 years
+            base_dir=temp_dir / "images",
+            retention_days=365 * 10,  # 10 years
         )
 
         # Create old directory (still within retention)

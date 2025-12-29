@@ -192,9 +192,7 @@ class YOLODetector:
         try:
             # Run inference in thread pool
             loop = asyncio.get_event_loop()
-            results = await loop.run_in_executor(
-                None, lambda: self._run_inference(image_path)
-            )
+            results = await loop.run_in_executor(None, lambda: self._run_inference(image_path))
 
             # Process results
             detections = self._process_results(results)
@@ -528,7 +526,9 @@ def create_detector(
                 "Install with: pip install ultralytics"
             )
         return MockYOLODetector(
-            model_variant=Path(weights_path).stem if isinstance(weights_path, (str, Path)) else "yolov8n",
+            model_variant=Path(weights_path).stem
+            if isinstance(weights_path, (str, Path))
+            else "yolov8n",
             confidence_threshold=confidence_threshold,
             device=device,
         )

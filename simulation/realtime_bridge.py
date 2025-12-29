@@ -14,6 +14,7 @@ Key improvements over base bridge:
 from __future__ import annotations
 
 import asyncio
+import io
 import logging
 import time
 from collections import deque
@@ -24,8 +25,12 @@ from enum import Enum
 from pathlib import Path
 from typing import Any
 
+import numpy as np
+from PIL import Image
+
 try:
     import airsim
+
     AIRSIM_AVAILABLE = True
 except ImportError:
     AIRSIM_AVAILABLE = False
@@ -43,6 +48,7 @@ logger = logging.getLogger(__name__)
 
 class TelemetryType(str, Enum):
     """Types of telemetry messages."""
+
     POSE = "pose"
     IMU = "imu"
     FRAME = "frame"
@@ -52,27 +58,32 @@ class TelemetryType(str, Enum):
 
 class Vector3(BaseModel):
     """3D vector for position, velocity, acceleration."""
+
     x: float
     y: float
     z: float
 
     def to_list(self) -> list[float]:
+        """Return vector as [x, y, z]."""
         return [self.x, self.y, self.z]
 
 
 class Quaternion(BaseModel):
     """Quaternion for orientation."""
+
     w: float
     x: float
     y: float
     z: float
 
     def to_list(self) -> list[float]:
+        """Return quaternion as [w, x, y, z]."""
         return [self.w, self.x, self.y, self.z]
 
 
 class IMUData(BaseModel):
     """IMU sensor data."""
+
     timestamp_ns: int
     linear_acceleration: Vector3
     angular_velocity: Vector3
@@ -81,6 +92,7 @@ class IMUData(BaseModel):
 
 class PoseData(BaseModel):
     """Vehicle pose (position + orientation)."""
+
     timestamp_ns: int
     position: Vector3  # NED coordinates in meters
     orientation: Quaternion
@@ -90,6 +102,7 @@ class PoseData(BaseModel):
 
 class TelemetryFrame(BaseModel):
     """A synchronized telemetry frame with all sensor data."""
+
     sequence: int
     server_timestamp_ms: float
     airsim_timestamp_ns: int
@@ -113,7 +126,9 @@ class TelemetryFrame(BaseModel):
             "imu": {
                 "acceleration": self.imu.linear_acceleration.to_list(),
                 "gyro": self.imu.angular_velocity.to_list(),
-            } if self.imu else None,
+            }
+            if self.imu
+            else None,
             "battery_percent": self.battery_percent,
             "landed_state": self.landed_state,
         }
@@ -121,6 +136,7 @@ class TelemetryFrame(BaseModel):
 
 class FrameCaptureResult(BaseModel):
     """Result of a synchronized frame capture."""
+
     sequence: int
     success: bool
     timestamp: datetime
@@ -184,7 +200,7 @@ class RealtimeAirSimBridge:
             await websocket.send_json(frame.to_broadcast_dict())
     """
 
-    def __init__(self, config: RealtimeBridgeConfig | None = None):
+    def __init__(self, config: RealtimeBridgeConfig | None = None) -> None:
         if not AIRSIM_AVAILABLE:
             raise ImportError("airsim package not installed")
 
@@ -241,7 +257,7 @@ class RealtimeAirSimBridge:
             logger.info("Connecting to AirSim...")
 
             # Run blocking connection in thread pool
-            def _connect():
+            def _connect() -> airsim.MultirotorClient:
                 client = airsim.MultirotorClient()
                 client.confirmConnection()
                 client.enableApiControl(True, self.config.vehicle_name)
@@ -252,9 +268,7 @@ class RealtimeAirSimBridge:
 
             # Log camera info
             camera_info = await asyncio.to_thread(
-                self.client.simGetCameraInfo,
-                self.config.camera_name,
-                self.config.vehicle_name
+                self.client.simGetCameraInfo, self.config.camera_name, self.config.vehicle_name
             )
             logger.info(f"Connected to AirSim (camera FOV: {camera_info.fov})")
 
@@ -272,12 +286,10 @@ class RealtimeAirSimBridge:
         if self.client:
             try:
                 await asyncio.to_thread(
-                    self.client.enableApiControl,
-                    False,
-                    self.config.vehicle_name
+                    self.client.enableApiControl, False, self.config.vehicle_name
                 )
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning("Failed to disable API control: %s", exc)
             self.client = None
 
         self.connected = False
@@ -302,22 +314,14 @@ class RealtimeAirSimBridge:
         try:
             # Parallel fetch of all telemetry sources
             tasks = [
-                asyncio.to_thread(
-                    self.client.simGetVehiclePose,
-                    self.config.vehicle_name
-                ),
-                asyncio.to_thread(
-                    self.client.getMultirotorState,
-                    self.config.vehicle_name
-                ),
+                asyncio.to_thread(self.client.simGetVehiclePose, self.config.vehicle_name),
+                asyncio.to_thread(self.client.getMultirotorState, self.config.vehicle_name),
             ]
 
             if self.config.include_imu:
                 tasks.append(
                     asyncio.to_thread(
-                        self.client.getImuData,
-                        imu_name="",
-                        vehicle_name=self.config.vehicle_name
+                        self.client.getImuData, imu_name="", vehicle_name=self.config.vehicle_name
                     )
                 )
 
@@ -336,26 +340,24 @@ class RealtimeAirSimBridge:
             pose = PoseData(
                 timestamp_ns=int(time.time_ns()),
                 position=Vector3(
-                    x=pose_raw.position.x_val,
-                    y=pose_raw.position.y_val,
-                    z=pose_raw.position.z_val
+                    x=pose_raw.position.x_val, y=pose_raw.position.y_val, z=pose_raw.position.z_val
                 ),
                 orientation=Quaternion(
                     w=pose_raw.orientation.w_val,
                     x=pose_raw.orientation.x_val,
                     y=pose_raw.orientation.y_val,
-                    z=pose_raw.orientation.z_val
+                    z=pose_raw.orientation.z_val,
                 ),
                 linear_velocity=Vector3(
                     x=state_raw.kinematics_estimated.linear_velocity.x_val,
                     y=state_raw.kinematics_estimated.linear_velocity.y_val,
-                    z=state_raw.kinematics_estimated.linear_velocity.z_val
+                    z=state_raw.kinematics_estimated.linear_velocity.z_val,
                 ),
                 angular_velocity=Vector3(
                     x=state_raw.kinematics_estimated.angular_velocity.x_val,
                     y=state_raw.kinematics_estimated.angular_velocity.y_val,
-                    z=state_raw.kinematics_estimated.angular_velocity.z_val
-                )
+                    z=state_raw.kinematics_estimated.angular_velocity.z_val,
+                ),
             )
 
             # Convert IMU if available
@@ -366,24 +368,24 @@ class RealtimeAirSimBridge:
                     linear_acceleration=Vector3(
                         x=imu_raw.linear_acceleration.x_val,
                         y=imu_raw.linear_acceleration.y_val,
-                        z=imu_raw.linear_acceleration.z_val
+                        z=imu_raw.linear_acceleration.z_val,
                     ),
                     angular_velocity=Vector3(
                         x=imu_raw.angular_velocity.x_val,
                         y=imu_raw.angular_velocity.y_val,
-                        z=imu_raw.angular_velocity.z_val
+                        z=imu_raw.angular_velocity.z_val,
                     ),
                     orientation=Quaternion(
                         w=imu_raw.orientation.w_val,
                         x=imu_raw.orientation.x_val,
                         y=imu_raw.orientation.y_val,
-                        z=imu_raw.orientation.z_val
-                    )
+                        z=imu_raw.orientation.z_val,
+                    ),
                 )
 
             # Determine landed state
             landed_state = "landed"
-            if hasattr(state_raw, 'landed_state'):
+            if hasattr(state_raw, "landed_state"):
                 if state_raw.landed_state == airsim.LandedState.Flying:
                     landed_state = "flying"
                 elif state_raw.landed_state == airsim.LandedState.Landed:
@@ -400,17 +402,14 @@ class RealtimeAirSimBridge:
                 imu=imu,
                 battery_percent=100.0,  # TODO: Simulate battery
                 landed_state=landed_state,
-                latency_ms=latency_ms
+                latency_ms=latency_ms,
             )
 
         except Exception as e:
             logger.error(f"Failed to get synchronized state: {e}")
             return None
 
-    async def capture_frame_synchronized(
-        self,
-        include_image: bool = True
-    ) -> FrameCaptureResult:
+    async def capture_frame_synchronized(self, include_image: bool = True) -> FrameCaptureResult:
         """Capture image + pose + telemetry in synchronized manner.
 
         Args:
@@ -425,7 +424,7 @@ class RealtimeAirSimBridge:
                 success=False,
                 timestamp=datetime.now(),
                 server_timestamp_ms=time.time() * 1000,
-                error="Not connected"
+                error="Not connected",
             )
 
         start_time = time.perf_counter()
@@ -440,13 +439,15 @@ class RealtimeAirSimBridge:
                 tasks.append(
                     asyncio.to_thread(
                         self.client.simGetImages,
-                        [airsim.ImageRequest(
-                            self.config.camera_name,
-                            airsim.ImageType.Scene,
-                            pixels_as_float=False,
-                            compress=self.config.compress
-                        )],
-                        self.config.vehicle_name
+                        [
+                            airsim.ImageRequest(
+                                self.config.camera_name,
+                                airsim.ImageType.Scene,
+                                pixels_as_float=False,
+                                compress=self.config.compress,
+                            )
+                        ],
+                        self.config.vehicle_name,
                     )
                 )
 
@@ -474,19 +475,14 @@ class RealtimeAirSimBridge:
 
             # Save image if requested
             if image_response and len(image_response) > 0 and self.config.save_images:
-                import io
-
-                import numpy as np
-                from PIL import Image
-
                 response = image_response[0]
                 if self.config.compress:
                     img_array = np.frombuffer(response.image_data_uint8, dtype=np.uint8)
                     img = Image.open(io.BytesIO(img_array))
                 else:
-                    img_array = np.frombuffer(
-                        response.image_data_uint8, dtype=np.uint8
-                    ).reshape(response.height, response.width, 3)
+                    img_array = np.frombuffer(response.image_data_uint8, dtype=np.uint8).reshape(
+                        response.height, response.width, 3
+                    )
                     img = Image.fromarray(img_array)
 
                 filename = f"frame_{seq:08d}.jpg"
@@ -504,7 +500,7 @@ class RealtimeAirSimBridge:
                 image_path=image_path,
                 telemetry=telemetry,
                 capture_latency_ms=capture_latency,
-                total_latency_ms=total_latency
+                total_latency_ms=total_latency,
             )
 
         except Exception as e:
@@ -514,7 +510,7 @@ class RealtimeAirSimBridge:
                 success=False,
                 timestamp=datetime.now(),
                 server_timestamp_ms=time.time() * 1000,
-                error=str(e)
+                error=str(e),
             )
 
     # -------------------------------------------------------------------------
@@ -594,10 +590,7 @@ class RealtimeAirSimBridge:
         """
         while self._streaming or not self._telemetry_queue.empty():
             try:
-                frame = await asyncio.wait_for(
-                    self._telemetry_queue.get(),
-                    timeout=1.0
-                )
+                frame = await asyncio.wait_for(self._telemetry_queue.get(), timeout=1.0)
                 yield frame
             except asyncio.TimeoutError:
                 if not self._streaming:
@@ -607,17 +600,11 @@ class RealtimeAirSimBridge:
     # Callbacks
     # -------------------------------------------------------------------------
 
-    def on_telemetry(
-        self,
-        callback: Callable[[TelemetryFrame], Awaitable[None]]
-    ) -> None:
+    def on_telemetry(self, callback: Callable[[TelemetryFrame], Awaitable[None]]) -> None:
         """Register callback for telemetry updates."""
         self._on_telemetry.append(callback)
 
-    def on_frame(
-        self,
-        callback: Callable[[FrameCaptureResult], Awaitable[None]]
-    ) -> None:
+    def on_frame(self, callback: Callable[[FrameCaptureResult], Awaitable[None]]) -> None:
         """Register callback for frame captures."""
         self._on_frame.append(callback)
 
@@ -662,10 +649,8 @@ class TelemetryBroadcaster:
     """
 
     def __init__(
-        self,
-        bridge: RealtimeAirSimBridge,
-        broadcast_fn: Callable[[dict], Awaitable[None]]
-    ):
+        self, bridge: RealtimeAirSimBridge, broadcast_fn: Callable[[dict], Awaitable[None]]
+    ) -> None:
         self.bridge = bridge
         self.broadcast = broadcast_fn
         self._running = False
@@ -679,7 +664,7 @@ class TelemetryBroadcaster:
         self._running = True
 
         # Register callback with bridge
-        async def on_frame(frame: TelemetryFrame):
+        async def on_frame(frame: TelemetryFrame) -> None:
             await self.broadcast(frame.to_broadcast_dict())
 
         self.bridge.on_telemetry(on_frame)

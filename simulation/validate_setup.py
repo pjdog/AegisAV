@@ -9,11 +9,22 @@ Validates that all simulation components are properly configured:
 """
 
 import asyncio
+import json
+import logging
 import sys
 from pathlib import Path
 
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
+
+try:
+    from simulation.airsim_bridge import AIRSIM_AVAILABLE, AirSimBridge, AirSimCameraConfig
+except ImportError:
+    AIRSIM_AVAILABLE = False
+    AirSimBridge = None
+    AirSimCameraConfig = None
+
+logger = logging.getLogger(__name__)
 
 
 def check_mark(passed: bool) -> str:
@@ -23,92 +34,99 @@ def check_mark(passed: bool) -> str:
 
 async def validate_airsim() -> bool:
     """Test AirSim connection and camera capture."""
-    print("\n[1/5] Testing AirSim connection...")
+    logger.info("")
+    logger.info("[1/5] Testing AirSim connection...")
 
     try:
-        from simulation.airsim_bridge import AIRSIM_AVAILABLE, AirSimBridge, AirSimCameraConfig
-
-        if not AIRSIM_AVAILABLE:
-            print(f"  {check_mark(False)} airsim package not installed")
-            print("      Install with: pip install airsim")
+        if not AIRSIM_AVAILABLE or AirSimBridge is None or AirSimCameraConfig is None:
+            logger.info("  %s airsim package not installed", check_mark(False))
+            logger.info("      Install with: pip install airsim")
             return False
 
-        print(f"  {check_mark(True)} airsim package available")
+        logger.info("  %s airsim package available", check_mark(True))
 
         # Try to connect
-        bridge = AirSimBridge(AirSimCameraConfig(
-            output_dir=Path("data/validation"),
-            save_images=True
-        ))
+        bridge = AirSimBridge(
+            AirSimCameraConfig(output_dir=Path("data/validation"), save_images=True)
+        )
 
         if await bridge.connect():
-            print(f"  {check_mark(True)} Connected to AirSim")
+            logger.info("  %s Connected to AirSim", check_mark(True))
 
             # Test camera capture
             result = await bridge.capture_frame({"validation": True})
             if result.success:
-                print(f"  {check_mark(True)} Camera capture successful: {result.image_path}")
+                logger.info(
+                    "  %s Camera capture successful: %s",
+                    check_mark(True),
+                    result.image_path,
+                )
 
                 # Check image dimensions
                 if result.metadata.get("resolution"):
                     w, h = result.metadata["resolution"]
-                    print(f"      Resolution: {w}x{h}")
+                    logger.info("      Resolution: %sx%s", w, h)
             else:
-                print(f"  {check_mark(False)} Camera capture failed")
+                logger.info("  %s Camera capture failed", check_mark(False))
                 return False
 
             # Get vehicle state
             state = await bridge.get_vehicle_state()
             if state:
-                print(f"  {check_mark(True)} Vehicle state available")
-                print(f"      Position: ({state.position.latitude:.4f}, {state.position.longitude:.4f})")
-                print(f"      Altitude: {state.position.altitude_msl:.1f}m")
+                logger.info("  %s Vehicle state available", check_mark(True))
+                logger.info(
+                    "      Position: (%.4f, %.4f)",
+                    state.position.latitude,
+                    state.position.longitude,
+                )
+                logger.info("      Altitude: %.1fm", state.position.altitude_msl)
             else:
-                print(f"  {check_mark(False)} Vehicle state unavailable")
+                logger.info("  %s Vehicle state unavailable", check_mark(False))
 
             await bridge.disconnect()
             return True
         else:
-            print(f"  {check_mark(False)} AirSim connection failed")
-            print("      Make sure Unreal Engine with AirSim is running!")
+            logger.info("  %s AirSim connection failed", check_mark(False))
+            logger.info("      Make sure Unreal Engine with AirSim is running!")
             return False
 
     except ImportError as e:
-        print(f"  {check_mark(False)} Import error: {e}")
+        logger.info("  %s Import error: %s", check_mark(False), e)
         return False
     except Exception as e:
-        print(f"  {check_mark(False)} Error: {e}")
+        logger.info("  %s Error: %s", check_mark(False), e)
         return False
 
 
 def validate_ardupilot() -> bool:
     """Check ArduPilot SITL installation."""
-    print("\n[2/5] Checking ArduPilot SITL...")
+    logger.info("")
+    logger.info("[2/5] Checking ArduPilot SITL...")
 
     ardupilot_path = Path.home() / "ardupilot"
     sim_vehicle = ardupilot_path / "Tools" / "autotest" / "sim_vehicle.py"
 
     if ardupilot_path.exists():
-        print(f"  {check_mark(True)} ArduPilot directory exists: {ardupilot_path}")
+        logger.info("  %s ArduPilot directory exists: %s", check_mark(True), ardupilot_path)
     else:
-        print(f"  {check_mark(False)} ArduPilot not found at {ardupilot_path}")
-        print("      Run: ./simulation/setup_desktop.sh")
+        logger.info("  %s ArduPilot not found at %s", check_mark(False), ardupilot_path)
+        logger.info("      Run: ./simulation/setup_desktop.sh")
         return False
 
     if sim_vehicle.exists():
-        print(f"  {check_mark(True)} sim_vehicle.py found")
+        logger.info("  %s sim_vehicle.py found", check_mark(True))
     else:
-        print(f"  {check_mark(False)} sim_vehicle.py not found")
-        print("      ArduPilot may not be fully installed")
+        logger.info("  %s sim_vehicle.py not found", check_mark(False))
+        logger.info("      ArduPilot may not be fully installed")
         return False
 
     # Check for ArduCopter binary
     copter_binary = ardupilot_path / "build" / "sitl" / "bin" / "arducopter"
     if copter_binary.exists():
-        print(f"  {check_mark(True)} ArduCopter binary built")
+        logger.info("  %s ArduCopter binary built", check_mark(True))
     else:
-        print(f"  {check_mark(False)} ArduCopter binary not found")
-        print("      Run: cd ~/ardupilot && ./waf configure --board sitl && ./waf copter")
+        logger.info("  %s ArduCopter binary not found", check_mark(False))
+        logger.info("      Run: cd ~/ardupilot && ./waf configure --board sitl && ./waf copter")
         return False
 
     return True
@@ -116,7 +134,8 @@ def validate_ardupilot() -> bool:
 
 def validate_dependencies() -> bool:
     """Check Python dependencies."""
-    print("\n[3/5] Checking Python dependencies...")
+    logger.info("")
+    logger.info("[3/5] Checking Python dependencies...")
 
     required = [
         ("airsim", "airsim"),
@@ -132,9 +151,14 @@ def validate_dependencies() -> bool:
     for module, package in required:
         try:
             __import__(module)
-            print(f"  {check_mark(True)} {package}")
+            logger.info("  %s %s", check_mark(True), package)
         except ImportError:
-            print(f"  {check_mark(False)} {package} - install with: pip install {package}")
+            logger.info(
+                "  %s %s - install with: pip install %s",
+                check_mark(False),
+                package,
+                package,
+            )
             all_good = False
 
     return all_good
@@ -142,7 +166,8 @@ def validate_dependencies() -> bool:
 
 def validate_directories() -> bool:
     """Check required directories exist."""
-    print("\n[4/5] Checking directory structure...")
+    logger.info("")
+    logger.info("[4/5] Checking directory structure...")
 
     project_root = Path(__file__).parent.parent
     required_dirs = [
@@ -159,9 +184,9 @@ def validate_directories() -> bool:
     for dir_path in required_dirs:
         full_path = project_root / dir_path
         if full_path.exists():
-            print(f"  {check_mark(True)} {dir_path}/")
+            logger.info("  %s %s/", check_mark(True), dir_path)
         else:
-            print(f"  {check_mark(False)} {dir_path}/ - missing")
+            logger.info("  %s %s/ - missing", check_mark(False), dir_path)
             all_good = False
 
     # Create data directories if missing
@@ -176,57 +201,63 @@ def validate_directories() -> bool:
         full_path = project_root / dir_path
         if not full_path.exists():
             full_path.mkdir(parents=True, exist_ok=True)
-            print(f"  {check_mark(True)} Created {dir_path}/")
+            logger.info("  %s Created %s/", check_mark(True), dir_path)
 
     return all_good
 
 
 def validate_airsim_settings() -> bool:
     """Check AirSim settings file."""
-    print("\n[5/5] Checking AirSim settings...")
+    logger.info("")
+    logger.info("[5/5] Checking AirSim settings...")
 
     settings_path = Path.home() / "Documents" / "AirSim" / "settings.json"
 
     if settings_path.exists():
-        print(f"  {check_mark(True)} settings.json exists")
+        logger.info("  %s settings.json exists", check_mark(True))
 
         # Check content
-        import json
         try:
             with open(settings_path) as f:
                 settings = json.load(f)
 
             if settings.get("SimMode") == "Multirotor":
-                print(f"  {check_mark(True)} SimMode: Multirotor")
+                logger.info("  %s SimMode: Multirotor", check_mark(True))
             else:
-                print(f"  {check_mark(False)} SimMode should be 'Multirotor'")
+                logger.info("  %s SimMode should be 'Multirotor'", check_mark(False))
 
             vehicles = settings.get("Vehicles", {})
             if vehicles:
                 for name, config in vehicles.items():
                     vtype = config.get("VehicleType", "Unknown")
-                    print(f"  {check_mark(True)} Vehicle '{name}': {vtype}")
+                    logger.info(
+                        "  %s Vehicle '%s': %s",
+                        check_mark(True),
+                        name,
+                        vtype,
+                    )
             else:
-                print(f"  {check_mark(False)} No vehicles configured")
+                logger.info("  %s No vehicles configured", check_mark(False))
 
             return True
 
         except json.JSONDecodeError as e:
-            print(f"  {check_mark(False)} Invalid JSON: {e}")
+            logger.info("  %s Invalid JSON: %s", check_mark(False), e)
             return False
 
     else:
-        print(f"  {check_mark(False)} settings.json not found")
-        print(f"      Expected at: {settings_path}")
-        print("      Run: ./simulation/setup_desktop.sh")
+        logger.info("  %s settings.json not found", check_mark(False))
+        logger.info("      Expected at: %s", settings_path)
+        logger.info("      Run: ./simulation/setup_desktop.sh")
         return False
 
 
-async def main():
+async def main() -> int:
     """Run all validation checks."""
-    print("=" * 60)
-    print("  AegisAV Simulation Setup Validator")
-    print("=" * 60)
+    logging.basicConfig(level=logging.INFO, format="%(message)s")
+    logger.info("=" * 60)
+    logger.info("  AegisAV Simulation Setup Validator")
+    logger.info("=" * 60)
 
     results = {
         "AirSim": False,
@@ -243,47 +274,45 @@ async def main():
     results["Settings"] = validate_airsim_settings()
 
     # AirSim requires the simulator to be running
-    print("\n" + "-" * 60)
-    print("Note: AirSim validation requires Unreal Engine to be running.")
-    print("If Unreal is not running, AirSim test will be skipped.")
-    print("-" * 60)
+    logger.info("")
+    logger.info("-" * 60)
+    logger.info("Note: AirSim validation requires Unreal Engine to be running.")
+    logger.info("If Unreal is not running, AirSim test will be skipped.")
+    logger.info("-" * 60)
 
     try:
-        results["AirSim"] = await asyncio.wait_for(
-            validate_airsim(),
-            timeout=10.0
-        )
+        results["AirSim"] = await asyncio.wait_for(validate_airsim(), timeout=10.0)
     except asyncio.TimeoutError:
-        print(f"  {check_mark(False)} AirSim connection timed out")
-        print("      Unreal Engine may not be running")
+        logger.info("  %s AirSim connection timed out", check_mark(False))
+        logger.info("      Unreal Engine may not be running")
     except Exception as e:
-        print(f"  {check_mark(False)} AirSim error: {e}")
+        logger.info("  %s AirSim error: %s", check_mark(False), e)
 
     # Summary
-    print("\n" + "=" * 60)
-    print("  Validation Summary")
-    print("=" * 60)
+    logger.info("")
+    logger.info("=" * 60)
+    logger.info("  Validation Summary")
+    logger.info("=" * 60)
 
     all_passed = True
     for name, passed in results.items():
         status = check_mark(passed)
-        print(f"  {status} {name}")
+        logger.info("  %s %s", status, name)
         if not passed:
             all_passed = False
 
-    print()
     if all_passed:
-        print("\033[92m  All checks passed! Ready for simulation.\033[0m")
+        logger.info("\033[92m  All checks passed! Ready for simulation.\033[0m")
     else:
-        print("\033[93m  Some checks failed. See above for details.\033[0m")
+        logger.info("\033[93m  Some checks failed. See above for details.\033[0m")
 
-    print()
-    print("Next steps:")
-    print("  1. Start Unreal Engine with AirSim")
-    print("  2. Start ArduPilot SITL: sim_vehicle.py -v ArduCopter -f airsim-copter")
-    print("  3. Run: python simulation/run_simulation.py --airsim --sitl")
-    print("  4. Open: http://localhost:8000/dashboard")
-    print()
+    logger.info("")
+    logger.info("Next steps:")
+    logger.info("  1. Start Unreal Engine with AirSim")
+    logger.info("  2. Start ArduPilot SITL: sim_vehicle.py -v ArduCopter -f airsim-copter")
+    logger.info("  3. Run: python simulation/run_simulation.py --airsim --sitl")
+    logger.info("  4. Open: http://localhost:8000/dashboard")
+    logger.info("")
 
     return 0 if all_passed else 1
 

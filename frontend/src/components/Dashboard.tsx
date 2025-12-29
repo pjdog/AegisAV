@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
 import SettingsPanel from "./SettingsPanel";
 import SpatialView from "./SpatialView";
+import logo from "../assets/aegis_logo.svg";
 
 type RunSummary = {
   total: number;
@@ -46,6 +46,28 @@ type LogEntry = {
   level: string;
   name: string;
   message: string;
+};
+
+type TelemetryPayload = {
+  timestamp?: string;
+  battery?: {
+    remaining_percent?: number;
+    voltage?: number;
+    current?: number;
+  };
+  mode?: string;
+  armed?: boolean;
+  position?: {
+    latitude?: number;
+    longitude?: number;
+    altitude_msl?: number;
+    altitude_agl?: number | null;
+  };
+};
+
+type TelemetryEntry = {
+  vehicle_id: string;
+  telemetry: TelemetryPayload;
 };
 
 type RunData = {
@@ -145,6 +167,18 @@ const formatTime = (value?: string | null) => {
   return date.toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
 };
 
+const formatCoord = (value?: number) => {
+  if (value === null || value === undefined || Number.isNaN(value)) return "--";
+  return value.toFixed(5);
+};
+
+const batteryTone = (value?: number) => {
+  if (value === null || value === undefined || Number.isNaN(value)) return "ok";
+  if (value <= 20) return "critical";
+  if (value <= 35) return "warn";
+  return "ok";
+};
+
 const buildPath = (points: SeriesPoint[], width: number, height: number, pad = 16) => {
   if (!points.length) return "";
   const values = points.map((p) => p.value);
@@ -197,6 +231,64 @@ const LineChart = ({
         )}
       </svg>
     </div>
+  );
+};
+
+const FleetTelemetry = ({ telemetry }: { telemetry: TelemetryEntry[] }) => {
+  return (
+    <section className="card fleet-section">
+      <div className="card-header">
+        <h2>Fleet Telemetry</h2>
+        <span className="pill">{telemetry.length} drones</span>
+      </div>
+      {telemetry.length === 0 ? (
+        <p className="note">No telemetry received yet.</p>
+      ) : (
+        <div className="fleet-grid">
+          {telemetry.map((entry) => {
+            const payload = entry.telemetry || {};
+            const battery = payload.battery?.remaining_percent;
+            return (
+              <div key={entry.vehicle_id} className="fleet-card">
+                <div className="fleet-header">
+                  <div>
+                    <h3 className="fleet-id">{entry.vehicle_id}</h3>
+                    <span className="fleet-tag">{payload.mode ?? "UNKNOWN"}</span>
+                  </div>
+                  <div className={`fleet-battery ${batteryTone(battery)}`}>
+                    {battery !== undefined ? `${battery.toFixed(0)}%` : "--"}
+                  </div>
+                </div>
+                <div className="fleet-metrics">
+                  <div className="fleet-metric">
+                    <span className="fleet-label">Armed</span>
+                    <span className="fleet-value">{payload.armed ? "YES" : "NO"}</span>
+                  </div>
+                  <div className="fleet-metric">
+                    <span className="fleet-label">Altitude</span>
+                    <span className="fleet-value">
+                      {formatNumber(payload.position?.altitude_msl, 1)}m
+                    </span>
+                  </div>
+                  <div className="fleet-metric">
+                    <span className="fleet-label">Latitude</span>
+                    <span className="fleet-value">{formatCoord(payload.position?.latitude)}</span>
+                  </div>
+                  <div className="fleet-metric">
+                    <span className="fleet-label">Longitude</span>
+                    <span className="fleet-value">{formatCoord(payload.position?.longitude)}</span>
+                  </div>
+                </div>
+                <div className="fleet-footer">
+                  <span className="fleet-status">Last update</span>
+                  <span className="fleet-status">{formatTime(payload.timestamp)}</span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </section>
   );
 };
 
@@ -482,6 +574,7 @@ const Dashboard = () => {
   const [edgeConfig, setEdgeConfig] = useState<EdgeComputeConfig | null>(null);
   const [edgeProfiles, setEdgeProfiles] = useState<string[]>([]);
   const [showAdvanced, setShowAdvanced] = useState<boolean>(false);
+  const [fleetTelemetry, setFleetTelemetry] = useState<TelemetryEntry[]>([]);
 
   const loadRun = useCallback(async () => {
     try {
@@ -514,8 +607,15 @@ const Dashboard = () => {
       const logsData = await logsResp.json();
       setLogs(logsData.logs || []);
 
+      const telemetryResp = await fetch("/api/telemetry/latest");
+      if (telemetryResp.ok) {
+        const telemetryData = await telemetryResp.json();
+        setFleetTelemetry(telemetryData.vehicles || []);
+      }
+
       setLastUpdated(new Date().toLocaleTimeString());
     } catch (error) {
+      console.error("Failed to load dashboard data", error);
       setStatus("Offline");
     }
   }, []);
@@ -562,6 +662,8 @@ const Dashboard = () => {
     }
   };
 
+  import logo from "../assets/aegis_logo.svg";
+
   useEffect(() => {
     loadRun();
     const timer = window.setInterval(loadRun, 5000);
@@ -571,6 +673,9 @@ const Dashboard = () => {
   return (
     <main className="dashboard-shell">
       <header className="dashboard-hero">
+        <div style={{ marginRight: "24px" }}>
+          <img src={logo} alt="AegisAV Shield" width="64" height="64" />
+        </div>
         <div>
           <p className="eyebrow">Aegis Onyx Interface</p>
           <h1>Mission Autonomy Monitor</h1>
@@ -656,6 +761,8 @@ const Dashboard = () => {
           <p className="note">Current primary power state.</p>
         </article>
       </section>
+
+      <FleetTelemetry telemetry={fleetTelemetry} />
 
       <section className="split">
         <LineChart

@@ -282,9 +282,7 @@ def add_dashboard_routes(app: FastAPI, log_dir: Path, store: Any = None) -> None
                 cat_enum = ScenarioCategory(category)
                 scenarios = get_scenarios_by_category(cat_enum)
             except ValueError as e:
-                raise HTTPException(
-                    status_code=400, detail=f"Invalid category: {category}"
-                ) from e
+                raise HTTPException(status_code=400, detail=f"Invalid category: {category}") from e
         elif difficulty:
             scenarios = get_scenarios_by_difficulty(difficulty)
         else:
@@ -370,7 +368,9 @@ def add_dashboard_routes(app: FastAPI, log_dir: Path, store: Any = None) -> None
         _runner_state.runner = ScenarioRunner(log_dir=log_dir)
         loaded = await _runner_state.runner.load_scenario(request.scenario_id)
         if not loaded:
-            raise HTTPException(status_code=404, detail=f"Scenario not found: {request.scenario_id}")
+            raise HTTPException(
+                status_code=404, detail=f"Scenario not found: {request.scenario_id}"
+            )
 
         _runner_state.is_running = True
         _runner_state.last_error = None
@@ -491,8 +491,12 @@ def add_dashboard_routes(app: FastAPI, log_dir: Path, store: Any = None) -> None
             "decision_count": len(run_state.decision_log),
             "drones": drones,
             "environment": {
-                "wind_speed_ms": run_state.environment.wind_speed_ms if run_state.environment else 0,
-                "visibility_m": run_state.environment.visibility_m if run_state.environment else 10000,
+                "wind_speed_ms": run_state.environment.wind_speed_ms
+                if run_state.environment
+                else 0,
+                "visibility_m": run_state.environment.visibility_m
+                if run_state.environment
+                else 10000,
             },
             "last_error": _runner_state.last_error,
         })
@@ -610,9 +614,6 @@ def add_dashboard_routes(app: FastAPI, log_dir: Path, store: Any = None) -> None
 
         summary = await get_run_summary(_store, run_id)
         if summary is None:
-            raise HTTPException(
-                status_code=404,
-                detail=f"No feedback found for run: {run_id}"
-            )
+            raise HTTPException(status_code=404, detail=f"No feedback found for run: {run_id}")
 
         return JSONResponse(summary.to_dict())

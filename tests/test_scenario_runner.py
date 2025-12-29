@@ -155,10 +155,7 @@ class TestScenarioRunner:
         await runner.run(time_scale=100.0, max_duration_s=3)
 
         # At least some decisions should have been made
-        total_decisions = sum(
-            ds.decisions_made
-            for ds in runner.run_state.drone_states.values()
-        )
+        total_decisions = sum(ds.decisions_made for ds in runner.run_state.drone_states.values())
         assert total_decisions > 0
 
     @pytest.mark.asyncio
@@ -357,8 +354,7 @@ class TestScenarioRunnerRiskCalculation:
 
         # Find drone with lowest battery
         lowest_battery_state = min(
-            runner.run_state.drone_states.values(),
-            key=lambda ds: ds.drone.battery_percent
+            runner.run_state.drone_states.values(), key=lambda ds: ds.drone.battery_percent
         )
 
         risk = runner._calculate_risk(lowest_battery_state)

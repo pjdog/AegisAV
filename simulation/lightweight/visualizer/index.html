@@ -1,0 +1,3263 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AegisAV Simulator</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <style>
+        :root {
+            --bg-base: #08080a;
+            --bg-surface: #111114;
+            --bg-elevated: #1a1a1f;
+            --bg-hover: #222228;
+            --border: rgba(255, 255, 255, 0.06);
+            --border-focus: rgba(59, 130, 246, 0.5);
+            --text: #f0f0f5;
+            --text-secondary: #a0a0a8;
+            --text-muted: #606068;
+            --accent: #3b82f6;
+            --accent-hover: #60a5fa;
+            --accent-glow: rgba(59, 130, 246, 0.25);
+            --success: #10b981;
+            --success-glow: rgba(16, 185, 129, 0.25);
+            --warning: #f59e0b;
+            --danger: #ef4444;
+            --purple: #8b5cf6;
+            --cyan: #06b6d4;
+            --radius: 8px;
+            --radius-lg: 12px;
+            --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.3);
+            --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.4);
+            --shadow-glow: 0 0 20px var(--accent-glow);
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: var(--bg-base);
+            color: var(--text);
+            overflow: hidden;
+            font-size: 13px;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        #app { display: flex; height: 100vh; }
+
+        /* Sidebar */
+        .sidebar {
+            width: 320px;
+            background: var(--bg-surface);
+            border-right: 1px solid var(--border);
+            display: flex;
+            flex-direction: column;
+            flex-shrink: 0;
+        }
+
+        .sidebar-header {
+            padding: 16px 20px;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .logo {
+            width: 36px;
+            height: 36px;
+            background: linear-gradient(135deg, var(--accent), var(--purple));
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+            font-size: 15px;
+            box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3), inset 0 1px 0 rgba(255,255,255,0.1);
+            position: relative;
+        }
+
+        .logo::after {
+            content: '';
+            position: absolute;
+            inset: 0;
+            border-radius: 10px;
+            border: 1px solid rgba(255, 255, 255, 0.15);
+        }
+
+        .sidebar-title {
+            font-weight: 600;
+            font-size: 15px;
+        }
+
+        .sidebar-subtitle {
+            font-size: 11px;
+            color: var(--text-muted);
+        }
+
+        .sidebar-content {
+            flex: 1;
+            overflow-y: auto;
+            padding: 16px;
+        }
+
+        /* Tabs */
+        .tabs {
+            display: flex;
+            gap: 4px;
+            margin-bottom: 16px;
+            background: var(--bg-base);
+            padding: 4px;
+            border-radius: var(--radius);
+        }
+
+        .tab {
+            flex: 1;
+            padding: 8px 12px;
+            background: transparent;
+            border: none;
+            color: var(--text-muted);
+            font-size: 12px;
+            font-weight: 500;
+            cursor: pointer;
+            border-radius: 6px;
+            transition: all 0.15s;
+        }
+
+        .tab:hover { color: var(--text-secondary); }
+        .tab.active { background: var(--bg-elevated); color: var(--text); }
+
+        .tab-panel { display: none; }
+        .tab-panel.active { display: block; }
+
+        /* Form Groups */
+        .form-group {
+            margin-bottom: 16px;
+        }
+
+        .form-label {
+            display: block;
+            font-size: 11px;
+            font-weight: 500;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-bottom: 6px;
+        }
+
+        .form-select, .form-input {
+            width: 100%;
+            padding: 10px 12px;
+            background: var(--bg-base);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            color: var(--text);
+            font-size: 13px;
+            font-family: inherit;
+            transition: border-color 0.15s;
+        }
+
+        .form-select:focus, .form-input:focus {
+            outline: none;
+            border-color: var(--border-focus);
+        }
+
+        .form-select { cursor: pointer; }
+
+        .form-hint {
+            font-size: 11px;
+            color: var(--text-muted);
+            margin-top: 6px;
+            line-height: 1.4;
+        }
+
+        /* Range Slider */
+        .range-group {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .range-slider {
+            flex: 1;
+            -webkit-appearance: none;
+            height: 4px;
+            background: var(--bg-base);
+            border-radius: 2px;
+            cursor: pointer;
+        }
+
+        .range-slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 14px;
+            height: 14px;
+            background: var(--accent);
+            border-radius: 50%;
+            cursor: pointer;
+        }
+
+        .range-value {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 12px;
+            color: var(--accent);
+            min-width: 40px;
+            text-align: right;
+        }
+
+        /* Button */
+        .btn {
+            width: 100%;
+            padding: 12px 16px;
+            background: linear-gradient(135deg, var(--accent), #2563eb);
+            border: none;
+            border-radius: var(--radius);
+            color: white;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            box-shadow: 0 2px 8px rgba(59, 130, 246, 0.3);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .btn::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: linear-gradient(135deg, rgba(255,255,255,0.1), transparent);
+            pointer-events: none;
+        }
+
+        .btn:hover {
+            background: linear-gradient(135deg, var(--accent-hover), #3b82f6);
+            box-shadow: 0 4px 16px rgba(59, 130, 246, 0.4);
+            transform: translateY(-1px);
+        }
+
+        .btn:active {
+            transform: translateY(0);
+        }
+
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            box-shadow: none;
+            transform: none;
+        }
+
+        .btn-danger {
+            background: linear-gradient(135deg, var(--danger), #dc2626);
+            box-shadow: 0 2px 8px rgba(239, 68, 68, 0.3);
+        }
+
+        .btn-danger:hover {
+            background: linear-gradient(135deg, #f87171, #ef4444);
+            box-shadow: 0 4px 16px rgba(239, 68, 68, 0.4);
+        }
+
+        /* Status Badge */
+        .status-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 10px;
+            background: var(--bg-base);
+            border-radius: var(--radius);
+            font-size: 11px;
+            font-weight: 500;
+        }
+
+        .status-dot {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+        }
+
+        .status-dot.connected { background: var(--success); }
+        .status-dot.disconnected { background: var(--danger); }
+        .status-dot.connecting { background: var(--warning); animation: pulse 1s infinite; }
+
+        @keyframes pulse { 50% { opacity: 0.5; } }
+        @keyframes fadeIn { from { opacity: 0; transform: translateX(-50%) translateY(10px); } to { opacity: 1; transform: translateX(-50%) translateY(0); } }
+
+        /* Stats */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 8px;
+            margin-bottom: 16px;
+        }
+
+        .stat-card {
+            background: var(--bg-base);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 14px 12px;
+            text-align: center;
+            transition: all 0.2s;
+        }
+
+        .stat-card:hover {
+            border-color: rgba(255, 255, 255, 0.1);
+            background: var(--bg-hover);
+        }
+
+        .stat-value {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 22px;
+            font-weight: 600;
+            background: linear-gradient(135deg, var(--accent), var(--cyan));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .stat-label {
+            font-size: 10px;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.03em;
+            margin-top: 4px;
+        }
+
+        /* Scenario Card */
+        .scenario-card {
+            padding: 12px;
+            background: var(--bg-base);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            margin-bottom: 12px;
+        }
+
+        .scenario-card.active {
+            border-color: var(--accent);
+            background: rgba(59, 130, 246, 0.05);
+        }
+
+        .scenario-name {
+            font-weight: 600;
+            margin-bottom: 4px;
+        }
+
+        .scenario-desc {
+            font-size: 12px;
+            color: var(--text-secondary);
+            line-height: 1.4;
+        }
+
+        .scenario-meta {
+            display: flex;
+            gap: 12px;
+            margin-top: 8px;
+            font-size: 11px;
+            color: var(--text-muted);
+        }
+
+        .scenario-meta span {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        /* Config Section */
+        .config-section {
+            margin-bottom: 20px;
+        }
+
+        .config-section-title {
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--text);
+            margin-bottom: 12px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .config-section-title::before {
+            content: '';
+            width: 3px;
+            height: 14px;
+            background: var(--accent);
+            border-radius: 2px;
+        }
+
+        /* Toggle */
+        .toggle-group {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 10px 0;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .toggle-label {
+            font-size: 13px;
+        }
+
+        .toggle-desc {
+            font-size: 11px;
+            color: var(--text-muted);
+        }
+
+        .toggle {
+            width: 40px;
+            height: 22px;
+            background: var(--bg-base);
+            border-radius: 11px;
+            position: relative;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        .toggle.active { background: var(--accent); }
+
+        .toggle::after {
+            content: '';
+            position: absolute;
+            width: 18px;
+            height: 18px;
+            background: white;
+            border-radius: 50%;
+            top: 2px;
+            left: 2px;
+            transition: transform 0.2s;
+        }
+
+        .toggle.active::after { transform: translateX(18px); }
+
+        /* Main Content */
+        .main {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            position: relative;
+        }
+
+        #canvas {
+            flex: 1;
+            display: block;
+        }
+
+        /* Floating Panel */
+        .float-panel {
+            position: absolute;
+            top: 16px;
+            right: 16px;
+            width: 360px;
+            background: rgba(17, 17, 20, 0.95);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: var(--radius-lg);
+            overflow: hidden;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+        }
+
+        .float-panel-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 14px 18px;
+            background: rgba(26, 26, 31, 0.8);
+            border-bottom: 1px solid var(--border);
+        }
+
+        .float-panel-title {
+            font-weight: 600;
+            font-size: 13px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .float-panel-title::before {
+            content: '';
+            width: 8px;
+            height: 8px;
+            border-radius: 2px;
+            background: linear-gradient(135deg, var(--accent), var(--purple));
+        }
+
+        .float-panel-content {
+            padding: 16px;
+            max-height: 420px;
+            overflow-y: auto;
+        }
+
+        /* Thought Bubble */
+        .thought-header {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 12px;
+        }
+
+        .cognitive-badge {
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 10px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.03em;
+        }
+
+        .cognitive-badge.reactive { background: rgba(107, 114, 128, 0.2); color: #9ca3af; }
+        .cognitive-badge.deliberative { background: rgba(59, 130, 246, 0.2); color: #60a5fa; }
+        .cognitive-badge.reflective { background: rgba(139, 92, 246, 0.2); color: #a78bfa; }
+        .cognitive-badge.predictive { background: rgba(16, 185, 129, 0.2); color: #34d399; }
+
+        .situation-box {
+            background: var(--bg-base);
+            border-left: 3px solid var(--accent);
+            padding: 10px 12px;
+            border-radius: 0 var(--radius) var(--radius) 0;
+            margin-bottom: 12px;
+        }
+
+        .situation-label {
+            font-size: 10px;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            margin-bottom: 4px;
+        }
+
+        .situation-text {
+            font-weight: 500;
+        }
+
+        .risk-bar {
+            margin-bottom: 12px;
+        }
+
+        .risk-header {
+            display: flex;
+            justify-content: space-between;
+            font-size: 11px;
+            margin-bottom: 4px;
+        }
+
+        .risk-track {
+            height: 4px;
+            background: var(--bg-base);
+            border-radius: 2px;
+            overflow: hidden;
+        }
+
+        .risk-fill {
+            height: 100%;
+            border-radius: 2px;
+            transition: width 0.3s;
+        }
+
+        .risk-fill.low { background: var(--success); }
+        .risk-fill.moderate { background: var(--warning); }
+        .risk-fill.high { background: #f97316; }
+        .risk-fill.critical { background: var(--danger); }
+
+        .risk-low { color: var(--success); }
+        .risk-moderate { color: var(--warning); }
+        .risk-high { color: #f97316; }
+        .risk-critical { color: var(--danger); }
+
+        .critics-row {
+            display: flex;
+            gap: 6px;
+            margin-bottom: 12px;
+        }
+
+        .critic {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 4px;
+            padding: 8px;
+            background: var(--bg-base);
+            border-radius: var(--radius);
+            font-size: 10px;
+            font-weight: 500;
+            transition: all 0.2s;
+        }
+
+        .critic.approve { background: rgba(16, 185, 129, 0.15); color: var(--success); }
+        .critic.reject { background: rgba(239, 68, 68, 0.15); color: var(--danger); }
+
+        .decision-box {
+            background: rgba(16, 185, 129, 0.1);
+            border: 1px solid var(--success);
+            border-radius: var(--radius);
+            padding: 12px;
+            display: none;
+        }
+
+        .decision-box.active { display: block; }
+
+        .decision-action {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--success);
+        }
+
+        .decision-confidence {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 12px;
+            color: var(--success);
+        }
+
+        /* Empty State */
+        .empty-state {
+            text-align: center;
+            padding: 32px;
+            color: var(--text-muted);
+        }
+
+        .empty-icon {
+            font-size: 32px;
+            margin-bottom: 8px;
+            opacity: 0.5;
+        }
+
+        /* Divider */
+        .divider {
+            height: 1px;
+            background: var(--border);
+            margin: 16px 0;
+        }
+
+        /* Launcher Cards */
+        .launch-card {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            padding: 14px;
+            background: var(--bg-base);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-lg);
+            margin-bottom: 10px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .launch-card:hover {
+            background: var(--bg-hover);
+            border-color: rgba(255, 255, 255, 0.1);
+            transform: translateY(-1px);
+            box-shadow: var(--shadow-sm);
+        }
+
+        .launch-card.running {
+            border-color: var(--success);
+            background: rgba(16, 185, 129, 0.05);
+        }
+
+        .launch-icon {
+            width: 40px;
+            height: 40px;
+            border-radius: var(--radius);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px;
+            flex-shrink: 0;
+        }
+
+        .launch-icon.blue { background: linear-gradient(135deg, var(--accent), #1d4ed8); }
+        .launch-icon.purple { background: linear-gradient(135deg, var(--purple), #6d28d9); }
+        .launch-icon.cyan { background: linear-gradient(135deg, var(--cyan), #0891b2); }
+        .launch-icon.green { background: linear-gradient(135deg, var(--success), #047857); }
+
+        .launch-info { flex: 1; min-width: 0; }
+        .launch-name { font-weight: 600; font-size: 13px; margin-bottom: 2px; }
+        .launch-desc { font-size: 11px; color: var(--text-muted); line-height: 1.4; }
+
+        .launch-status {
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 10px;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+
+        .launch-status.running { background: rgba(16, 185, 129, 0.2); color: var(--success); }
+        .launch-status.stopped { background: rgba(255, 255, 255, 0.05); color: var(--text-muted); }
+        .launch-status.starting { background: rgba(245, 158, 11, 0.2); color: var(--warning); }
+
+        .launch-action {
+            padding: 6px 12px;
+            background: var(--accent);
+            border: none;
+            border-radius: 6px;
+            color: white;
+            font-size: 11px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+
+        .launch-action:hover { background: var(--accent-hover); }
+        .launch-action.stop { background: var(--danger); }
+        .launch-action.stop:hover { background: #dc2626; }
+
+        /* Section Headers */
+        .section-header {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 14px;
+            font-size: 11px;
+            font-weight: 600;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .section-header::after {
+            content: '';
+            flex: 1;
+            height: 1px;
+            background: var(--border);
+        }
+
+        /* Scenario Status Bar */
+        .scenario-bar {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background: rgba(17, 17, 20, 0.95);
+            backdrop-filter: blur(12px);
+            border-top: 1px solid var(--border);
+            padding: 12px 20px;
+            display: none;
+            align-items: center;
+            gap: 20px;
+            z-index: 100;
+        }
+
+        .scenario-bar.active {
+            display: flex;
+        }
+
+        .scenario-bar-indicator {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .scenario-bar-dot {
+            width: 10px;
+            height: 10px;
+            background: var(--success);
+            border-radius: 50%;
+            animation: pulse-glow 2s ease-in-out infinite;
+        }
+
+        @keyframes pulse-glow {
+            0%, 100% { box-shadow: 0 0 4px var(--success); }
+            50% { box-shadow: 0 0 12px var(--success); }
+        }
+
+        .scenario-bar-name {
+            font-weight: 600;
+            font-size: 13px;
+        }
+
+        .scenario-bar-meta {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            flex: 1;
+        }
+
+        .scenario-bar-stat {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 12px;
+            color: var(--text-secondary);
+        }
+
+        .scenario-bar-stat-value {
+            font-family: 'JetBrains Mono', monospace;
+            color: var(--text);
+        }
+
+        .scenario-bar-progress {
+            flex: 1;
+            max-width: 200px;
+            height: 4px;
+            background: var(--bg-base);
+            border-radius: 2px;
+            overflow: hidden;
+        }
+
+        .scenario-bar-progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, var(--accent), var(--success));
+            border-radius: 2px;
+            transition: width 0.5s ease;
+        }
+
+        .scenario-bar-btn {
+            padding: 8px 16px;
+            background: var(--danger);
+            border: none;
+            border-radius: 6px;
+            color: white;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+
+        .scenario-bar-btn:hover {
+            background: #dc2626;
+        }
+
+        /* Timeline Panel */
+        .timeline-panel {
+            position: absolute;
+            top: 16px;
+            left: 16px;
+            width: 340px;
+            max-height: calc(100vh - 120px);
+            background: rgba(17, 17, 20, 0.95);
+            backdrop-filter: blur(12px);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-lg);
+            display: flex;
+            flex-direction: column;
+            z-index: 50;
+            box-shadow: var(--shadow-md);
+        }
+
+        .timeline-header {
+            padding: 12px 16px;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            flex-shrink: 0;
+        }
+
+        .timeline-title {
+            font-weight: 600;
+            font-size: 13px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .timeline-badge {
+            background: var(--accent);
+            color: white;
+            font-size: 10px;
+            font-weight: 600;
+            padding: 2px 6px;
+            border-radius: 10px;
+            min-width: 20px;
+            text-align: center;
+        }
+
+        .timeline-filters {
+            display: flex;
+            gap: 6px;
+        }
+
+        .timeline-filter {
+            padding: 4px 8px;
+            background: var(--bg-base);
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            color: var(--text-secondary);
+            font-size: 11px;
+            cursor: pointer;
+        }
+
+        .timeline-filter:focus {
+            outline: none;
+            border-color: var(--accent);
+        }
+
+        .timeline-content {
+            flex: 1;
+            overflow-y: auto;
+            padding: 8px;
+            max-height: 400px;
+        }
+
+        .timeline-event {
+            display: flex;
+            gap: 10px;
+            padding: 10px;
+            background: var(--bg-base);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            margin-bottom: 6px;
+            transition: all 0.15s;
+            cursor: pointer;
+        }
+
+        .timeline-event:hover {
+            background: var(--bg-hover);
+            border-color: rgba(255, 255, 255, 0.1);
+        }
+
+        .timeline-event.severity-critical {
+            border-left: 3px solid var(--danger);
+        }
+
+        .timeline-event.severity-warning {
+            border-left: 3px solid var(--warning);
+        }
+
+        .timeline-event.severity-info {
+            border-left: 3px solid var(--accent);
+        }
+
+        .timeline-drone-indicator {
+            width: 4px;
+            border-radius: 2px;
+            flex-shrink: 0;
+        }
+
+        .timeline-event-content {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .timeline-event-header {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            margin-bottom: 4px;
+        }
+
+        .timeline-event-drone {
+            font-size: 10px;
+            font-weight: 600;
+            padding: 2px 6px;
+            border-radius: 4px;
+            background: rgba(255, 255, 255, 0.1);
+        }
+
+        .timeline-event-type {
+            font-size: 10px;
+            color: var(--text-muted);
+            text-transform: uppercase;
+        }
+
+        .timeline-event-time {
+            font-size: 10px;
+            color: var(--text-muted);
+            font-family: 'JetBrains Mono', monospace;
+            margin-left: auto;
+        }
+
+        .timeline-event-title {
+            font-weight: 500;
+            font-size: 12px;
+            margin-bottom: 2px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .timeline-event-desc {
+            font-size: 11px;
+            color: var(--text-secondary);
+            line-height: 1.4;
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+        }
+
+        .timeline-empty {
+            text-align: center;
+            padding: 32px 16px;
+            color: var(--text-muted);
+        }
+
+        /* Alert Toast */
+        .alert-toast {
+            position: fixed;
+            bottom: 80px;
+            right: 20px;
+            background: rgba(17, 17, 20, 0.98);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-lg);
+            padding: 14px 18px;
+            min-width: 300px;
+            max-width: 400px;
+            box-shadow: var(--shadow-md);
+            z-index: 200;
+            animation: slideInRight 0.3s ease;
+        }
+
+        .alert-toast.critical {
+            border-color: var(--danger);
+            border-left: 4px solid var(--danger);
+        }
+
+        .alert-toast.warning {
+            border-color: var(--warning);
+            border-left: 4px solid var(--warning);
+        }
+
+        @keyframes slideInRight {
+            from { transform: translateX(100%); opacity: 0; }
+            to { transform: translateX(0); opacity: 1; }
+        }
+
+        .alert-toast-header {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 6px;
+        }
+
+        .alert-toast-icon {
+            font-size: 16px;
+        }
+
+        .alert-toast-title {
+            font-weight: 600;
+            font-size: 13px;
+            flex: 1;
+        }
+
+        .alert-toast-close {
+            background: none;
+            border: none;
+            color: var(--text-muted);
+            cursor: pointer;
+            font-size: 16px;
+            padding: 2px;
+        }
+
+        .alert-toast-message {
+            font-size: 12px;
+            color: var(--text-secondary);
+            line-height: 1.4;
+        }
+
+        /* Override Modal */
+        .override-backdrop {
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.7);
+            backdrop-filter: blur(4px);
+            z-index: 2000;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            animation: fadeIn 0.2s ease;
+        }
+
+        .override-modal {
+            background: var(--bg-surface);
+            border: 1px solid var(--danger);
+            border-radius: var(--radius-lg);
+            width: 420px;
+            max-width: 90vw;
+            box-shadow: 0 8px 32px rgba(239, 68, 68, 0.3), 0 0 0 1px rgba(239, 68, 68, 0.2);
+            animation: slideUp 0.3s ease;
+        }
+
+        @keyframes slideUp {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .override-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 16px 20px;
+            border-bottom: 1px solid var(--border);
+            background: rgba(239, 68, 68, 0.1);
+        }
+
+        .override-badge {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-weight: 600;
+            color: var(--danger);
+            font-size: 13px;
+        }
+
+        .override-timer {
+            background: var(--danger);
+            color: white;
+            padding: 4px 10px;
+            border-radius: 20px;
+            font-weight: 700;
+            font-size: 14px;
+            font-family: 'JetBrains Mono', monospace;
+            min-width: 36px;
+            text-align: center;
+        }
+
+        .override-timer.warning {
+            animation: pulse 0.5s ease infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.6; }
+        }
+
+        .override-body {
+            padding: 20px;
+        }
+
+        .override-action {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 16px;
+            font-size: 15px;
+        }
+
+        .override-drone {
+            font-weight: 600;
+            color: var(--cyan);
+        }
+
+        .override-target {
+            font-weight: 600;
+            color: var(--warning);
+        }
+
+        .override-risk {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 12px;
+            background: var(--bg-base);
+            border-radius: var(--radius);
+            margin-bottom: 16px;
+        }
+
+        .override-risk-label {
+            font-size: 12px;
+            color: var(--text-secondary);
+        }
+
+        .override-risk-value {
+            font-size: 20px;
+            font-weight: 700;
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        .override-risk-value.high { color: var(--warning); }
+        .override-risk-value.critical { color: var(--danger); }
+
+        .override-concerns {
+            font-size: 12px;
+            color: var(--text-secondary);
+        }
+
+        .override-concern {
+            display: flex;
+            align-items: flex-start;
+            gap: 8px;
+            padding: 6px 0;
+        }
+
+        .override-concern::before {
+            content: '⚠';
+            color: var(--warning);
+        }
+
+        .override-footer {
+            display: flex;
+            gap: 12px;
+            padding: 16px 20px;
+            border-top: 1px solid var(--border);
+        }
+
+        .override-btn {
+            flex: 1;
+            padding: 12px 16px;
+            border: none;
+            border-radius: var(--radius);
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.15s ease;
+        }
+
+        .override-btn-approve {
+            background: var(--success);
+            color: white;
+        }
+
+        .override-btn-approve:hover {
+            background: #0d9668;
+        }
+
+        .override-btn-deny {
+            background: var(--danger);
+            color: white;
+        }
+
+        .override-btn-deny:hover {
+            background: #dc2626;
+        }
+
+        /* Command Bar */
+        .command-bar {
+            position: absolute;
+            bottom: 70px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(17, 17, 20, 0.95);
+            backdrop-filter: blur(12px);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-lg);
+            padding: 10px 14px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            z-index: 50;
+            box-shadow: var(--shadow-md);
+        }
+
+        .command-bar select {
+            padding: 6px 10px;
+            background: var(--bg-base);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            color: var(--text);
+            font-size: 12px;
+            cursor: pointer;
+        }
+
+        .command-bar select:focus {
+            outline: none;
+            border-color: var(--accent);
+        }
+
+        .command-bar button {
+            padding: 6px 14px;
+            background: var(--accent);
+            border: none;
+            border-radius: 6px;
+            color: white;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+
+        .command-bar button:hover {
+            background: var(--accent-hover);
+        }
+
+        /* Chat Panel */
+        .chat-panel {
+            position: absolute;
+            bottom: 16px;
+            right: 16px;
+            width: 340px;
+            max-height: 400px;
+            background: rgba(17, 17, 20, 0.95);
+            backdrop-filter: blur(12px);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-lg);
+            display: flex;
+            flex-direction: column;
+            z-index: 100;
+            box-shadow: var(--shadow-md);
+        }
+
+        .chat-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 12px 16px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .chat-title {
+            font-weight: 600;
+            font-size: 13px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .chat-minimize {
+            background: none;
+            border: none;
+            color: var(--text-muted);
+            cursor: pointer;
+            padding: 4px;
+            font-size: 16px;
+        }
+
+        .chat-messages {
+            flex: 1;
+            overflow-y: auto;
+            padding: 12px;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            max-height: 280px;
+        }
+
+        .chat-message {
+            padding: 8px 12px;
+            border-radius: var(--radius);
+            font-size: 12px;
+            line-height: 1.5;
+        }
+
+        .chat-message.user {
+            background: var(--accent);
+            color: white;
+            align-self: flex-end;
+            max-width: 80%;
+        }
+
+        .chat-message.agent {
+            background: var(--bg-elevated);
+            border: 1px solid var(--border);
+            align-self: flex-start;
+            max-width: 85%;
+        }
+
+        .chat-message.system {
+            background: transparent;
+            color: var(--text-muted);
+            font-size: 11px;
+            text-align: center;
+            align-self: center;
+        }
+
+        .chat-input-container {
+            display: flex;
+            gap: 8px;
+            padding: 12px;
+            border-top: 1px solid var(--border);
+        }
+
+        .chat-input {
+            flex: 1;
+            padding: 8px 12px;
+            background: var(--bg-base);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            color: var(--text);
+            font-size: 12px;
+        }
+
+        .chat-input:focus {
+            outline: none;
+            border-color: var(--accent);
+        }
+
+        .chat-send {
+            padding: 8px 14px;
+            background: var(--accent);
+            border: none;
+            border-radius: var(--radius);
+            color: white;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+
+        .chat-send:hover {
+            background: var(--accent-hover);
+        }
+
+        .chat-send:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .chat-typing {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            padding: 8px 12px;
+            color: var(--text-muted);
+            font-size: 11px;
+        }
+
+        .chat-typing-dot {
+            width: 6px;
+            height: 6px;
+            background: var(--text-muted);
+            border-radius: 50%;
+            animation: typing 1.4s infinite;
+        }
+
+        .chat-typing-dot:nth-child(2) { animation-delay: 0.2s; }
+        .chat-typing-dot:nth-child(3) { animation-delay: 0.4s; }
+
+        @keyframes typing {
+            0%, 60%, 100% { opacity: 0.3; }
+            30% { opacity: 1; }
+        }
+
+        .chat-panel.minimized .chat-messages,
+        .chat-panel.minimized .chat-input-container {
+            display: none;
+        }
+
+        .chat-panel.minimized {
+            max-height: none;
+            height: auto;
+        }
+
+        /* Scrollbar */
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.12); }
+    </style>
+</head>
+<body>
+    <div id="app">
+        <!-- Sidebar -->
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <div class="logo">A</div>
+                <div>
+                    <div class="sidebar-title">AegisAV</div>
+                    <div class="sidebar-subtitle">Lightweight Simulator</div>
+                </div>
+            </div>
+
+            <div class="sidebar-content">
+                <!-- Tabs -->
+                <div class="tabs">
+                    <button class="tab active" data-tab="scenarios">Scenarios</button>
+                    <button class="tab" data-tab="launch">Launch</button>
+                    <button class="tab" data-tab="config">Config</button>
+                </div>
+
+                <!-- Scenarios Panel -->
+                <div class="tab-panel active" id="panel-scenarios">
+                    <!-- Status -->
+                    <div class="form-group">
+                        <div style="display: flex; justify-content: space-between; align-items: center;">
+                            <span class="form-label" style="margin: 0;">Status</span>
+                            <div class="status-badge">
+                                <span class="status-dot connecting" id="status-dot"></span>
+                                <span id="status-text">Connecting</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Stats -->
+                    <div class="stats-grid">
+                        <div class="stat-card">
+                            <div class="stat-value" id="stat-drones">0</div>
+                            <div class="stat-label">Drones</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-value" id="stat-assets">0</div>
+                            <div class="stat-label">Assets</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-value" id="stat-time">0s</div>
+                            <div class="stat-label">Time</div>
+                        </div>
+                    </div>
+
+                    <div class="divider"></div>
+
+                    <!-- Scenario Selection -->
+                    <div class="form-group">
+                        <label class="form-label">Scenario</label>
+                        <select class="form-select" id="scenario-select">
+                            <option value="">Loading scenarios...</option>
+                        </select>
+                    </div>
+
+                    <div id="scenario-info" style="display: none;">
+                        <div class="scenario-card active">
+                            <div class="scenario-name" id="scenario-name"></div>
+                            <div class="scenario-desc" id="scenario-desc"></div>
+                            <div class="scenario-meta">
+                                <span id="scenario-drones"></span>
+                                <span id="scenario-duration"></span>
+                                <span id="scenario-difficulty"></span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Edge Profile -->
+                    <div class="form-group">
+                        <label class="form-label">Edge Profile</label>
+                        <select class="form-select" id="profile-select">
+                            <option value="FC_ONLY">FC Only</option>
+                            <option value="MCU_HEURISTIC">MCU Heuristic</option>
+                            <option value="MCU_TINY_CNN">MCU Tiny CNN</option>
+                            <option value="SBC_CPU" selected>SBC CPU</option>
+                            <option value="SBC_ACCEL">SBC Accelerated</option>
+                            <option value="JETSON_FULL">Jetson Full</option>
+                        </select>
+                    </div>
+
+                    <!-- Speed -->
+                    <div class="form-group">
+                        <label class="form-label">Simulation Speed</label>
+                        <div class="range-group">
+                            <input type="range" class="range-slider" id="speed-slider" min="0.5" max="5" step="0.5" value="1">
+                            <span class="range-value" id="speed-value">1.0x</span>
+                        </div>
+                    </div>
+
+                    <div class="divider"></div>
+
+                    <!-- Start Button -->
+                    <button class="btn" id="start-btn" disabled>Start Scenario</button>
+                </div>
+
+                <!-- Launch Panel -->
+                <div class="tab-panel" id="panel-launch">
+                    <div class="section-header">Core Services</div>
+
+                    <div class="launch-card" id="launch-agent-server">
+                        <div class="launch-icon blue">🤖</div>
+                        <div class="launch-info">
+                            <div class="launch-name">Agent Server</div>
+                            <div class="launch-desc">AI reasoning engine with GoalSelector and Critics</div>
+                        </div>
+                        <span class="launch-status stopped" id="agent-server-status">Stopped</span>
+                    </div>
+
+                    <div class="launch-card running" id="launch-sim-server">
+                        <div class="launch-icon cyan">📡</div>
+                        <div class="launch-info">
+                            <div class="launch-name">Simulation Server</div>
+                            <div class="launch-desc">Lightweight physics simulator (current)</div>
+                        </div>
+                        <span class="launch-status running">Running</span>
+                    </div>
+
+                    <div class="section-header">Visualization</div>
+
+                    <div class="launch-card" id="launch-unreal">
+                        <div class="launch-icon purple">🎮</div>
+                        <div class="launch-info">
+                            <div class="launch-name">Unreal Engine</div>
+                            <div class="launch-desc">High-fidelity 3D simulation environment</div>
+                        </div>
+                        <span class="launch-status stopped" id="unreal-status">Stopped</span>
+                    </div>
+
+                    <div class="launch-card" id="launch-obs-overlay">
+                        <div class="launch-icon green">🎬</div>
+                        <div class="launch-info">
+                            <div class="launch-name">OBS Overlay</div>
+                            <div class="launch-desc">Real-time streaming thought bubble overlay</div>
+                        </div>
+                        <span class="launch-status stopped" id="obs-status">Stopped</span>
+                    </div>
+
+                    <div class="section-header">Resources</div>
+
+                    <div class="launch-card" onclick="window.open('/docs/', '_blank')">
+                        <div class="launch-icon blue">📚</div>
+                        <div class="launch-info">
+                            <div class="launch-name">Documentation</div>
+                            <div class="launch-desc">API reference and user guides</div>
+                        </div>
+                        <span style="color: var(--text-muted); font-size: 12px;">↗</span>
+                    </div>
+
+                    <div class="launch-card" onclick="window.open('https://github.com/aegisav/aegisav', '_blank')">
+                        <div class="launch-icon purple">💻</div>
+                        <div class="launch-info">
+                            <div class="launch-name">GitHub Repository</div>
+                            <div class="launch-desc">Source code and issue tracker</div>
+                        </div>
+                        <span style="color: var(--text-muted); font-size: 12px;">↗</span>
+                    </div>
+
+                    <div class="divider"></div>
+
+                    <div class="form-hint" style="text-align: center;">
+                        Launch components to enable full simulation capabilities.
+                        The Agent Server provides AI reasoning for live mode.
+                    </div>
+                </div>
+
+                <!-- Config Panel -->
+                <div class="tab-panel" id="panel-config">
+                    <div class="config-section">
+                        <div class="config-section-title">API Configuration</div>
+
+                        <div class="form-group">
+                            <label class="form-label">Agent Server URL</label>
+                            <input type="text" class="form-input" id="config-agent-url" placeholder="http://localhost:8080" value="http://localhost:8080">
+                            <div class="form-hint">URL of the AegisAV agent server for live reasoning</div>
+                        </div>
+
+                        <div class="form-group">
+                            <label class="form-label">API Key</label>
+                            <input type="password" class="form-input" id="config-api-key" placeholder="Enter API key (optional)">
+                            <div class="form-hint">Authentication key for the agent server</div>
+                        </div>
+                    </div>
+
+                    <div class="config-section">
+                        <div class="config-section-title">LLM Settings</div>
+
+                        <div class="form-group">
+                            <label class="form-label">Model Provider</label>
+                            <select class="form-select" id="config-llm-provider">
+                                <option value="anthropic">Anthropic (Claude)</option>
+                                <option value="openai">OpenAI (GPT)</option>
+                                <option value="local">Local Model</option>
+                            </select>
+                        </div>
+
+                        <div class="form-group">
+                            <label class="form-label">Model</label>
+                            <select class="form-select" id="config-llm-model">
+                                <option value="claude-3-5-sonnet">Claude 3.5 Sonnet</option>
+                                <option value="claude-3-opus">Claude 3 Opus</option>
+                                <option value="claude-3-haiku">Claude 3 Haiku</option>
+                            </select>
+                        </div>
+
+                        <div class="form-group">
+                            <label class="form-label">Temperature</label>
+                            <div class="range-group">
+                                <input type="range" class="range-slider" id="config-temperature" min="0" max="1" step="0.1" value="0.3">
+                                <span class="range-value" id="config-temp-value">0.3</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="config-section">
+                        <div class="config-section-title">Display Options</div>
+
+                        <div class="toggle-group">
+                            <div>
+                                <div class="toggle-label">Show Grid</div>
+                                <div class="toggle-desc">Display ground grid in 3D view</div>
+                            </div>
+                            <div class="toggle active" id="toggle-grid"></div>
+                        </div>
+
+                        <div class="toggle-group">
+                            <div>
+                                <div class="toggle-label">Show Labels</div>
+                                <div class="toggle-desc">Display drone and asset labels</div>
+                            </div>
+                            <div class="toggle active" id="toggle-labels"></div>
+                        </div>
+
+                        <div class="toggle-group">
+                            <div>
+                                <div class="toggle-label">Auto-follow</div>
+                                <div class="toggle-desc">Camera follows active drone</div>
+                            </div>
+                            <div class="toggle" id="toggle-follow"></div>
+                        </div>
+                    </div>
+
+                    <div class="divider"></div>
+
+                    <button class="btn" id="save-config-btn">Save Configuration</button>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main View -->
+        <main class="main">
+            <canvas id="canvas"></canvas>
+
+            <!-- Scenario Status Bar -->
+            <div class="scenario-bar" id="scenario-bar">
+                <div class="scenario-bar-indicator">
+                    <div class="scenario-bar-dot"></div>
+                    <span class="scenario-bar-name" id="bar-scenario-name">-</span>
+                </div>
+                <div class="scenario-bar-meta">
+                    <div class="scenario-bar-stat">
+                        <span>Elapsed:</span>
+                        <span class="scenario-bar-stat-value" id="bar-elapsed">00:00</span>
+                    </div>
+                    <div class="scenario-bar-stat">
+                        <span>Speed:</span>
+                        <span class="scenario-bar-stat-value" id="bar-speed">1.0x</span>
+                    </div>
+                    <div class="scenario-bar-stat">
+                        <span>Mode:</span>
+                        <span class="scenario-bar-stat-value" id="bar-mode">live</span>
+                    </div>
+                    <div class="scenario-bar-progress">
+                        <div class="scenario-bar-progress-fill" id="bar-progress" style="width: 0%"></div>
+                    </div>
+                </div>
+                <button class="scenario-bar-btn" id="bar-stop-btn">Stop Scenario</button>
+            </div>
+
+            <!-- Agent Reasoning Panel -->
+            <div class="float-panel">
+                <div class="float-panel-header">
+                    <span class="float-panel-title">Agent Reasoning</span>
+                    <div class="status-badge">
+                        <span class="status-dot disconnected" id="agent-status-dot"></span>
+                        <span id="agent-status-text">Offline</span>
+                    </div>
+                </div>
+                <div class="float-panel-content" id="thought-content">
+                    <div class="empty-state">
+                        <div class="empty-icon">🤖</div>
+                        <div>Awaiting agent activity</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Timeline Panel -->
+            <div class="timeline-panel" id="timeline-panel">
+                <div class="timeline-header">
+                    <div class="timeline-title">
+                        Activity Timeline
+                        <span class="timeline-badge" id="timeline-count">0</span>
+                    </div>
+                    <div class="timeline-filters">
+                        <select class="timeline-filter" id="timeline-drone-filter">
+                            <option value="all">All Drones</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="timeline-content" id="timeline-content">
+                    <div class="timeline-empty">
+                        <div style="font-size: 24px; margin-bottom: 8px;">📋</div>
+                        <div>No activity yet</div>
+                        <div style="font-size: 11px; margin-top: 4px;">Start a scenario to see agent decisions</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Command Bar -->
+            <div class="command-bar" id="command-bar" style="display: none;">
+                <select id="cmd-drone">
+                    <option value="">Select Drone</option>
+                </select>
+                <select id="cmd-type">
+                    <option value="inspect_asset">Inspect Asset</option>
+                    <option value="return_home">Return Home</option>
+                    <option value="abort">Abort</option>
+                </select>
+                <select id="cmd-asset" style="display: none;">
+                    <option value="">Select Asset</option>
+                </select>
+                <button id="cmd-send">Send Command</button>
+            </div>
+
+            <!-- Toast Container -->
+            <div id="toast-container"></div>
+
+            <!-- Override Modal Container -->
+            <div id="override-container"></div>
+
+            <!-- Chat Panel -->
+            <div class="chat-panel" id="chat-panel">
+                <div class="chat-header">
+                    <div class="chat-title">
+                        <span>💬</span>
+                        <span>Agent Chat</span>
+                    </div>
+                    <button class="chat-minimize" id="chat-minimize">−</button>
+                </div>
+                <div class="chat-messages" id="chat-messages">
+                    <div class="chat-message system">Type a command or question...</div>
+                </div>
+                <div class="chat-input-container">
+                    <input type="text" class="chat-input" id="chat-input" placeholder="Send drone 1 to inspect solar panels...">
+                    <button class="chat-send" id="chat-send">Send</button>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script type="module">
+        // =========================================================================
+        // Configuration
+        // =========================================================================
+        const CONFIG = {
+            apiBase: window.location.origin,
+            agentUrl: localStorage.getItem('aegis_agent_url') || 'http://localhost:8080',
+            wsUrl: `ws://${window.location.host}/ws/sim`,
+            reconnectDelay: 3000,
+        };
+
+        // =========================================================================
+        // State
+        // =========================================================================
+        const state = {
+            ws: null,
+            connected: false,
+            scenarios: [],
+            selectedScenario: null,
+            isRunning: false,
+            drones: new Map(),
+            assets: new Map(),
+            simTime: 0,
+            scenario: null, // Current scenario info from server
+            scenarioStartTime: null,
+            // Multi-agent reasoning state
+            agentStates: new Map(),       // { droneId: AgentState }
+            timeline: [],                  // TimelineEvent[]
+            maxTimelineEvents: 100,
+            selectedDroneFilter: 'all',
+            alerts: [],                    // Alert[]
+            unacknowledgedAlerts: 0,
+            pendingOverride: null,         // Current override request
+            overrideTimer: null,           // Timer interval ID
+            // Legacy single-agent state (for backward compat)
+            agentThinking: false,
+            currentThought: null,
+            criticResults: {},
+            decision: null,
+        };
+
+        // Drone colors for timeline
+        const DRONE_COLORS = {
+            'drone_001': '#06b6d4', // cyan
+            'drone_002': '#10b981', // green
+            'drone_003': '#f59e0b', // amber
+            'drone_004': '#8b5cf6', // purple
+            'default': '#3b82f6'    // blue
+        };
+
+        function getDroneColor(droneId) {
+            return DRONE_COLORS[droneId] || DRONE_COLORS.default;
+        }
+
+        function createAgentState() {
+            return {
+                thinking: false,
+                thought: null,
+                criticResults: {},
+                decision: null,
+                lastUpdate: Date.now()
+            };
+        }
+
+        // =========================================================================
+        // Three.js
+        // =========================================================================
+        let scene, camera, renderer, controls, gridHelper;
+        const droneObjects = new Map();
+        const assetObjects = new Map();
+
+        function initScene() {
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x0f0f12);
+            scene.fog = new THREE.Fog(0x0f0f12, 150, 400);
+
+            camera = new THREE.PerspectiveCamera(55, (window.innerWidth - 320) / window.innerHeight, 0.1, 1000);
+            camera.position.set(60, 50, 80);
+
+            renderer = new THREE.WebGLRenderer({ canvas: document.getElementById('canvas'), antialias: true });
+            renderer.setSize(window.innerWidth - 320, window.innerHeight);
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+
+            controls = new THREE.OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.05;
+            controls.target.set(50, 0, 0);
+
+            // Grid
+            gridHelper = new THREE.GridHelper(200, 20, 0x3b82f6, 0x1f1f24);
+            gridHelper.material.opacity = 0.4;
+            gridHelper.material.transparent = true;
+            scene.add(gridHelper);
+
+            // Ground
+            const groundGeo = new THREE.PlaneGeometry(200, 200);
+            const groundMat = new THREE.MeshBasicMaterial({ color: 0x0f0f12, transparent: true, opacity: 0.9 });
+            const ground = new THREE.Mesh(groundGeo, groundMat);
+            ground.rotation.x = -Math.PI / 2;
+            ground.position.y = -0.1;
+            scene.add(ground);
+
+            // Lights
+            scene.add(new THREE.AmbientLight(0xffffff, 0.5));
+            const dirLight = new THREE.DirectionalLight(0xffffff, 0.5);
+            dirLight.position.set(50, 100, 50);
+            scene.add(dirLight);
+
+            window.addEventListener('resize', onResize);
+            animate();
+        }
+
+        function onResize() {
+            const w = window.innerWidth - 320;
+            camera.aspect = w / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(w, window.innerHeight);
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            controls.update();
+            renderer.render(scene, camera);
+        }
+
+        function createDrone(id) {
+            const group = new THREE.Group();
+
+            // Body
+            const body = new THREE.Mesh(
+                new THREE.CylinderGeometry(0.8, 1, 0.5, 8),
+                new THREE.MeshPhongMaterial({ color: 0x3b82f6, emissive: 0x1e3a5f })
+            );
+            group.add(body);
+
+            // Arms
+            const armMat = new THREE.MeshPhongMaterial({ color: 0x404040 });
+            for (let i = 0; i < 2; i++) {
+                const arm = new THREE.Mesh(new THREE.BoxGeometry(3, 0.12, 0.12), armMat);
+                arm.rotation.y = i * Math.PI / 2;
+                arm.position.y = 0.1;
+                group.add(arm);
+            }
+
+            // Rotors
+            const rotorMat = new THREE.MeshPhongMaterial({ color: 0x10b981, emissive: 0x052e16 });
+            [[1.2, 0.25, 0], [-1.2, 0.25, 0], [0, 0.25, 1.2], [0, 0.25, -1.2]].forEach(pos => {
+                const rotor = new THREE.Mesh(new THREE.TorusGeometry(0.45, 0.04, 8, 16), rotorMat);
+                rotor.position.set(...pos);
+                rotor.rotation.x = Math.PI / 2;
+                group.add(rotor);
+            });
+
+            // Label
+            const canvas = document.createElement('canvas');
+            canvas.width = 256; canvas.height = 64;
+            const ctx = canvas.getContext('2d');
+            ctx.fillStyle = '#3b82f6';
+            ctx.font = 'bold 22px Inter';
+            ctx.textAlign = 'center';
+            ctx.fillText(id, 128, 40);
+            const tex = new THREE.CanvasTexture(canvas);
+            const label = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true }));
+            label.position.y = 2.2;
+            label.scale.set(4, 1, 1);
+            group.add(label);
+
+            group.scale.set(1.8, 1.8, 1.8);
+            scene.add(group);
+            droneObjects.set(id, group);
+            return group;
+        }
+
+        function createAsset(id, data) {
+            const group = new THREE.Group();
+            const color = data.has_anomaly ? 0xef4444 : 0x3b82f6;
+
+            const panel = new THREE.Mesh(
+                new THREE.BoxGeometry(5, 0.25, 3.5),
+                new THREE.MeshPhongMaterial({ color, emissive: data.has_anomaly ? 0x3f1111 : 0x1e3a5f })
+            );
+            panel.position.y = 1.8;
+            panel.rotation.x = -0.3;
+            group.add(panel);
+
+            const support = new THREE.Mesh(
+                new THREE.CylinderGeometry(0.15, 0.15, 1.8, 8),
+                new THREE.MeshPhongMaterial({ color: 0x404040 })
+            );
+            support.position.y = 0.9;
+            group.add(support);
+
+            if (data.has_anomaly) {
+                const beacon = new THREE.Mesh(
+                    new THREE.SphereGeometry(0.4, 16, 16),
+                    new THREE.MeshBasicMaterial({ color: 0xef4444 })
+                );
+                beacon.position.y = 3.5;
+                group.add(beacon);
+            }
+
+            scene.add(group);
+            assetObjects.set(id, group);
+            return group;
+        }
+
+        function updateDrone(id, pos) {
+            let obj = droneObjects.get(id) || createDrone(id);
+            obj.position.set(pos[0], -pos[2], pos[1]);
+        }
+
+        function updateAssetInspected(id) {
+            const obj = assetObjects.get(id);
+            if (!obj) return;
+
+            // Change panel color to green (inspected)
+            const panel = obj.children.find(c => c.geometry?.type === 'BoxGeometry');
+            if (panel && panel.material) {
+                panel.material.color.setHex(0x10b981);  // Green
+                panel.material.emissive.setHex(0x052e16);
+            }
+
+            // Remove anomaly beacon if it exists
+            const beacon = obj.children.find(c => c.geometry?.type === 'SphereGeometry');
+            if (beacon) {
+                obj.remove(beacon);
+            }
+        }
+
+        // =========================================================================
+        // WebSocket
+        // =========================================================================
+        function connectWebSocket() {
+            setStatus('connecting');
+
+            state.ws = new WebSocket(CONFIG.wsUrl);
+
+            state.ws.onopen = () => {
+                state.connected = true;
+                setStatus('connected');
+            };
+
+            state.ws.onclose = () => {
+                state.connected = false;
+                setStatus('disconnected');
+                setTimeout(connectWebSocket, CONFIG.reconnectDelay);
+            };
+
+            state.ws.onerror = () => setStatus('disconnected');
+
+            state.ws.onmessage = (e) => {
+                try {
+                    const data = JSON.parse(e.data);
+                    if (data.type === 'state_update') {
+                        if (data.drones) {
+                            Object.entries(data.drones).forEach(([id, d]) => {
+                                state.drones.set(id, d);
+                                updateDrone(id, d.position);
+                            });
+                            document.getElementById('stat-drones').textContent = state.drones.size;
+                        }
+                        if (data.assets) {
+                            Object.entries(data.assets).forEach(([id, a]) => {
+                                if (!assetObjects.has(id)) {
+                                    const obj = createAsset(id, a);
+                                    obj.position.set(a.position[0], 0, a.position[1]);
+                                }
+                                // Update asset appearance if inspected
+                                if (a.inspected) {
+                                    updateAssetInspected(id);
+                                }
+                                state.assets.set(id, a);
+                            });
+                            document.getElementById('stat-assets').textContent = state.assets.size;
+                        }
+                        if (data.inspection) {
+                            const { inspected_count, total_assets } = data.inspection;
+                            // Could add a progress indicator here
+                        }
+                        if (data.sim_time !== undefined) {
+                            state.simTime = data.sim_time;
+                            document.getElementById('stat-time').textContent = `${Math.floor(data.sim_time)}s`;
+                        }
+                        // Handle scenario info
+                        if (data.scenario) {
+                            handleScenarioUpdate(data.scenario);
+                        } else if (state.scenario) {
+                            // Scenario was stopped
+                            handleScenarioStop();
+                        }
+                    }
+                    // Handle agent events from AgentBridge
+                    else if (data.type === 'agent_event') {
+                        handleAgentEvent(data.event);
+                    }
+                    // Handle command results
+                    else if (data.type === 'command_result') {
+                        handleCommandResult(data);
+                    }
+                    // Handle alerts
+                    else if (data.type === 'alert') {
+                        handleAlert(data);
+                    }
+                    // Handle override requests
+                    else if (data.type === 'override_request') {
+                        handleOverrideRequest(data);
+                    }
+                    // Handle chat responses
+                    else if (data.type === 'chat_response') {
+                        handleChatResponse(data);
+                    }
+                } catch (err) {
+                    console.error('Parse error:', err);
+                }
+            };
+        }
+
+        function handleCommandResult(result) {
+            const severity = result.success ? 'info' : 'warning';
+            showToast(result.message || (result.success ? 'Command executed' : 'Command failed'), severity);
+
+            // Add to timeline
+            addTimelineEvent({
+                id: result.command_id,
+                timestamp: new Date(),
+                droneId: result.drone_id || 'system',
+                eventType: 'command_result',
+                severity: severity,
+                title: result.success ? 'Command Accepted' : 'Command Failed',
+                description: result.message,
+                data: result
+            });
+        }
+
+        function setStatus(status) {
+            const dot = document.getElementById('status-dot');
+            const text = document.getElementById('status-text');
+            dot.className = 'status-dot ' + status;
+            text.textContent = status === 'connected' ? 'Online' : status === 'connecting' ? 'Connecting' : 'Offline';
+        }
+
+        // =========================================================================
+        // API
+        // =========================================================================
+        async function loadScenarios() {
+            try {
+                const res = await fetch(`${CONFIG.apiBase}/api/scenarios`);
+                const data = await res.json();
+                state.scenarios = data.scenarios || [];
+
+                const select = document.getElementById('scenario-select');
+                select.innerHTML = '<option value="">Select a scenario...</option>' +
+                    state.scenarios.map(s => `<option value="${s.scenario_id}">${s.name}</option>`).join('');
+            } catch (err) {
+                console.error('Failed to load scenarios:', err);
+                document.getElementById('scenario-select').innerHTML = '<option value="">Failed to load</option>';
+            }
+        }
+
+        async function startScenario() {
+            if (!state.selectedScenario) return;
+
+            const speed = document.getElementById('speed-slider').value;
+            const profile = document.getElementById('profile-select').value;
+            const btn = document.getElementById('start-btn');
+
+            btn.disabled = true;
+            btn.textContent = 'Starting...';
+
+            try {
+                const res = await fetch(
+                    `${CONFIG.apiBase}/api/scenarios/${state.selectedScenario}/start?mode=live&edge_profile=${profile}&time_scale=${speed}`,
+                    { method: 'POST' }
+                );
+                if (res.ok) {
+                    const result = await res.json();
+                    state.isRunning = true;
+                    state.scenarioStartTime = Date.now();
+                    updateStartButton();
+                    showToast(`Started: ${result.scenario_name}`);
+                } else {
+                    const err = await res.json();
+                    showToast(err.detail || 'Failed to start scenario');
+                    btn.disabled = false;
+                    btn.textContent = 'Start Scenario';
+                }
+            } catch (err) {
+                console.error('Failed to start:', err);
+                showToast('Failed to start scenario');
+                btn.disabled = false;
+                btn.textContent = 'Start Scenario';
+            }
+        }
+
+        async function stopScenario() {
+            try {
+                const res = await fetch(`${CONFIG.apiBase}/api/scenarios/stop`, { method: 'POST' });
+                const result = await res.json();
+                state.isRunning = false;
+                state.scenario = null;
+                state.scenarioStartTime = null;
+                updateStartButton();
+                updateScenarioBar();
+                if (result.elapsed_s) {
+                    showToast(`Scenario stopped after ${Math.floor(result.elapsed_s)}s`);
+                }
+            } catch (err) {
+                console.error('Failed to stop:', err);
+            }
+        }
+
+        // =========================================================================
+        // UI
+        // =========================================================================
+        function updateStartButton() {
+            const btn = document.getElementById('start-btn');
+            if (state.isRunning) {
+                btn.textContent = 'Stop Scenario';
+                btn.className = 'btn btn-danger';
+            } else {
+                btn.textContent = 'Start Scenario';
+                btn.className = 'btn';
+            }
+            btn.disabled = !state.selectedScenario && !state.isRunning;
+        }
+
+        function showScenarioInfo(scenario) {
+            const info = document.getElementById('scenario-info');
+            if (!scenario) {
+                info.style.display = 'none';
+                return;
+            }
+            info.style.display = 'block';
+            document.getElementById('scenario-name').textContent = scenario.name;
+            document.getElementById('scenario-desc').textContent = scenario.description;
+            document.getElementById('scenario-drones').innerHTML = `<span>🚁</span> ${scenario.drone_count} drones`;
+            document.getElementById('scenario-duration').innerHTML = `<span>⏱</span> ${scenario.duration_minutes}min`;
+            document.getElementById('scenario-difficulty').innerHTML = `<span>📊</span> ${scenario.difficulty}`;
+        }
+
+        function setupUI() {
+            // Tabs
+            document.querySelectorAll('.tab').forEach(tab => {
+                tab.addEventListener('click', () => {
+                    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+                    document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+                    tab.classList.add('active');
+                    document.getElementById('panel-' + tab.dataset.tab).classList.add('active');
+                });
+            });
+
+            // Scenario select
+            document.getElementById('scenario-select').addEventListener('change', (e) => {
+                state.selectedScenario = e.target.value || null;
+                const scenario = state.scenarios.find(s => s.scenario_id === state.selectedScenario);
+                showScenarioInfo(scenario);
+                updateStartButton();
+            });
+
+            // Speed slider
+            document.getElementById('speed-slider').addEventListener('input', (e) => {
+                document.getElementById('speed-value').textContent = e.target.value + 'x';
+            });
+
+            // Temperature slider
+            document.getElementById('config-temperature').addEventListener('input', (e) => {
+                document.getElementById('config-temp-value').textContent = e.target.value;
+            });
+
+            // Start button
+            document.getElementById('start-btn').addEventListener('click', () => {
+                if (state.isRunning) {
+                    stopScenario();
+                } else {
+                    startScenario();
+                }
+            });
+
+            // Toggles
+            document.querySelectorAll('.toggle').forEach(toggle => {
+                toggle.addEventListener('click', () => {
+                    toggle.classList.toggle('active');
+                    if (toggle.id === 'toggle-grid') {
+                        gridHelper.visible = toggle.classList.contains('active');
+                    }
+                });
+            });
+
+            // Save config
+            document.getElementById('save-config-btn').addEventListener('click', () => {
+                localStorage.setItem('aegis_agent_url', document.getElementById('config-agent-url').value);
+                CONFIG.agentUrl = document.getElementById('config-agent-url').value;
+                showToast('Configuration saved');
+            });
+
+            // Launch cards
+            setupLaunchCards();
+
+            // Chat panel
+            setupChat();
+
+            // Timeline drone filter
+            document.getElementById('timeline-drone-filter').addEventListener('change', (e) => {
+                state.selectedDroneFilter = e.target.value;
+                renderTimeline();
+            });
+
+            // Command bar - type change shows/hides asset selector
+            document.getElementById('cmd-type').addEventListener('change', (e) => {
+                const assetSelect = document.getElementById('cmd-asset');
+                assetSelect.style.display = e.target.value === 'inspect_asset' ? 'block' : 'none';
+            });
+
+            // Command bar - send command
+            document.getElementById('cmd-send').addEventListener('click', sendCommand);
+        }
+
+        // =========================================================================
+        // Command Handling
+        // =========================================================================
+        function sendCommand() {
+            const droneId = document.getElementById('cmd-drone').value;
+            const cmdType = document.getElementById('cmd-type').value;
+            const assetId = document.getElementById('cmd-asset').value;
+
+            if (!droneId) {
+                showToast('Select a drone first', 'warning');
+                return;
+            }
+
+            if (cmdType === 'inspect_asset' && !assetId) {
+                showToast('Select an asset to inspect', 'warning');
+                return;
+            }
+
+            const command = {
+                type: 'command',
+                command_id: crypto.randomUUID(),
+                command_type: cmdType,
+                drone_id: droneId,
+                parameters: cmdType === 'inspect_asset' ? { asset_id: assetId } : {}
+            };
+
+            if (state.ws && state.ws.readyState === WebSocket.OPEN) {
+                state.ws.send(JSON.stringify(command));
+                showToast(`Sent ${cmdType.replace('_', ' ')} to ${droneId}`, 'info');
+
+                // Add to timeline
+                addTimelineEvent({
+                    id: command.command_id,
+                    timestamp: new Date(),
+                    droneId: droneId,
+                    eventType: 'command',
+                    severity: 'info',
+                    title: `Command: ${cmdType.replace('_', ' ')}`,
+                    description: cmdType === 'inspect_asset' ? `Target: ${assetId}` : null,
+                    data: command
+                });
+            } else {
+                showToast('WebSocket not connected', 'error');
+            }
+        }
+
+        function populateCommandBar() {
+            // Populate drone dropdown
+            const droneSelect = document.getElementById('cmd-drone');
+            droneSelect.innerHTML = '<option value="">Select Drone</option>';
+            state.drones.forEach((drone, id) => {
+                droneSelect.innerHTML += `<option value="${id}">${id}</option>`;
+            });
+
+            // Populate asset dropdown
+            const assetSelect = document.getElementById('cmd-asset');
+            assetSelect.innerHTML = '<option value="">Select Asset</option>';
+            state.assets.forEach((asset, id) => {
+                assetSelect.innerHTML += `<option value="${id}">${id}</option>`;
+            });
+
+            // Show command bar
+            document.getElementById('command-bar').style.display = 'flex';
+        }
+
+        // =========================================================================
+        // Launch Cards
+        // =========================================================================
+        async function checkAgentServer() {
+            try {
+                const res = await fetch(CONFIG.agentUrl + '/health', { signal: AbortSignal.timeout(2000) });
+                return res.ok;
+            } catch {
+                return false;
+            }
+        }
+
+        async function updateServiceStatus() {
+            // Check agent server
+            const agentRunning = await checkAgentServer();
+            const agentStatus = document.getElementById('agent-server-status');
+            const agentCard = document.getElementById('launch-agent-server');
+            if (agentRunning) {
+                agentStatus.textContent = 'Running';
+                agentStatus.className = 'launch-status running';
+                agentCard.classList.add('running');
+            } else {
+                agentStatus.textContent = 'Stopped';
+                agentStatus.className = 'launch-status stopped';
+                agentCard.classList.remove('running');
+            }
+
+            // Update agent reasoning panel status
+            const agentDot = document.getElementById('agent-status-dot');
+            const agentText = document.getElementById('agent-status-text');
+            if (agentRunning) {
+                agentDot.className = 'status-dot connected';
+                agentText.textContent = 'Connected';
+            } else {
+                agentDot.className = 'status-dot disconnected';
+                agentText.textContent = 'Offline';
+            }
+        }
+
+        function setupLaunchCards() {
+            // Agent server click
+            document.getElementById('launch-agent-server').addEventListener('click', async () => {
+                const isRunning = await checkAgentServer();
+                if (isRunning) {
+                    showToast('Agent server is already running on ' + CONFIG.agentUrl);
+                } else {
+                    showToast('Start agent server with: python -m agent.server.main');
+                }
+            });
+
+            // OBS overlay click
+            document.getElementById('launch-obs-overlay').addEventListener('click', () => {
+                window.open('/overlay/', '_blank');
+            });
+
+            // Check service status periodically
+            updateServiceStatus();
+            setInterval(updateServiceStatus, 10000);
+        }
+
+        function showToast(message, severity = 'info') {
+            // Simple toast notification with optional severity coloring
+            const existing = document.querySelector('.toast');
+            if (existing) existing.remove();
+
+            const barActive = document.getElementById('scenario-bar').classList.contains('active');
+            const bottomOffset = barActive ? '80px' : '24px';
+
+            const severityColors = {
+                info: 'var(--accent)',
+                success: 'var(--success)',
+                warning: 'var(--warning)',
+                error: 'var(--danger)',
+                critical: 'var(--danger)'
+            };
+            const borderColor = severityColors[severity] || severityColors.info;
+
+            const toast = document.createElement('div');
+            toast.className = 'toast';
+            toast.textContent = message;
+            toast.style.cssText = `
+                position: fixed;
+                bottom: ${bottomOffset};
+                left: 50%;
+                transform: translateX(-50%);
+                background: var(--bg-elevated);
+                border: 1px solid ${borderColor};
+                padding: 12px 20px;
+                border-radius: var(--radius);
+                font-size: 13px;
+                z-index: 1000;
+                animation: fadeIn 0.2s ease;
+                box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+            `;
+            document.body.appendChild(toast);
+            setTimeout(() => toast.remove(), 3000);
+        }
+
+        // =========================================================================
+        // Scenario Bar
+        // =========================================================================
+        function handleScenarioUpdate(scenario) {
+            const wasRunning = state.scenario !== null;
+            state.scenario = scenario;
+            state.isRunning = true;
+
+            if (!wasRunning) {
+                // Scenario just started
+                state.scenarioStartTime = scenario.started_at ? new Date(scenario.started_at).getTime() : Date.now();
+                updateStartButton();
+                // Populate command bar after a short delay to let drones/assets load
+                setTimeout(populateCommandBar, 500);
+            }
+
+            updateScenarioBar();
+        }
+
+        function handleScenarioStop() {
+            state.scenario = null;
+            state.isRunning = false;
+            state.scenarioStartTime = null;
+            updateStartButton();
+            updateScenarioBar();
+            // Hide command bar
+            document.getElementById('command-bar').style.display = 'none';
+        }
+
+        function updateScenarioBar() {
+            const bar = document.getElementById('scenario-bar');
+
+            if (!state.scenario) {
+                bar.classList.remove('active');
+                return;
+            }
+
+            bar.classList.add('active');
+
+            document.getElementById('bar-scenario-name').textContent = state.scenario.name;
+            document.getElementById('bar-speed').textContent = `${state.scenario.time_scale}x`;
+            document.getElementById('bar-mode').textContent = state.scenario.mode;
+
+            // Update elapsed time
+            if (state.scenarioStartTime) {
+                const elapsed = Math.floor((Date.now() - state.scenarioStartTime) / 1000);
+                const mins = Math.floor(elapsed / 60);
+                const secs = elapsed % 60;
+                document.getElementById('bar-elapsed').textContent =
+                    `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+
+                // Update progress bar
+                const duration = (state.scenario.duration_minutes || 20) * 60;
+                const progress = Math.min(100, (elapsed / duration) * 100);
+                document.getElementById('bar-progress').style.width = `${progress}%`;
+            }
+        }
+
+        // Update scenario bar every second
+        setInterval(updateScenarioBar, 1000);
+
+        async function checkScenarioStatus() {
+            try {
+                const res = await fetch(`${CONFIG.apiBase}/api/scenarios/status`);
+                const data = await res.json();
+
+                if (data.running) {
+                    state.isRunning = true;
+                    state.selectedScenario = data.scenario_id;
+                    state.scenarioStartTime = Date.now() - (data.elapsed_s * 1000);
+
+                    // Set the dropdown
+                    const select = document.getElementById('scenario-select');
+                    if (select.value !== data.scenario_id) {
+                        select.value = data.scenario_id;
+                        const scenario = state.scenarios.find(s => s.scenario_id === data.scenario_id);
+                        showScenarioInfo(scenario);
+                    }
+
+                    state.scenario = {
+                        id: data.scenario_id,
+                        name: state.scenarios.find(s => s.scenario_id === data.scenario_id)?.name || data.scenario_id,
+                        mode: data.mode,
+                        time_scale: data.time_scale,
+                        duration_minutes: state.scenarios.find(s => s.scenario_id === data.scenario_id)?.duration_minutes || 20,
+                    };
+
+                    updateStartButton();
+                    updateScenarioBar();
+                }
+            } catch (err) {
+                console.error('Failed to check scenario status:', err);
+            }
+        }
+
+        // =========================================================================
+        // Timeline Functions
+        // =========================================================================
+        function addTimelineEvent(timelineEvent) {
+            state.timeline.unshift(timelineEvent);
+            if (state.timeline.length > state.maxTimelineEvents) {
+                state.timeline.pop();
+            }
+            renderTimeline();
+        }
+
+        function formatEventTitle(event) {
+            switch (event.type) {
+                case 'thinking_start': return 'Started reasoning';
+                case 'thinking_update': return 'Updated analysis';
+                case 'thinking_complete':
+                case 'decision': return `Decision: ${event.action || event.decision?.action || 'Unknown'}`;
+                case 'critic_result': return `${event.critic || 'Critic'}: ${event.approved ? 'Approved' : 'Rejected'}`;
+                case 'alert': return event.title || 'Alert';
+                case 'command': return `Command: ${event.command_type || 'Unknown'}`;
+                default: return event.type;
+            }
+        }
+
+        function formatEventDescription(event) {
+            switch (event.type) {
+                case 'thinking_start': return event.situation || 'Analyzing current situation...';
+                case 'thinking_update': return event.situation || `Risk: ${Math.round((event.risk_score || 0) * 100)}%`;
+                case 'decision': return event.target ? `Target: ${event.target}` : '';
+                case 'critic_result': return event.reason || event.details || '';
+                default: return event.message || event.description || '';
+            }
+        }
+
+        function getEventSeverity(event) {
+            if (event.severity) return event.severity;
+            if (event.type === 'critic_result' && !event.approved) return 'warning';
+            if (event.type === 'alert') return event.alert_severity || 'info';
+            if (event.risk_score > 0.7) return 'critical';
+            if (event.risk_score > 0.4) return 'warning';
+            return 'info';
+        }
+
+        function renderTimeline() {
+            const content = document.getElementById('timeline-content');
+            const countBadge = document.getElementById('timeline-count');
+            const filter = state.selectedDroneFilter;
+
+            // Filter events
+            const filtered = filter === 'all'
+                ? state.timeline
+                : state.timeline.filter(e => e.droneId === filter);
+
+            countBadge.textContent = state.timeline.length;
+
+            if (filtered.length === 0) {
+                content.innerHTML = `
+                    <div class="timeline-empty">
+                        <div style="font-size: 24px; margin-bottom: 8px;">📋</div>
+                        <div>No activity yet</div>
+                        <div style="font-size: 11px; margin-top: 4px;">Start a scenario to see agent decisions</div>
+                    </div>
+                `;
+                return;
+            }
+
+            content.innerHTML = filtered.slice(0, 50).map(event => {
+                const color = getDroneColor(event.droneId);
+                const time = new Date(event.timestamp).toLocaleTimeString('en-US', {
+                    hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false
+                });
+                return `
+                    <div class="timeline-event severity-${event.severity}">
+                        <div class="timeline-drone-indicator" style="background: ${color}"></div>
+                        <div class="timeline-event-content">
+                            <div class="timeline-event-header">
+                                <span class="timeline-event-drone" style="color: ${color}">${event.droneId}</span>
+                                <span class="timeline-event-type">${event.eventType}</span>
+                                <span class="timeline-event-time">${time}</span>
+                            </div>
+                            <div class="timeline-event-title">${event.title}</div>
+                            ${event.description ? `<div class="timeline-event-desc">${event.description}</div>` : ''}
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function updateDroneFilterOptions() {
+            const select = document.getElementById('timeline-drone-filter');
+            const currentDrones = Array.from(state.agentStates.keys());
+
+            // Keep current options that still exist, add new ones
+            const existingValues = Array.from(select.options).map(o => o.value);
+            currentDrones.forEach(droneId => {
+                if (!existingValues.includes(droneId)) {
+                    const option = document.createElement('option');
+                    option.value = droneId;
+                    option.textContent = droneId;
+                    option.style.color = getDroneColor(droneId);
+                    select.appendChild(option);
+                }
+            });
+        }
+
+        // =========================================================================
+        // Agent Event Handling
+        // =========================================================================
+        function handleAgentEvent(event) {
+            if (!event || !event.type) return;
+
+            const eventType = event.type;
+            const droneId = event.drone_id || event.droneId || 'drone_001';
+
+            // Update agent status indicator
+            const agentDot = document.getElementById('agent-status-dot');
+            const agentText = document.getElementById('agent-status-text');
+            agentDot.className = 'status-dot connected';
+            agentText.textContent = 'Active';
+
+            // Ensure we have state for this drone
+            if (!state.agentStates.has(droneId)) {
+                state.agentStates.set(droneId, createAgentState());
+                updateDroneFilterOptions();
+            }
+            const agentState = state.agentStates.get(droneId);
+            agentState.lastUpdate = Date.now();
+
+            // Add to timeline for significant events
+            const shouldAddToTimeline = ['thinking_start', 'decision', 'thinking_complete', 'critic_result', 'alert'].includes(eventType);
+            if (shouldAddToTimeline) {
+                addTimelineEvent({
+                    id: crypto.randomUUID(),
+                    timestamp: new Date(),
+                    droneId,
+                    eventType,
+                    severity: getEventSeverity(event),
+                    title: formatEventTitle(event),
+                    description: formatEventDescription(event),
+                    data: event
+                });
+            }
+
+            switch (eventType) {
+                case 'thinking_start':
+                    agentState.thinking = true;
+                    agentState.thought = {
+                        cognitive_level: event.cognitive_level || 'deliberative',
+                        situation: event.situation || 'Analyzing situation...',
+                        considerations: event.considerations || [],
+                        risk_score: event.risk_score || 0,
+                        risk_level: event.risk_level || 'low',
+                    };
+                    agentState.criticResults = {};
+                    agentState.decision = null;
+                    // Also update legacy state for thought bubble display
+                    state.agentThinking = true;
+                    state.currentThought = agentState.thought;
+                    state.criticResults = {};
+                    state.decision = null;
+                    updateThoughtBubble(droneId);
+                    break;
+
+                case 'thinking_update':
+                    if (agentState.thought) {
+                        if (event.considerations) agentState.thought.considerations = event.considerations;
+                        if (event.situation) agentState.thought.situation = event.situation;
+                        if (event.risk_score !== undefined) {
+                            agentState.thought.risk_score = event.risk_score;
+                            agentState.thought.risk_level = event.risk_level || getRiskLevel(event.risk_score);
+                        }
+                        state.currentThought = agentState.thought;
+                        updateThoughtBubble(droneId);
+                    }
+                    break;
+
+                case 'critic_result':
+                    const criticName = event.critic || event.critic_name;
+                    agentState.criticResults[criticName] = {
+                        approved: event.approved !== false,
+                        verdict: event.verdict || (event.approved !== false ? 'APPROVED' : 'REJECTED'),
+                        reason: event.reason || event.details || '',
+                    };
+                    state.criticResults = agentState.criticResults;
+                    updateThoughtBubble(droneId);
+                    break;
+
+                case 'thinking_complete':
+                case 'decision':
+                    agentState.thinking = false;
+                    agentState.decision = {
+                        action: event.action || event.decision?.action || 'WAIT',
+                        confidence: event.confidence || event.decision?.confidence || 0.8,
+                        target: event.target || event.parameters?.asset_id || null,
+                    };
+                    state.agentThinking = false;
+                    state.decision = agentState.decision;
+                    updateThoughtBubble(droneId);
+                    break;
+
+                case 'alert':
+                    handleAlert(event);
+                    break;
+            }
+        }
+
+        function handleAlert(alert) {
+            // Add to alerts array
+            state.alerts.unshift(alert);
+            if (!alert.acknowledged) {
+                state.unacknowledgedAlerts++;
+            }
+
+            // Show toast for critical/warning alerts
+            if (alert.severity === 'critical' || alert.severity === 'warning') {
+                showAlertToast(alert);
+            }
+        }
+
+        function showAlertToast(alert) {
+            const container = document.getElementById('toast-container');
+            const toast = document.createElement('div');
+            toast.className = `alert-toast ${alert.severity || 'info'}`;
+            toast.innerHTML = `
+                <div class="alert-toast-header">
+                    <span class="alert-toast-icon">${alert.severity === 'critical' ? '🚨' : '⚠️'}</span>
+                    <span class="alert-toast-title">${alert.title || 'Alert'}</span>
+                    <button class="alert-toast-close" onclick="this.parentElement.parentElement.remove()">×</button>
+                </div>
+                <div class="alert-toast-message">${alert.message || ''}</div>
+            `;
+            container.appendChild(toast);
+
+            // Auto-remove after delay
+            const delay = alert.severity === 'critical' ? 8000 : 5000;
+            setTimeout(() => toast.remove(), delay);
+
+            // Play sound for critical alerts
+            if (alert.severity === 'critical') {
+                // Could add audio here
+            }
+        }
+
+        // Handle manual override requests
+        function handleOverrideRequest(request) {
+            // Add to timeline
+            addTimelineEvent({
+                id: request.override_id || crypto.randomUUID(),
+                timestamp: new Date(),
+                droneId: request.drone_id || 'system',
+                eventType: 'override_request',
+                severity: 'critical',
+                title: 'Manual Override Required',
+                description: `${request.action || 'Action'} requires human approval`,
+                data: request
+            });
+
+            // Show the override modal
+            showOverrideModal(request);
+        }
+
+        function showOverrideModal(request) {
+            // Store pending override
+            state.pendingOverride = request;
+
+            const container = document.getElementById('override-container');
+            const timeout = request.timeout_seconds || 30;
+            let remaining = timeout;
+
+            const riskPercent = request.risk_score ? (request.risk_score * 100).toFixed(0) : '??';
+            const riskClass = request.risk_score >= 0.75 ? 'critical' : 'high';
+            const concerns = request.concerns || [];
+            const droneColor = getDroneColor(request.drone_id);
+
+            container.innerHTML = `
+                <div class="override-backdrop" id="override-backdrop">
+                    <div class="override-modal">
+                        <div class="override-header">
+                            <div class="override-badge">
+                                <span>🚨</span>
+                                <span>APPROVAL REQUIRED</span>
+                            </div>
+                            <div class="override-timer" id="override-timer">${remaining}</div>
+                        </div>
+                        <div class="override-body">
+                            <div class="override-action">
+                                <span class="override-drone" style="color: ${droneColor}">${request.drone_id || 'Drone'}</span>
+                                <span>wants to</span>
+                                <span class="override-target">${request.action || 'perform action'}</span>
+                            </div>
+                            <div class="override-risk">
+                                <div>
+                                    <div class="override-risk-label">Risk Score</div>
+                                    <div class="override-risk-value ${riskClass}">${riskPercent}%</div>
+                                </div>
+                                ${request.decision_summary ? `<div style="flex: 1; font-size: 12px; color: var(--text-secondary);">${request.decision_summary}</div>` : ''}
+                            </div>
+                            ${concerns.length > 0 ? `
+                                <div class="override-concerns">
+                                    ${concerns.map(c => `<div class="override-concern">${c}</div>`).join('')}
+                                </div>
+                            ` : ''}
+                        </div>
+                        <div class="override-footer">
+                            <button class="override-btn override-btn-approve" id="override-approve">Approve</button>
+                            <button class="override-btn override-btn-deny" id="override-deny">Deny</button>
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            // Event listeners
+            document.getElementById('override-approve').addEventListener('click', () => {
+                respondToOverride(true);
+            });
+
+            document.getElementById('override-deny').addEventListener('click', () => {
+                respondToOverride(false);
+            });
+
+            // Start countdown
+            state.overrideTimer = setInterval(() => {
+                remaining--;
+                const timerEl = document.getElementById('override-timer');
+                if (timerEl) {
+                    timerEl.textContent = remaining;
+                    if (remaining <= 10) {
+                        timerEl.classList.add('warning');
+                    }
+                }
+
+                if (remaining <= 0) {
+                    // Auto-deny on timeout
+                    respondToOverride(false, true);
+                }
+            }, 1000);
+        }
+
+        function respondToOverride(approved, timeout = false) {
+            // Clear timer
+            if (state.overrideTimer) {
+                clearInterval(state.overrideTimer);
+                state.overrideTimer = null;
+            }
+
+            // Send response to server
+            if (state.pendingOverride && state.ws && state.ws.readyState === WebSocket.OPEN) {
+                const response = {
+                    type: 'override_response',
+                    override_id: state.pendingOverride.override_id,
+                    approved: approved,
+                    timeout: timeout
+                };
+                state.ws.send(JSON.stringify(response));
+
+                // Add to timeline
+                addTimelineEvent({
+                    id: crypto.randomUUID(),
+                    timestamp: new Date(),
+                    droneId: state.pendingOverride.drone_id || 'system',
+                    eventType: 'override_response',
+                    severity: approved ? 'info' : 'warning',
+                    title: timeout ? 'Override Timed Out' : (approved ? 'Override Approved' : 'Override Denied'),
+                    description: `User ${timeout ? 'did not respond in time' : (approved ? 'approved' : 'denied')} the action`,
+                    data: response
+                });
+
+                showToast(
+                    timeout ? 'Override timed out - action denied' : (approved ? 'Action approved' : 'Action denied'),
+                    approved ? 'success' : 'warning'
+                );
+            }
+
+            // Clear modal
+            state.pendingOverride = null;
+            document.getElementById('override-container').innerHTML = '';
+        }
+
+        // =========================================================================
+        // Chat Functions
+        // =========================================================================
+        function setupChat() {
+            const input = document.getElementById('chat-input');
+            const sendBtn = document.getElementById('chat-send');
+            const minimizeBtn = document.getElementById('chat-minimize');
+            const panel = document.getElementById('chat-panel');
+
+            // Send on button click
+            sendBtn.addEventListener('click', sendChatMessage);
+
+            // Send on Enter key
+            input.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    sendChatMessage();
+                }
+            });
+
+            // Minimize/expand chat
+            minimizeBtn.addEventListener('click', () => {
+                panel.classList.toggle('minimized');
+                minimizeBtn.textContent = panel.classList.contains('minimized') ? '+' : '−';
+            });
+        }
+
+        function sendChatMessage() {
+            const input = document.getElementById('chat-input');
+            const message = input.value.trim();
+
+            if (!message) return;
+
+            // Add user message to chat
+            addChatMessage(message, 'user');
+            input.value = '';
+
+            // Show typing indicator
+            showTypingIndicator();
+
+            // Send to server via WebSocket
+            if (state.ws && state.ws.readyState === WebSocket.OPEN) {
+                state.ws.send(JSON.stringify({
+                    type: 'chat_message',
+                    message: message
+                }));
+            } else {
+                // If no WebSocket, try to parse locally
+                handleLocalCommand(message);
+            }
+        }
+
+        function addChatMessage(text, type = 'agent') {
+            const container = document.getElementById('chat-messages');
+            const msg = document.createElement('div');
+            msg.className = `chat-message ${type}`;
+            msg.textContent = text;
+            container.appendChild(msg);
+            container.scrollTop = container.scrollHeight;
+        }
+
+        function showTypingIndicator() {
+            const container = document.getElementById('chat-messages');
+            const existing = document.getElementById('typing-indicator');
+            if (existing) return;
+
+            const indicator = document.createElement('div');
+            indicator.id = 'typing-indicator';
+            indicator.className = 'chat-typing';
+            indicator.innerHTML = `
+                <span class="chat-typing-dot"></span>
+                <span class="chat-typing-dot"></span>
+                <span class="chat-typing-dot"></span>
+            `;
+            container.appendChild(indicator);
+            container.scrollTop = container.scrollHeight;
+        }
+
+        function hideTypingIndicator() {
+            const indicator = document.getElementById('typing-indicator');
+            if (indicator) indicator.remove();
+        }
+
+        function handleChatResponse(response) {
+            hideTypingIndicator();
+            addChatMessage(response.message || response.text, 'agent');
+
+            // If a command was executed, show it in timeline
+            if (response.command_executed) {
+                addTimelineEvent({
+                    id: crypto.randomUUID(),
+                    timestamp: new Date(),
+                    droneId: response.drone_id || 'system',
+                    eventType: 'chat_command',
+                    severity: 'info',
+                    title: 'Chat Command',
+                    description: response.message,
+                    data: response
+                });
+            }
+        }
+
+        function handleLocalCommand(text) {
+            // Simple local command parsing when agent server is unavailable
+            hideTypingIndicator();
+
+            const lowerText = text.toLowerCase();
+
+            // Try to parse drone commands
+            const droneMatch = lowerText.match(/drone\s*(\d+|one|two|1|2)/i);
+            const droneId = droneMatch
+                ? `drone_00${droneMatch[1].replace('one', '1').replace('two', '2')}`
+                : 'drone_001';
+
+            if (lowerText.includes('inspect') || lowerText.includes('check')) {
+                // Find asset mentioned
+                const assetMatch = lowerText.match(/solar|tank/i);
+                if (assetMatch) {
+                    const assetType = assetMatch[0].toLowerCase();
+                    const assetId = `${assetType}_001`;
+
+                    // Send command
+                    const cmd = {
+                        type: 'command',
+                        command_id: crypto.randomUUID(),
+                        command_type: 'inspect_asset',
+                        drone_id: droneId,
+                        parameters: { asset_id: assetId }
+                    };
+
+                    if (state.ws && state.ws.readyState === WebSocket.OPEN) {
+                        state.ws.send(JSON.stringify(cmd));
+                        addChatMessage(`Sending ${droneId} to inspect ${assetId}...`, 'agent');
+                    }
+                    return;
+                }
+            }
+
+            if (lowerText.includes('home') || lowerText.includes('return') || lowerText.includes('rtl')) {
+                const cmd = {
+                    type: 'command',
+                    command_id: crypto.randomUUID(),
+                    command_type: 'return_home',
+                    drone_id: droneId,
+                    parameters: {}
+                };
+
+                if (state.ws && state.ws.readyState === WebSocket.OPEN) {
+                    state.ws.send(JSON.stringify(cmd));
+                    addChatMessage(`Sending ${droneId} home...`, 'agent');
+                }
+                return;
+            }
+
+            if (lowerText.includes('stop') || lowerText.includes('abort')) {
+                const cmd = {
+                    type: 'command',
+                    command_id: crypto.randomUUID(),
+                    command_type: 'abort',
+                    drone_id: droneId,
+                    parameters: {}
+                };
+
+                if (state.ws && state.ws.readyState === WebSocket.OPEN) {
+                    state.ws.send(JSON.stringify(cmd));
+                    addChatMessage(`Aborting ${droneId}...`, 'agent');
+                }
+                return;
+            }
+
+            // Default response
+            addChatMessage(
+                "I can help with commands like:\n• \"Send drone 1 to inspect solar panels\"\n• \"Return drone 2 home\"\n• \"Abort drone 1\"",
+                'agent'
+            );
+        }
+
+        // Current drone being displayed in thought bubble
+        let displayedDroneId = null;
+
+        function getRiskLevel(score) {
+            if (score < 0.25) return 'low';
+            if (score < 0.5) return 'moderate';
+            if (score < 0.75) return 'high';
+            return 'critical';
+        }
+
+        function updateThoughtBubble(droneId = null) {
+            const content = document.getElementById('thought-content');
+
+            // Update displayed drone ID
+            if (droneId) {
+                displayedDroneId = droneId;
+            }
+
+            if (!state.currentThought && !state.decision) {
+                content.innerHTML = `
+                    <div class="empty-state">
+                        <div class="empty-icon">🤖</div>
+                        <div>Awaiting agent activity</div>
+                    </div>
+                `;
+                return;
+            }
+
+            const thought = state.currentThought || {};
+            const cogLevel = thought.cognitive_level || 'deliberative';
+            const situation = thought.situation || 'Processing...';
+            const considerations = thought.considerations || [];
+            const riskScore = thought.risk_score || 0;
+            const riskLevel = thought.risk_level || 'low';
+            const droneColor = getDroneColor(displayedDroneId || 'drone_001');
+
+            // Build considerations list
+            const considerationItems = considerations.slice(0, 4).map(c =>
+                `<li style="margin-bottom: 4px; color: var(--text-secondary); font-size: 12px;">• ${c}</li>`
+            ).join('');
+
+            // Build critics row
+            const criticNames = ['Safety', 'Efficiency', 'Goal Alignment'];
+            const criticsHtml = criticNames.map(name => {
+                const result = state.criticResults[name] || state.criticResults[name.toLowerCase()] ||
+                               state.criticResults[name.replace(' ', '')] || state.criticResults[name.toLowerCase().replace(' ', '_')];
+                if (result) {
+                    const approved = result.approved;
+                    return `
+                        <div class="critic ${approved ? 'approve' : 'reject'}">
+                            ${approved ? '✓' : '✗'} ${name.split(' ')[0]}
+                        </div>
+                    `;
+                } else {
+                    return `
+                        <div class="critic">
+                            ⋯ ${name.split(' ')[0]}
+                        </div>
+                    `;
+                }
+            }).join('');
+
+            // Build decision box
+            let decisionHtml = '';
+            if (state.decision) {
+                const confidence = Math.round(state.decision.confidence * 100);
+                decisionHtml = `
+                    <div class="decision-box active">
+                        <div style="display: flex; justify-content: space-between; align-items: center;">
+                            <span class="decision-action">${state.decision.action}</span>
+                            <span class="decision-confidence">${confidence}%</span>
+                        </div>
+                        ${state.decision.target ? `<div style="font-size: 11px; color: var(--text-secondary); margin-top: 4px;">Target: ${state.decision.target}</div>` : ''}
+                    </div>
+                `;
+            }
+
+            // Drone indicator at top
+            const droneIndicator = displayedDroneId ? `
+                <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 10px; padding-bottom: 8px; border-bottom: 1px solid var(--border);">
+                    <div style="width: 8px; height: 8px; border-radius: 50%; background: ${droneColor};"></div>
+                    <span style="font-size: 11px; font-weight: 600; color: ${droneColor};">${displayedDroneId}</span>
+                    ${state.agentThinking ? '<span style="font-size: 10px; color: var(--text-muted); margin-left: auto;">Processing...</span>' : ''}
+                </div>
+            ` : '';
+
+            content.innerHTML = `
+                ${droneIndicator}
+                <div class="thought-header">
+                    <span class="cognitive-badge ${cogLevel}">${cogLevel}</span>
+                </div>
+
+                <div class="situation-box">
+                    <div class="situation-label">Situation Assessment</div>
+                    <div class="situation-text">${situation}</div>
+                </div>
+
+                ${considerations.length > 0 ? `
+                    <div style="margin-bottom: 12px;">
+                        <div style="font-size: 10px; color: var(--text-muted); text-transform: uppercase; margin-bottom: 6px;">Considerations</div>
+                        <ul style="list-style: none; padding: 0; margin: 0;">${considerationItems}</ul>
+                    </div>
+                ` : ''}
+
+                <div class="risk-bar">
+                    <div class="risk-header">
+                        <span style="color: var(--text-secondary);">Risk Assessment</span>
+                        <span style="text-transform: uppercase; font-size: 10px; font-weight: 600;" class="risk-${riskLevel}">${riskLevel}</span>
+                    </div>
+                    <div class="risk-track">
+                        <div class="risk-fill ${riskLevel}" style="width: ${riskScore * 100}%"></div>
+                    </div>
+                </div>
+
+                <div class="critics-row">${criticsHtml}</div>
+
+                ${decisionHtml}
+            `;
+        }
+
+        // =========================================================================
+        // Init
+        // =========================================================================
+        async function init() {
+            initScene();
+            setupUI();
+            connectWebSocket();
+            await loadScenarios();
+
+            // Check if a scenario is already running
+            await checkScenarioStatus();
+
+            // Setup bar stop button
+            document.getElementById('bar-stop-btn').addEventListener('click', stopScenario);
+        }
+
+        init();
+    </script>
+</body>
+</html>

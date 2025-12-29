@@ -14,12 +14,13 @@ Or on Windows:
 
 from __future__ import annotations
 
+import importlib
 import json
 import os
 import platform
 import shutil
 import socket
-import subprocess
+import subprocess  # noqa: S404
 import sys
 import threading
 import time
@@ -36,16 +37,24 @@ try:
     import tkinter as tk
     from tkinter import filedialog, messagebox, scrolledtext, ttk
 except ImportError:
-    print("Error: tkinter is required but not installed.")
-    print("\nTo install tkinter:")
+    error_lines = [
+        "Error: tkinter is required but not installed.",
+        "",
+        "To install tkinter:",
+    ]
     if platform.system() == "Linux":
-        print("  Ubuntu/Debian: sudo apt-get install python3-tk")
-        print("  Fedora: sudo dnf install python3-tkinter")
-        print("  Arch: sudo pacman -S tk")
+        error_lines.extend(
+            [
+                "  Ubuntu/Debian: sudo apt-get install python3-tk",
+                "  Fedora: sudo dnf install python3-tkinter",
+                "  Arch: sudo pacman -S tk",
+            ]
+        )
     elif platform.system() == "Darwin":
-        print("  macOS: brew install python-tk")
+        error_lines.append("  macOS: brew install python-tk")
     else:
-        print("  Windows: Reinstall Python with tcl/tk option checked")
+        error_lines.append("  Windows: Reinstall Python with tcl/tk option checked")
+    sys.stderr.write("\n".join(error_lines) + "\n")
     sys.exit(1)
 
 
@@ -92,6 +101,7 @@ URLS = {
 
 class StepStatus(Enum):
     """Status of a setup step."""
+
     PENDING = "pending"
     IN_PROGRESS = "in_progress"
     COMPLETED = "completed"
@@ -102,6 +112,7 @@ class StepStatus(Enum):
 @dataclass
 class Dependency:
     """Represents a software dependency."""
+
     name: str
     check_cmd: list[str]
     version_pattern: str | None = None
@@ -118,6 +129,7 @@ class Dependency:
 @dataclass
 class SetupConfig:
     """Configuration gathered during setup."""
+
     project_root: Path = field(default_factory=lambda: PROJECT_ROOT)
     unreal_engine_path: Path | None = None
     airsim_path: Path | None = None
@@ -150,10 +162,13 @@ class SetupConfig:
 # Utility Functions
 # =============================================================================
 
-def run_command(cmd: list[str], cwd: Path | None = None, timeout: int = 300) -> tuple[bool, str, str]:
+
+def run_command(
+    cmd: list[str], cwd: Path | None = None, timeout: int = 300
+) -> tuple[bool, str, str]:
     """Run a command and return (success, stdout, stderr)."""
     try:
-        result = subprocess.run(
+        result = subprocess.run(  # noqa: S603
             cmd,
             cwd=cwd,
             capture_output=True,
@@ -166,8 +181,8 @@ def run_command(cmd: list[str], cwd: Path | None = None, timeout: int = 300) -> 
         return False, "", "Command timed out"
     except FileNotFoundError:
         return False, "", f"Command not found: {cmd[0]}"
-    except Exception as e:
-        return False, "", str(e)
+    except Exception as exc:
+        return False, "", str(exc)
 
 
 def run_command_stream(
@@ -369,10 +384,7 @@ def wait_for_uv(timeout_seconds: int = 30) -> str | None:
 
 def check_command_exists(cmd: str) -> tuple[bool, str]:
     """Check if a command exists and return its path."""
-    if IS_WINDOWS:
-        where_cmd = ["where", cmd]
-    else:
-        where_cmd = ["which", cmd]
+    where_cmd = ["where", cmd] if IS_WINDOWS else ["which", cmd]
 
     success, stdout, _ = run_command(where_cmd)
     if success and stdout.strip():
@@ -434,6 +446,7 @@ def init_log() -> None:
 # Dependency Definitions
 # =============================================================================
 
+
 def get_dependencies() -> list[Dependency]:
     """Get list of all dependencies to check."""
     return [
@@ -484,10 +497,11 @@ def get_dependencies() -> list[Dependency]:
 # GUI Components
 # =============================================================================
 
+
 class StepFrame(ttk.Frame):
     """Base class for wizard step frames."""
 
-    def __init__(self, parent: tk.Widget, wizard: SetupWizard):
+    def __init__(self, parent: tk.Widget, wizard: SetupWizard) -> None:
         super().__init__(parent)
         self.wizard = wizard
         self.config = wizard.config
@@ -512,7 +526,7 @@ class StepFrame(ttk.Frame):
 class WelcomeStep(StepFrame):
     """Welcome screen with overview."""
 
-    def __init__(self, parent: tk.Widget, wizard: SetupWizard):
+    def __init__(self, parent: tk.Widget, wizard: SetupWizard) -> None:
         super().__init__(parent, wizard)
         self._build_ui()
 
@@ -579,7 +593,7 @@ Project Location: {PROJECT_ROOT}"""
 class DependencyStep(StepFrame):
     """Check and install dependencies."""
 
-    def __init__(self, parent: tk.Widget, wizard: SetupWizard):
+    def __init__(self, parent: tk.Widget, wizard: SetupWizard) -> None:
         super().__init__(parent, wizard)
         self.dependencies = get_dependencies()
         self.check_complete = False
@@ -608,7 +622,7 @@ class DependencyStep(StepFrame):
         # Create labels for each dependency
         self.dep_labels: dict[str, dict] = {}
 
-        for i, dep in enumerate(self.dependencies):
+        for dep in self.dependencies:
             row_frame = ttk.Frame(self.deps_frame)
             row_frame.pack(fill="x", pady=5)
 
@@ -698,7 +712,7 @@ class DependencyStep(StepFrame):
         self.progress_var.set(0)
 
         # Reset all labels
-        for name, labels in self.dep_labels.items():
+        for labels in self.dep_labels.values():
             labels["status"].config(text="⏳")
             labels["version"].config(text="Checking...", foreground="gray")
             labels["install_btn"].pack_forget()
@@ -784,7 +798,11 @@ class DependencyStep(StepFrame):
                 labels["version"].config(text=dep.version or "Not found", foreground="orange")
 
             # Show install button if we have install info
-            if dep.install_url or (IS_LINUX and dep.install_cmd_linux) or (IS_WINDOWS and dep.install_cmd_windows):
+            if (
+                dep.install_url
+                or (IS_LINUX and dep.install_cmd_linux)
+                or (IS_WINDOWS and dep.install_cmd_windows)
+            ):
                 labels["install_btn"].pack(side="right")
 
     def _install_dependency(self, dep: Dependency) -> None:
@@ -792,20 +810,22 @@ class DependencyStep(StepFrame):
         append_log(f"Dependency install requested: {dep.name}")
         if dep.install_url:
             if messagebox.askyesno(
-                "Install Dependency",
-                f"Open download page for {dep.name}?\n\n{dep.install_url}"
+                "Install Dependency", f"Open download page for {dep.name}?\n\n{dep.install_url}"
             ):
                 append_log(f"Opening download page for {dep.name}: {dep.install_url}")
                 open_url(dep.install_url)
         elif IS_LINUX and dep.install_cmd_linux:
             if messagebox.askyesno(
-                "Install Dependency",
-                f"Run the following command?\n\n{dep.install_cmd_linux}"
+                "Install Dependency", f"Run the following command?\n\n{dep.install_cmd_linux}"
             ):
                 append_log(f"Running install command for {dep.name} (linux)")
                 # Run in terminal
-                subprocess.Popen(
-                    ["x-terminal-emulator", "-e", f"bash -c '{dep.install_cmd_linux}; read -p \"Press Enter...\"'"],
+                subprocess.Popen(  # noqa: S603
+                    [  # noqa: S607
+                        "x-terminal-emulator",
+                        "-e",
+                        f"bash -c '{dep.install_cmd_linux}; read -p \"Press Enter...\"'",
+                    ],
                     start_new_session=True,
                 )
         elif IS_WINDOWS and dep.install_cmd_windows:
@@ -956,7 +976,7 @@ class DependencyStep(StepFrame):
 class PythonSetupStep(StepFrame):
     """Install Python dependencies."""
 
-    def __init__(self, parent: tk.Widget, wizard: SetupWizard):
+    def __init__(self, parent: tk.Widget, wizard: SetupWizard) -> None:
         super().__init__(parent, wizard)
         self.install_complete = False
         self.install_failed = False
@@ -1206,8 +1226,9 @@ class PythonSetupStep(StepFrame):
                     )
                 self.after(0, lambda: self._install_failed("Install command failed"))
 
-        except Exception as e:
-            self.after(0, lambda: self._install_failed(str(e)))
+        except Exception as exc:
+            error = str(exc)
+            self.after(0, lambda err=error: self._install_failed(err))
 
     def _ensure_airsim_package(
         self,
@@ -1307,7 +1328,7 @@ class PythonSetupStep(StepFrame):
             if messagebox.askyesno(
                 "Skip Installation?",
                 "Python packages have not been installed.\n\n"
-                "Skip this step? (You can install manually later)"
+                "Skip this step? (You can install manually later)",
             ):
                 return True
             return False
@@ -1320,7 +1341,7 @@ class PythonSetupStep(StepFrame):
 class UnrealSetupStep(StepFrame):
     """Guide through Unreal Engine setup."""
 
-    def __init__(self, parent: tk.Widget, wizard: SetupWizard):
+    def __init__(self, parent: tk.Widget, wizard: SetupWizard) -> None:
         super().__init__(parent, wizard)
         self._build_ui()
 
@@ -1509,7 +1530,7 @@ You can always set up Unreal Engine later."""
 class AirSimSetupStep(StepFrame):
     """Guide through AirSim setup."""
 
-    def __init__(self, parent: tk.Widget, wizard: SetupWizard):
+    def __init__(self, parent: tk.Widget, wizard: SetupWizard) -> None:
         super().__init__(parent, wizard)
         self._build_ui()
 
@@ -1535,8 +1556,7 @@ class AirSimSetupStep(StepFrame):
         content_frame = ttk.Frame(canvas)
 
         content_frame.bind(
-            "<Configure>",
-            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+            "<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
         )
 
         canvas.create_window((0, 0), window=content_frame, anchor="nw")
@@ -1610,7 +1630,9 @@ We'll create an optimized configuration for AegisAV."""
         ).pack(pady=10)
 
         # AirSim path
-        path_frame = ttk.LabelFrame(content_frame, text="AirSim Installation Path (Optional)", padding=10)
+        path_frame = ttk.LabelFrame(
+            content_frame, text="AirSim Installation Path (Optional)", padding=10
+        )
         path_frame.pack(fill="x", padx=20, pady=10)
 
         self.airsim_path_var = tk.StringVar()
@@ -1648,26 +1670,29 @@ We'll create an optimized configuration for AegisAV."""
             "Vehicles": {
                 "Drone1": {
                     "VehicleType": "SimpleFlight",
-                    "X": 0, "Y": 0, "Z": 0,
+                    "X": 0,
+                    "Y": 0,
+                    "Z": 0,
                     "EnableCollisionPassthroable": True,
                     "Cameras": {
                         "front_center": {
                             "CaptureSettings": [
                                 {"ImageType": 0, "Width": 1280, "Height": 720, "FOV_Degrees": 90}
                             ],
-                            "X": 0.25, "Y": 0, "Z": -0.1,
-                            "Pitch": -10, "Roll": 0, "Yaw": 0
+                            "X": 0.25,
+                            "Y": 0,
+                            "Z": -0.1,
+                            "Pitch": -10,
+                            "Roll": 0,
+                            "Yaw": 0,
                         }
-                    }
+                    },
                 }
             },
             "SubWindows": [
                 {"WindowID": 0, "CameraName": "front_center", "ImageType": 0, "VehicleName": "Drone1"}
             ],
-            "Recording": {
-                "RecordOnMove": False,
-                "RecordInterval": 0.05
-            }
+            "Recording": {"RecordOnMove": False, "RecordInterval": 0.05},
         }
 
         # Backup existing
@@ -1680,8 +1705,7 @@ We'll create an optimized configuration for AegisAV."""
 
         messagebox.showinfo(
             "Settings Created",
-            f"AirSim settings created at:\n{settings_path}\n\n"
-            "Restart AirSim to apply changes."
+            f"AirSim settings created at:\n{settings_path}\n\nRestart AirSim to apply changes.",
         )
 
     def _test_airsim_connection(self) -> None:
@@ -1696,8 +1720,7 @@ We'll create an optimized configuration for AegisAV."""
             except OSError as e:
                 append_log(f"AirSim RPC not reachable on 127.0.0.1:41451: {e}")
 
-            # Try to import airsim
-            import importlib.util
+            # Try to import airsim (optional dependency)
             spec = importlib.util.find_spec("airsim")
 
             if spec is None:
@@ -1734,19 +1757,18 @@ We'll create an optimized configuration for AegisAV."""
                 )
                 return
 
-            import airsim
+            airsim = importlib.import_module("airsim")
+
             client = airsim.MultirotorClient()
             client.confirmConnection()
 
             self.connection_status.config(
-                text="✅ Connected to AirSim successfully!",
-                foreground="green"
+                text="✅ Connected to AirSim successfully!", foreground="green"
             )
 
         except Exception as e:
             self.connection_status.config(
-                text=f"❌ Connection failed: {str(e)[:50]}",
-                foreground="red"
+                text=f"❌ Connection failed: {str(e)[:50]}", foreground="red"
             )
 
     def _browse_airsim_path(self) -> None:
@@ -1768,7 +1790,7 @@ We'll create an optimized configuration for AegisAV."""
 class ConfigurationStep(StepFrame):
     """Configure AegisAV settings."""
 
-    def __init__(self, parent: tk.Widget, wizard: SetupWizard):
+    def __init__(self, parent: tk.Widget, wizard: SetupWizard) -> None:
         super().__init__(parent, wizard)
         self._build_ui()
 
@@ -1864,7 +1886,7 @@ class ConfigurationStep(StepFrame):
 class InstallStep(StepFrame):
     """Run final installation and configuration."""
 
-    def __init__(self, parent: tk.Widget, wizard: SetupWizard):
+    def __init__(self, parent: tk.Widget, wizard: SetupWizard) -> None:
         super().__init__(parent, wizard)
         self.install_complete = False
         self._build_ui()
@@ -2031,14 +2053,16 @@ class InstallStep(StepFrame):
 
         # Install dependencies
         self._log("  Installing npm dependencies...")
-        success, stdout, stderr = run_command(["npm", "install"], cwd=frontend_dir, timeout=300)
+        success, _stdout, stderr = run_command(["npm", "install"], cwd=frontend_dir, timeout=300)
         if not success:
             self._log(f"  npm install failed: {stderr}")
             return False
 
         # Build
         self._log("  Building frontend...")
-        success, stdout, stderr = run_command(["npm", "run", "build"], cwd=frontend_dir, timeout=300)
+        success, _stdout, stderr = run_command(
+            ["npm", "run", "build"], cwd=frontend_dir, timeout=300
+        )
         if not success:
             self._log(f"  Build failed: {stderr}")
             return False
@@ -2131,7 +2155,7 @@ kill $SERVER_PID
 class CompleteStep(StepFrame):
     """Setup complete summary."""
 
-    def __init__(self, parent: tk.Widget, wizard: SetupWizard):
+    def __init__(self, parent: tk.Widget, wizard: SetupWizard) -> None:
         super().__init__(parent, wizard)
         self._build_ui()
 
@@ -2201,7 +2225,7 @@ class CompleteStep(StepFrame):
         if IS_WINDOWS:
             script = PROJECT_ROOT / "scripts" / "start_server.bat"
             if script.exists():
-                subprocess.Popen(["cmd", "/c", str(script)], start_new_session=True)
+                subprocess.Popen(["cmd", "/c", str(script)], start_new_session=True)  # noqa: S603, S607
             else:
                 subprocess.Popen(
                     ["cmd", "/c", f"cd /d {PROJECT_ROOT} && \"{sys.executable}\" -m agent.server.main"],
@@ -2210,14 +2234,17 @@ class CompleteStep(StepFrame):
         else:
             script = PROJECT_ROOT / "scripts" / "start_server.sh"
             if script.exists():
-                subprocess.Popen(["bash", str(script)], start_new_session=True)
+                subprocess.Popen(["bash", str(script)], start_new_session=True)  # noqa: S603, S607
             else:
                 subprocess.Popen(
                     ["bash", "-c", f"cd {PROJECT_ROOT} && \"{sys.executable}\" -m agent.server.main"],
                     start_new_session=True,
                 )
 
-        messagebox.showinfo("Server Starting", "Server is starting in a new terminal.\n\nWait a few seconds, then open the overlay.")
+        messagebox.showinfo(
+            "Server Starting",
+            "Server is starting in a new terminal.\n\nWait a few seconds, then open the overlay.",
+        )
 
     def get_title(self) -> str:
         return "Complete"
@@ -2227,10 +2254,11 @@ class CompleteStep(StepFrame):
 # Main Wizard
 # =============================================================================
 
+
 class SetupWizard:
     """Main setup wizard application."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.root = tk.Tk()
         self.root.title(f"{APP_NAME} v{APP_VERSION}")
         self.root.geometry("800x700")
@@ -2264,10 +2292,39 @@ class SetupWizard:
 
         # Try to use a modern theme
         available_themes = style.theme_names()
-        for theme in ["clam", "alt", "default"]:
-            if theme in available_themes:
-                style.theme_use(theme)
-                break
+        if "clam" in available_themes:
+            style.theme_use("clam")
+        elif "alt" in available_themes:
+            style.theme_use("alt")
+        else:
+            style.theme_use("default")
+
+        # AegisAV Dark Mode Palette
+        bg_void = "#09090B"
+        bg_deep = "#18181B"
+        fg_text = "#FAFAFA"
+        accent_cyan = "#06b6d4"
+
+        # Apply global settings
+        style.configure(
+            ".",
+            background=bg_void,
+            foreground=fg_text,
+            troughcolor=bg_deep,
+            selectbackground=accent_cyan,
+            selectforeground=bg_void,
+        )
+
+        style.configure("TFrame", background=bg_void)
+        style.configure("TLabel", background=bg_void, foreground=fg_text)
+        style.configure("TButton", background=bg_deep, foreground=fg_text, borderwidth=0, focuscolor=accent_cyan)
+        style.map("TButton", background=[("active", accent_cyan), ("pressed", accent_cyan)], foreground=[("active", bg_void), ("pressed", bg_void)])
+
+        style.configure("TLabelframe", background=bg_void, foreground=accent_cyan)
+        style.configure("TLabelframe.Label", background=bg_void, foreground=accent_cyan)
+
+        style.configure("TEntry", fieldbackground=bg_deep, foreground=fg_text, insertcolor=fg_text)
+        style.configure("Horizontal.TProgressbar", background=accent_cyan, troughcolor=bg_deep, bordercolor=bg_void)
 
         strong_font = ("TkDefaultFont", 10, "bold")
 
@@ -2481,7 +2538,8 @@ class SetupWizard:
 # Entry Point
 # =============================================================================
 
-def main():
+
+def main() -> None:
     """Main entry point."""
     wizard = SetupWizard()
     wizard.run()

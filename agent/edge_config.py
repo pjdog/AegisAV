@@ -60,9 +60,13 @@ class AnomalyGateConfig(BaseModel):
 
         if self.mode == AnomalyGateMode.SEVERITY_OVERRIDE:
             if self.min_severity_override is None:
-                raise ValueError("min_severity_override is required when mode == 'severity_override'")
+                raise ValueError(
+                    "min_severity_override is required when mode == 'severity_override'"
+                )
             if (self.n is None) != (self.m is None):
-                raise ValueError("n and m must be provided together (or omitted) for severity_override")
+                raise ValueError(
+                    "n and m must be provided together (or omitted) for severity_override"
+                )
             if self.n is not None and self.m is not None and self.n > self.m:
                 raise ValueError("n must be <= m")
 
@@ -166,9 +170,7 @@ class EdgeComputeConfig(BaseModel):
     uplink: EdgeUplinkConfig = Field(default_factory=EdgeUplinkConfig)
 
     # Perception quality degradation (Phase 3).
-    perception: PerceptionDegradationConfig = Field(
-        default_factory=PerceptionDegradationConfig
-    )
+    perception: PerceptionDegradationConfig = Field(default_factory=PerceptionDegradationConfig)
 
     # Energy cost model (Phase 3).
     energy: EnergyCostConfig = Field(default_factory=EnergyCostConfig)
@@ -200,16 +202,24 @@ def default_edge_compute_config(profile: EdgeComputeProfile) -> EdgeComputeConfi
                     mode=AnomalyGateMode.ANY, min_confidence=1.0, min_severity=1.0
                 ),
                 uplink=EdgeUplinkConfig(
-                    summary_only=True, send_images=False, max_images=0,
-                    uplink_delay_ms=50, max_payload_bytes=1024, drop_probability=0.0,
+                    summary_only=True,
+                    send_images=False,
+                    max_images=0,
+                    uplink_delay_ms=50,
+                    max_payload_bytes=1024,
+                    drop_probability=0.0,
                 ),
                 perception=PerceptionDegradationConfig(
-                    resolution_scale=1.0, frame_drop_probability=0.0,
-                    confidence_noise_std=0.0, missed_detection_probability=0.0,
+                    resolution_scale=1.0,
+                    frame_drop_probability=0.0,
+                    confidence_noise_std=0.0,
+                    missed_detection_probability=0.0,
                 ),
                 energy=EnergyCostConfig(
-                    capture_cost_percent=0.0, inference_cost_percent=0.0,
-                    uplink_cost_per_kb=0.001, idle_drain_per_second=0.01,
+                    capture_cost_percent=0.0,
+                    inference_cost_percent=0.0,
+                    uplink_cost_per_kb=0.001,
+                    idle_drain_per_second=0.01,
                 ),
                 micro_agent=MicroAgentConfig(
                     burst_capture_on_anomaly=False,
@@ -231,16 +241,24 @@ def default_edge_compute_config(profile: EdgeComputeProfile) -> EdgeComputeConfi
                     mode=AnomalyGateMode.ANY, min_confidence=0.85, min_severity=0.6
                 ),
                 uplink=EdgeUplinkConfig(
-                    summary_only=True, send_images=False, max_images=0,
-                    uplink_delay_ms=100, max_payload_bytes=2048, drop_probability=0.02,
+                    summary_only=True,
+                    send_images=False,
+                    max_images=0,
+                    uplink_delay_ms=100,
+                    max_payload_bytes=2048,
+                    drop_probability=0.02,
                 ),
                 perception=PerceptionDegradationConfig(
-                    resolution_scale=0.25, frame_drop_probability=0.1,
-                    confidence_noise_std=0.1, missed_detection_probability=0.15,
+                    resolution_scale=0.25,
+                    frame_drop_probability=0.1,
+                    confidence_noise_std=0.1,
+                    missed_detection_probability=0.15,
                 ),
                 energy=EnergyCostConfig(
-                    capture_cost_percent=0.02, inference_cost_percent=0.01,
-                    uplink_cost_per_kb=0.002, idle_drain_per_second=0.015,
+                    capture_cost_percent=0.02,
+                    inference_cost_percent=0.01,
+                    uplink_cost_per_kb=0.002,
+                    idle_drain_per_second=0.015,
                 ),
                 micro_agent=MicroAgentConfig(
                     burst_capture_on_anomaly=False,
@@ -263,17 +281,26 @@ def default_edge_compute_config(profile: EdgeComputeProfile) -> EdgeComputeConfi
                     mode=AnomalyGateMode.ANY, min_confidence=0.75, min_severity=0.5
                 ),
                 uplink=EdgeUplinkConfig(
-                    summary_only=False, send_images=False, max_images=0,
-                    uplink_delay_ms=150, max_payload_bytes=4096, drop_probability=0.02,
+                    summary_only=False,
+                    send_images=False,
+                    max_images=0,
+                    uplink_delay_ms=150,
+                    max_payload_bytes=4096,
+                    drop_probability=0.02,
                 ),
                 perception=PerceptionDegradationConfig(
-                    resolution_scale=0.5, frame_drop_probability=0.08,
-                    confidence_noise_std=0.08, missed_detection_probability=0.1,
+                    resolution_scale=0.5,
+                    frame_drop_probability=0.08,
+                    confidence_noise_std=0.08,
+                    missed_detection_probability=0.1,
                 ),
                 energy=EnergyCostConfig(
-                    capture_cost_percent=0.03, inference_cost_percent=0.02,
-                    uplink_cost_per_kb=0.002, idle_drain_per_second=0.02,
-                    thermal_throttle_after_s=120.0, thermal_throttle_factor=0.7,
+                    capture_cost_percent=0.03,
+                    inference_cost_percent=0.02,
+                    uplink_cost_per_kb=0.002,
+                    idle_drain_per_second=0.02,
+                    thermal_throttle_after_s=120.0,
+                    thermal_throttle_factor=0.7,
                 ),
                 micro_agent=MicroAgentConfig(
                     burst_capture_on_anomaly=False,
@@ -300,17 +327,26 @@ def default_edge_compute_config(profile: EdgeComputeProfile) -> EdgeComputeConfi
                     min_severity=0.4,
                 ),
                 uplink=EdgeUplinkConfig(
-                    summary_only=False, send_images=True, max_images=1,
-                    uplink_delay_ms=200, max_payload_bytes=50000, drop_probability=0.01,
+                    summary_only=False,
+                    send_images=True,
+                    max_images=1,
+                    uplink_delay_ms=200,
+                    max_payload_bytes=50000,
+                    drop_probability=0.01,
                 ),
                 perception=PerceptionDegradationConfig(
-                    resolution_scale=0.75, frame_drop_probability=0.05,
-                    confidence_noise_std=0.05, missed_detection_probability=0.05,
+                    resolution_scale=0.75,
+                    frame_drop_probability=0.05,
+                    confidence_noise_std=0.05,
+                    missed_detection_probability=0.05,
                 ),
                 energy=EnergyCostConfig(
-                    capture_cost_percent=0.05, inference_cost_percent=0.08,
-                    uplink_cost_per_kb=0.003, idle_drain_per_second=0.03,
-                    thermal_throttle_after_s=180.0, thermal_throttle_factor=0.6,
+                    capture_cost_percent=0.05,
+                    inference_cost_percent=0.08,
+                    uplink_cost_per_kb=0.003,
+                    idle_drain_per_second=0.03,
+                    thermal_throttle_after_s=180.0,
+                    thermal_throttle_factor=0.6,
                 ),
                 micro_agent=MicroAgentConfig(
                     burst_capture_on_anomaly=True,
@@ -339,17 +375,26 @@ def default_edge_compute_config(profile: EdgeComputeProfile) -> EdgeComputeConfi
                     min_severity_override=0.75,
                 ),
                 uplink=EdgeUplinkConfig(
-                    summary_only=False, send_images=True, max_images=2,
-                    uplink_delay_ms=100, max_payload_bytes=100000, drop_probability=0.005,
+                    summary_only=False,
+                    send_images=True,
+                    max_images=2,
+                    uplink_delay_ms=100,
+                    max_payload_bytes=100000,
+                    drop_probability=0.005,
                 ),
                 perception=PerceptionDegradationConfig(
-                    resolution_scale=0.9, frame_drop_probability=0.02,
-                    confidence_noise_std=0.03, missed_detection_probability=0.02,
+                    resolution_scale=0.9,
+                    frame_drop_probability=0.02,
+                    confidence_noise_std=0.03,
+                    missed_detection_probability=0.02,
                 ),
                 energy=EnergyCostConfig(
-                    capture_cost_percent=0.04, inference_cost_percent=0.03,
-                    uplink_cost_per_kb=0.002, idle_drain_per_second=0.035,
-                    thermal_throttle_after_s=300.0, thermal_throttle_factor=0.8,
+                    capture_cost_percent=0.04,
+                    inference_cost_percent=0.03,
+                    uplink_cost_per_kb=0.002,
+                    idle_drain_per_second=0.035,
+                    thermal_throttle_after_s=300.0,
+                    thermal_throttle_factor=0.8,
                 ),
                 micro_agent=MicroAgentConfig(
                     burst_capture_on_anomaly=True,
@@ -374,17 +419,26 @@ def default_edge_compute_config(profile: EdgeComputeProfile) -> EdgeComputeConfi
                     mode=AnomalyGateMode.ANY, min_confidence=0.45, min_severity=0.3
                 ),
                 uplink=EdgeUplinkConfig(
-                    summary_only=False, send_images=True, max_images=3,
-                    uplink_delay_ms=50, max_payload_bytes=500000, drop_probability=0.0,
+                    summary_only=False,
+                    send_images=True,
+                    max_images=3,
+                    uplink_delay_ms=50,
+                    max_payload_bytes=500000,
+                    drop_probability=0.0,
                 ),
                 perception=PerceptionDegradationConfig(
-                    resolution_scale=1.0, frame_drop_probability=0.0,
-                    confidence_noise_std=0.0, missed_detection_probability=0.0,
+                    resolution_scale=1.0,
+                    frame_drop_probability=0.0,
+                    confidence_noise_std=0.0,
+                    missed_detection_probability=0.0,
                 ),
                 energy=EnergyCostConfig(
-                    capture_cost_percent=0.03, inference_cost_percent=0.02,
-                    uplink_cost_per_kb=0.001, idle_drain_per_second=0.05,
-                    thermal_throttle_after_s=600.0, thermal_throttle_factor=0.9,
+                    capture_cost_percent=0.03,
+                    inference_cost_percent=0.02,
+                    uplink_cost_per_kb=0.001,
+                    idle_drain_per_second=0.05,
+                    thermal_throttle_after_s=600.0,
+                    thermal_throttle_factor=0.9,
                 ),
                 micro_agent=MicroAgentConfig(
                     burst_capture_on_anomaly=True,
@@ -407,7 +461,9 @@ def _deep_merge(base: dict[str, Any], updates: dict[str, Any]) -> dict[str, Any]
     return merged
 
 
-def apply_edge_compute_update(current: EdgeComputeConfig, update: dict[str, Any]) -> EdgeComputeConfig:
+def apply_edge_compute_update(
+    current: EdgeComputeConfig, update: dict[str, Any]
+) -> EdgeComputeConfig:
     """Apply a partial update dict to the current edge config.
 
     If ``profile`` is present, the base is reset to that profile's defaults, then

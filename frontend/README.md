@@ -1,38 +1,44 @@
-# AegisAV Dashboard (React)
+# Aegis Onyx Interface 🛡️
 
-## Overview
+The **Aegis Onyx Interface** is the primary command and control dashboard for the AegisAV autonomous drone system. It provides real-time telemetry, mission decision awareness, and high-fidelity visualizations of the drone's cognitive state.
 
-This is the React + TypeScript frontend for the AegisAV Mission Autonomy Monitor.
-It reads data from the agent server via `/api/dashboard/*` and can be served as a static
-build from the server at `/dashboard`.
+![Aegis Shield](../frontend/public/aegis_logo.svg)
 
-## Prerequisites
+## Features
 
-- Node.js 18+
-- The agent server running on `http://localhost:8080`
+- **Mission Autonomy Monitor**: Watch the LLM-driven decision engine make choices in real-time.
+- **SITL Integration**: Connects directly to the PX4/ArduPilot Simulation via the Agent Server.
+- **Edge Budgeting**: Configure simulated edge compute constraints (power, bandwidth, latency).
+- **Spatial View**: Live 2D radar view of the drone and detected assets.
+
+## Visual Identity
+
+The dashboard follows the **[AegisAV Style Guide](../docs/STYLE_GUIDE.md)**, utilizing the "Dark Mode IO" aesthetic:
+- **Palette**: Void Black (`#09090B`) & Aegis Cyan (`#06b6d4`).
+- **Typography**: Space Grotesk (Headers) & IBM Plex Mono (Data).
 
 ## Development
 
+This is a **Vite + React + TypeScript** application.
+
+### Prerequisites
+- Node.js 18+
+- The Agent Server running on `http://localhost:8080` (see [Main README](../README.md))
+
+### Quick Start
 ```bash
+cd frontend
 npm install
 npm run dev
 ```
+The interface will be available at `http://localhost:5173`. It proxies API requests to the Python server.
 
-Vite runs at `http://localhost:5173` and proxies `/api` to the agent server.
-
-## Production Build
-
+### Production Build
 ```bash
-npm install
 npm run build
 ```
+Build artifacts are output to `dist/`, which the Python server can serve statically at `/dashboard`.
 
-The build output is written to `frontend/dist`. The agent server serves it at `/dashboard`.
-
-## Linting
-
-```bash
-npm run lint
-```
-
-Linting is also enforced via pre-commit.
+## Links
+- [Main Project README](../README.md)
+- [Unreal Engine Demo Plan](../docs/plans/unreal_demo_integration.md)

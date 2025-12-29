@@ -19,6 +19,7 @@ from agent.server.persistence import (
 
 class SampleModel(BaseModel):
     """Sample Pydantic model for testing."""
+
     id: str
     name: str
     value: float
@@ -26,6 +27,7 @@ class SampleModel(BaseModel):
 
 class SampleAnomalyModel(BaseModel):
     """Sample Pydantic model for anomaly testing."""
+
     id: str
     asset_id: str
     severity: float
@@ -398,11 +400,13 @@ class TestRedisStore:
         mock.zremrangebyscore = AsyncMock()
         mock.zcard = AsyncMock(return_value=0)
         mock.scan = AsyncMock(return_value=(0, []))
-        mock.info = AsyncMock(return_value={
-            "redis_version": "7.0.0",
-            "used_memory_human": "1M",
-            "connected_clients": 1,
-        })
+        mock.info = AsyncMock(
+            return_value={
+                "redis_version": "7.0.0",
+                "used_memory_human": "1M",
+                "connected_clients": 1,
+            }
+        )
         return mock
 
     @pytest.fixture
@@ -501,7 +505,7 @@ class TestRedisStore:
         mock_redis_client.setex.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_set_asset_pydantic(self, redis_store, mock_redis_client):
+    async def test_set_asset_pydantic(self, redis_store, _mock_redis_client):
         """Test setting an asset from a Pydantic model."""
         model = SampleModel(id="model_001", name="Test Model", value=42.5)
         result = await redis_store.set_asset("model_001", model)
@@ -604,7 +608,7 @@ class TestRedisStore:
 
     # Anomaly Operations Tests
     @pytest.mark.asyncio
-    async def test_add_anomaly_dict(self, redis_store, mock_redis_client):
+    async def test_add_anomaly_dict(self, redis_store, _mock_redis_client):
         """Test adding an anomaly from a dictionary."""
         anomaly_data = {"id": "anomaly_001", "asset_id": "asset_001", "severity": 0.8}
         result = await redis_store.add_anomaly("anomaly_001", anomaly_data)
@@ -755,14 +759,14 @@ class TestRedisStore:
 
     # Detection Operations Tests
     @pytest.mark.asyncio
-    async def test_add_detection(self, redis_store, mock_redis_client):
+    async def test_add_detection(self, redis_store, _mock_redis_client):
         """Test adding a detection."""
         detection = {"class": "crack", "confidence": 0.95}
         result = await redis_store.add_detection("asset_001", detection)
         assert result is True
 
     @pytest.mark.asyncio
-    async def test_add_detection_with_timestamp(self, redis_store, mock_redis_client):
+    async def test_add_detection_with_timestamp(self, redis_store, _mock_redis_client):
         """Test adding a detection with explicit timestamp."""
         detection = {"class": "crack", "confidence": 0.95}
         ts = datetime.now()
@@ -788,7 +792,7 @@ class TestRedisStore:
         mock_redis_client.set.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_add_detection_pydantic(self, redis_store, mock_redis_client):
+    async def test_add_detection_pydantic(self, redis_store, _mock_redis_client):
         """Test adding a detection from Pydantic model."""
         model = SampleModel(id="det_001", name="Crack", value=0.95)
         result = await redis_store.add_detection("asset_001", model)
@@ -868,7 +872,9 @@ class TestRedisStore:
     @pytest.mark.asyncio
     async def test_get_telemetry(self, redis_store, mock_redis_client):
         """Test getting telemetry."""
-        mock_redis_client.zrevrangebyscore.return_value = ['{"battery": 80, "timestamp": "2023-01-01T00:00:00"}']
+        mock_redis_client.zrevrangebyscore.return_value = [
+            '{"battery": 80, "timestamp": "2023-01-01T00:00:00"}'
+        ]
         result = await redis_store.get_telemetry("vehicle_001", limit=10)
         assert len(result) == 1
         assert result[0]["battery"] == 80
@@ -913,7 +919,7 @@ class TestRedisStore:
 
     # Mission Operations Tests
     @pytest.mark.asyncio
-    async def test_save_mission(self, redis_store, mock_redis_client):
+    async def test_save_mission(self, redis_store, _mock_redis_client):
         """Test saving a mission."""
         mission = {"id": "mission_001", "name": "Inspection Run"}
         result = await redis_store.save_mission("mission_001", mission)
@@ -1017,7 +1023,7 @@ class TestRedisStore:
         mock_redis_client.set.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_set_state_dict(self, redis_store, mock_redis_client):
+    async def test_set_state_dict(self, redis_store, _mock_redis_client):
         """Test setting a dict state value."""
         result = await redis_store.set_state("config", {"key": "value"})
         assert result is True

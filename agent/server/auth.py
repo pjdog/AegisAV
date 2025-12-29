@@ -7,6 +7,7 @@ Supports both header-based and query parameter authentication.
 import logging
 import os
 import secrets
+from collections.abc import Callable
 from datetime import datetime
 from typing import Annotated
 
@@ -47,6 +48,7 @@ class AuthConfig(BaseModel):
     def from_env(cls) -> "AuthConfig":
         """Create config from environment variables."""
         api_key = os.environ.get(API_KEY_ENV)
+        auth_enabled = os.environ.get("AEGIS_AUTH_ENABLED")
 
         # If no key is set, disable auth but warn
         if not api_key:
@@ -55,10 +57,46 @@ class AuthConfig(BaseModel):
                 "Authentication is disabled. Set the environment variable for production use."
             )
 
+        if auth_enabled is not None:
+            enabled = _parse_bool(auth_enabled)
+        else:
+            enabled = api_key is not None
+
         return cls(
             api_key=api_key,
-            enabled=api_key is not None,
+            enabled=enabled,
         )
+
+
+def _parse_bool(value: str) -> bool:
+    """Parse a boolean value from environment-style strings."""
+    return value.lower() in ("true", "1", "yes", "on", "enabled")
+
+
+def get_auth_config() -> AuthConfig:
+    """Load auth config from ConfigManager with env fallback."""
+    try:
+        from agent.server.config_manager import get_config_manager  # noqa: PLC0415
+
+        settings = get_config_manager().config.auth
+        api_key_env = os.environ.get(API_KEY_ENV)
+        auth_enabled_env = os.environ.get("AEGIS_AUTH_ENABLED")
+        api_key = api_key_env if api_key_env is not None else settings.api_key
+        if auth_enabled_env is not None:
+            enabled = _parse_bool(auth_enabled_env)
+        elif api_key_env is not None:
+            enabled = True
+        else:
+            enabled = settings.enabled
+        return AuthConfig(
+            api_key=api_key,
+            enabled=enabled,
+            public_endpoints=settings.public_endpoints,
+            rate_limit=settings.rate_limit_per_minute,
+        )
+    except Exception as e:
+        logger.warning(f"Falling back to env auth config: {e}")
+        return AuthConfig.from_env()
 
 
 # Security schemes
@@ -81,13 +119,20 @@ class APIKeyAuth:
             return {"message": "Authenticated!"}
     """
 
-    def __init__(self, config: AuthConfig | None = None) -> None:
+    def __init__(
+        self,
+        config: AuthConfig | None = None,
+        config_provider: Callable[[], AuthConfig] | None = None,
+    ) -> None:
         """Initialize authentication handler.
 
         Args:
             config: Auth configuration. Uses env vars if None.
         """
-        self.config = config or AuthConfig.from_env()
+        if config is None:
+            config_provider = config_provider or get_auth_config
+        self._config_provider = config_provider
+        self.config = config or (config_provider() if config_provider else AuthConfig.from_env())
         self._request_counts: dict[str, list[datetime]] = {}
         self.logger = logger
 
@@ -110,6 +155,9 @@ class APIKeyAuth:
         Raises:
             HTTPException: If authentication fails
         """
+        if self._config_provider:
+            self.config = self._config_provider()
+
         # Check if auth is disabled
         if not self.config.enabled:
             return {"authenticated": True, "method": "disabled"}
@@ -125,7 +173,7 @@ class APIKeyAuth:
 
         # Rate limiting check
         client_ip = self._get_client_ip(request)
-        if not self._check_rate_limit(client_ip):
+        if not self._check_rate_limit(client_ip, self.config.rate_limit):
             raise HTTPException(
                 status_code=status.HTTP_429_TOO_MANY_REQUESTS,
                 detail="Rate limit exceeded. Please slow down.",
@@ -202,7 +250,7 @@ class APIKeyAuth:
         # Fall back to direct client
         return request.client.host if request.client else "unknown"
 
-    def _check_rate_limit(self, client_ip: str) -> bool:
+    def _check_rate_limit(self, client_ip: str, rate_limit: int) -> bool:
         """Check if client is within rate limit.
 
         Args:
@@ -220,12 +268,11 @@ class APIKeyAuth:
 
         # Remove old entries
         self._request_counts[client_ip] = [
-            t for t in self._request_counts[client_ip]
-            if t > window_start
+            t for t in self._request_counts[client_ip] if t > window_start
         ]
 
         # Check limit
-        if len(self._request_counts[client_ip]) >= self.config.rate_limit:
+        if len(self._request_counts[client_ip]) >= rate_limit:
             return False
 
         # Add this request
@@ -255,9 +302,7 @@ def create_auth_dependency(config: AuthConfig | None = None) -> APIKeyAuth:
 
 
 # Convenience function for requiring authentication
-def require_auth(
-    auth_result: Annotated[dict, Depends(APIKeyAuth())]
-) -> dict:
+def require_auth(auth_result: Annotated[dict, Depends(APIKeyAuth())]) -> dict:
     """Dependency that requires authentication.
 
     Use in endpoint definitions:
@@ -278,7 +323,7 @@ def optional_auth(
     Returns auth info if key provided and valid, otherwise returns
     unauthenticated status without raising an error.
     """
-    config = AuthConfig.from_env()
+    config = get_auth_config()
 
     if not config.enabled:
         return {"authenticated": True, "method": "disabled"}

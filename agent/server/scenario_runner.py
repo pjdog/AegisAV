@@ -8,12 +8,14 @@ generating decision logs that can be viewed in the dashboard.
 import asyncio
 import json
 import logging
+import sys
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+from agent.server.goal_selector import GoalSelector
 from agent.server.goals import Goal, GoalType
 from agent.server.scenarios import (
     DroneState,
@@ -317,7 +319,7 @@ class ScenarioRunner:
         self._update_environment()
 
         # Update each drone
-        for drone_id, drone_state in self.run_state.drone_states.items():
+        for _drone_id, drone_state in self.run_state.drone_states.items():
             # Apply physics/state changes
             self._update_drone_state(drone_state)
 
@@ -454,8 +456,6 @@ class ScenarioRunner:
         """Make a decision for a drone using goal selector."""
         if not self.run_state:
             return
-
-        from agent.server.goal_selector import GoalSelector
 
         # Get world snapshot
         snapshot = drone_state.world_model.get_snapshot()
@@ -663,15 +663,16 @@ async def run_scenario_demo(scenario_id: str, time_scale: float = 10.0) -> None:
     runner = ScenarioRunner()
 
     if not await runner.load_scenario(scenario_id):
-        print(f"Failed to load scenario: {scenario_id}")
+        logger.error("Failed to load scenario: %s", scenario_id)
         return
 
-    print(f"\n{'='*60}")
-    print(f"Running: {runner.run_state.scenario.name}")
-    print(f"Drones: {len(runner.run_state.scenario.drones)}")
-    print(f"Duration: {runner.run_state.scenario.duration_minutes} minutes")
-    print(f"Time scale: {time_scale}x")
-    print(f"{'='*60}\n")
+    divider = "=" * 60
+    logger.info("%s", divider)
+    logger.info("Running: %s", runner.run_state.scenario.name)
+    logger.info("Drones: %s", len(runner.run_state.scenario.drones))
+    logger.info("Duration: %s minutes", runner.run_state.scenario.duration_minutes)
+    logger.info("Time scale: %sx", time_scale)
+    logger.info("%s", divider)
 
     await runner.run(time_scale=time_scale, max_duration_s=60)
 
@@ -680,21 +681,23 @@ async def run_scenario_demo(scenario_id: str, time_scale: float = 10.0) -> None:
 
     # Print summary
     summary = runner.get_summary()
-    print(f"\n{'='*60}")
-    print("SCENARIO SUMMARY")
-    print(f"{'='*60}")
-    print(f"Duration: {summary['duration_s']:.1f}s simulated")
-    print(f"Total decisions: {summary['total_decisions']}")
-    print(f"Events fired: {summary['events_fired']}")
-    print(f"\nDrone Status:")
-    for drone in summary['drones']:
-        print(f"  {drone['name']}: {drone['final_state']} "
-              f"(battery: {drone['final_battery']:.1f}%, "
-              f"decisions: {drone['decisions_made']})")
-    print(f"\nDecision log saved to: {log_path}")
+    logger.info("SCENARIO SUMMARY")
+    logger.info("%s", divider)
+    logger.info("Duration: %.1fs simulated", summary.get("duration_s", 0.0))
+    logger.info("Total decisions: %s", summary.get("total_decisions", 0))
+    logger.info("Events fired: %s", summary.get("events_fired", 0))
+    logger.info("Drone Status:")
+    for drone in summary.get("drones", []):
+        logger.info(
+            "  %s: %s (battery: %.1f%%, decisions: %s)",
+            drone.get("name", "unknown"),
+            drone.get("final_state", "unknown"),
+            float(drone.get("final_battery", 0.0)),
+            drone.get("decisions_made", 0),
+        )
+    logger.info("Decision log saved to: %s", log_path)
 
 
 if __name__ == "__main__":
-    import sys
     scenario = sys.argv[1] if len(sys.argv) > 1 else "normal_ops_001"
     asyncio.run(run_scenario_demo(scenario))

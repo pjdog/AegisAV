@@ -45,6 +45,8 @@
 | **Multi-Agent Critics** | 3-layer safety validation (Safety, Efficiency, Goal) for every action |
 | **Cost Awareness** | Real-time LLM token tracking and budget enforcement |
 | **Edge Intelligence** | Configurable policies for bandwidth management and anomaly gating |
+| **Risk Evaluation** | **[NEW]** Framework to quantify mission risk based on battery, weather, and GPS factors |
+| **Behavioral Validation** | **[NEW]** Integration tests ensuring correct multi-drone decision logic in complex scenarios |
 | **Real-Time Dashboard** | Monitor vehicle state, detections, and AI reasoning live |
 | **Production Flight Controller** | Uses ArduPilot SITL - same code that runs on real Pixhawk hardware |
 | **Photorealistic Simulation** | Unreal Engine rendering with AirSim physics |
@@ -236,6 +238,7 @@ See [plan.md](plan.md) for the detailed project roadmap.
 - [ ] **Phase 3**: Intelligence & Production (Optimization, Learning)
     - [x] System Configuration & UI
     - [x] Edge Policies & Cost Tracking
+    - [x] Risk Evaluation & Behavioral Tests
     - [ ] Hybrid LLM Decision Engine
     - [ ] Advanced Explanation Agent
 

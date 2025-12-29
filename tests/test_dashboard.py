@@ -2,6 +2,7 @@
 Tests for dashboard routes and functionality.
 """
 
+import asyncio
 import json
 import tempfile
 from datetime import datetime
@@ -254,3 +255,343 @@ class TestDashboardRoutes:
         assert len(data["risk_series"]) == 2
         assert len(data["battery_series"]) == 2
         assert len(data["recent"]) == 2
+
+
+class TestScenarioRoutes:
+    """Test scenario API routes."""
+
+    @pytest.fixture
+    def app_with_scenarios(self, tmp_path):
+        """Create FastAPI app with dashboard routes including scenarios."""
+        app = FastAPI()
+        log_dir = tmp_path / "logs"
+        log_dir.mkdir()
+        add_dashboard_routes(app, log_dir)
+        return app
+
+    @pytest.fixture
+    def client(self, app_with_scenarios):
+        """Create test client."""
+        return TestClient(app_with_scenarios)
+
+    def test_list_scenarios(self, client):
+        """Test listing all scenarios."""
+        response = client.get("/api/dashboard/scenarios")
+        assert response.status_code == 200
+        data = response.json()
+
+        assert "scenarios" in data
+        assert "total" in data
+        assert "categories" in data
+        assert "difficulties" in data
+        assert data["total"] >= 7  # At least 7 preloaded scenarios
+        assert len(data["scenarios"]) == data["total"]
+
+    def test_list_scenarios_by_category(self, client):
+        """Test filtering scenarios by category."""
+        response = client.get("/api/dashboard/scenarios?category=battery_critical")
+        assert response.status_code == 200
+        data = response.json()
+
+        assert data["total"] >= 1
+        for scenario in data["scenarios"]:
+            assert scenario["category"] == "battery_critical"
+
+    def test_list_scenarios_invalid_category(self, client):
+        """Test filtering with invalid category."""
+        response = client.get("/api/dashboard/scenarios?category=invalid_category")
+        assert response.status_code == 400
+        assert "Invalid category" in response.json()["detail"]
+
+    def test_list_scenarios_by_difficulty(self, client):
+        """Test filtering scenarios by difficulty."""
+        response = client.get("/api/dashboard/scenarios?difficulty=hard")
+        assert response.status_code == 200
+        data = response.json()
+
+        for scenario in data["scenarios"]:
+            assert scenario["difficulty"] == "hard"
+
+    def test_get_scenario_detail(self, client):
+        """Test getting specific scenario details."""
+        response = client.get("/api/dashboard/scenarios/normal_ops_001")
+        assert response.status_code == 200
+        data = response.json()
+
+        assert data["scenario_id"] == "normal_ops_001"
+        assert data["name"] == "Normal Fleet Operations"
+        assert data["category"] == "normal_operations"
+        assert "drones" in data
+        assert "assets" in data
+        assert "environment" in data
+        assert "events" in data
+        assert len(data["drones"]) == 3
+        assert len(data["assets"]) == 3
+
+    def test_get_scenario_not_found(self, client):
+        """Test getting non-existent scenario."""
+        response = client.get("/api/dashboard/scenarios/nonexistent_999")
+        assert response.status_code == 404
+        assert "not found" in response.json()["detail"]
+
+    def test_scenario_drone_details(self, client):
+        """Test that drone details are included."""
+        response = client.get("/api/dashboard/scenarios/battery_cascade_001")
+        assert response.status_code == 200
+        data = response.json()
+
+        # Check drone structure
+        for drone in data["drones"]:
+            assert "drone_id" in drone
+            assert "name" in drone
+            assert "battery_percent" in drone
+            assert "state" in drone
+            assert "latitude" in drone
+            assert "sensors_healthy" in drone
+
+        # Verify varying battery levels in battery cascade
+        batteries = [d["battery_percent"] for d in data["drones"]]
+        assert min(batteries) < 30  # At least one critical
+        assert max(batteries) > 50  # At least one healthy
+
+    def test_scenario_asset_details(self, client):
+        """Test that asset details are included."""
+        response = client.get("/api/dashboard/scenarios/multi_anom_001")
+        assert response.status_code == 200
+        data = response.json()
+
+        # Check asset structure
+        for asset in data["assets"]:
+            assert "asset_id" in asset
+            assert "name" in asset
+            assert "asset_type" in asset
+            assert "has_anomaly" in asset
+            assert "anomaly_severity" in asset
+
+        # Verify anomalies present
+        anomaly_assets = [a for a in data["assets"] if a["has_anomaly"]]
+        assert len(anomaly_assets) >= 3
+
+    def test_scenario_environment_details(self, client):
+        """Test that environment details are included."""
+        response = client.get("/api/dashboard/scenarios/weather_001")
+        assert response.status_code == 200
+        data = response.json()
+
+        env = data["environment"]
+        assert "wind_speed_ms" in env
+        assert "visibility_m" in env
+        assert "precipitation" in env
+        assert "is_daylight" in env
+
+    def test_scenario_events_timeline(self, client):
+        """Test that events timeline is included."""
+        response = client.get("/api/dashboard/scenarios/normal_ops_001")
+        assert response.status_code == 200
+        data = response.json()
+
+        assert len(data["events"]) > 0
+        for event in data["events"]:
+            assert "timestamp_offset_s" in event
+            assert "event_type" in event
+            assert "description" in event
+
+        # Events should be in chronological order
+        offsets = [e["timestamp_offset_s"] for e in data["events"]]
+        assert offsets == sorted(offsets)
+
+
+class TestRunnerRoutes:
+    """Test scenario runner API routes."""
+
+    @pytest.fixture
+    def app_with_runner(self, tmp_path):
+        """Create FastAPI app with dashboard and runner routes."""
+        app = FastAPI()
+        log_dir = tmp_path / "logs"
+        log_dir.mkdir()
+        add_dashboard_routes(app, log_dir)
+        return app, log_dir
+
+    @pytest.fixture
+    def client(self, app_with_runner):
+        """Create test client."""
+        app, _ = app_with_runner
+        return TestClient(app)
+
+    @pytest.fixture(autouse=True)
+    def reset_runner_state(self):
+        """Reset global runner state before each test."""
+        import agent.server.dashboard as dashboard_module
+
+        # Cancel any running task first
+        if dashboard_module._runner_state.run_task and not dashboard_module._runner_state.run_task.done():
+            dashboard_module._runner_state.run_task.cancel()
+
+        # Stop runner if active
+        if dashboard_module._runner_state.runner:
+            dashboard_module._runner_state.runner.stop()
+
+        dashboard_module._runner_state.runner = None
+        dashboard_module._runner_state.run_task = None
+        dashboard_module._runner_state.is_running = False
+        dashboard_module._runner_state.last_error = None
+        yield
+        # Cleanup after test
+        if dashboard_module._runner_state.run_task and not dashboard_module._runner_state.run_task.done():
+            dashboard_module._runner_state.run_task.cancel()
+
+        if dashboard_module._runner_state.runner:
+            dashboard_module._runner_state.runner.stop()
+
+        dashboard_module._runner_state.runner = None
+        dashboard_module._runner_state.run_task = None
+        dashboard_module._runner_state.is_running = False
+        dashboard_module._runner_state.last_error = None
+
+    def test_runner_status_initial(self, client):
+        """Test runner status when not running."""
+        response = client.get("/api/dashboard/runner/status")
+        assert response.status_code == 200
+        data = response.json()
+
+        assert data["is_running"] is False
+        assert data["scenario_id"] is None
+        assert data["drones"] == []
+
+    def test_runner_start_scenario(self, client):
+        """Test starting a scenario."""
+        response = client.post(
+            "/api/dashboard/runner/start",
+            json={"scenario_id": "normal_ops_001", "time_scale": 10.0, "max_duration_s": 1.0},
+        )
+        assert response.status_code == 200
+        data = response.json()
+
+        assert data["status"] == "started"
+        assert data["scenario_id"] == "normal_ops_001"
+
+        # Check status - the scenario should be loaded
+        status_response = client.get("/api/dashboard/runner/status")
+        status_data = status_response.json()
+        assert status_data["scenario_id"] == "normal_ops_001"
+
+    @pytest.mark.allow_error_logs
+    def test_runner_start_not_found(self, client):
+        """Test starting non-existent scenario."""
+        response = client.post(
+            "/api/dashboard/runner/start",
+            json={"scenario_id": "nonexistent_999"},
+        )
+        assert response.status_code == 404
+        assert "not found" in response.json()["detail"]
+
+    def test_runner_start_already_running(self, client):
+        """Test starting when already running."""
+        import agent.server.dashboard as dashboard_module
+
+        # Start first scenario
+        response1 = client.post(
+            "/api/dashboard/runner/start",
+            json={"scenario_id": "normal_ops_001", "time_scale": 10.0, "max_duration_s": 5.0},
+        )
+        assert response1.status_code == 200
+
+        # Manually set is_running to simulate the runner still active
+        dashboard_module._runner_state.is_running = True
+
+        # Try to start another
+        response = client.post(
+            "/api/dashboard/runner/start",
+            json={"scenario_id": "battery_cascade_001"},
+        )
+        assert response.status_code == 409
+        assert "already active" in response.json()["detail"]
+
+    def test_runner_stop(self, app_with_runner):
+        """Test stopping a running scenario."""
+        import agent.server.dashboard as dashboard_module
+        from agent.server.scenario_runner import ScenarioRunner
+
+        app, log_dir = app_with_runner
+
+        # Manually set up a runner in "running" state without using the endpoint
+        # This avoids async task issues with TestClient
+        runner = ScenarioRunner(log_dir=log_dir)
+        dashboard_module._runner_state.runner = runner
+        dashboard_module._runner_state.is_running = True
+        dashboard_module._runner_state.run_task = None  # No actual task
+
+        client = TestClient(app)
+
+        # Stop it
+        response = client.post("/api/dashboard/runner/stop")
+        assert response.status_code == 200
+        data = response.json()
+
+        assert data["status"] == "stopped"
+        assert "summary" in data
+
+    def test_runner_stop_not_running(self, client):
+        """Test stopping when not running."""
+        response = client.post("/api/dashboard/runner/stop")
+        assert response.status_code == 409
+        assert "No runner active" in response.json()["detail"]
+
+    def test_runner_decisions_empty(self, client):
+        """Test getting decisions when not running."""
+        response = client.get("/api/dashboard/runner/decisions")
+        assert response.status_code == 200
+        data = response.json()
+
+        assert data["decisions"] == []
+        assert data["total"] == 0
+
+    def test_runner_decisions_with_data(self, client):
+        """Test getting decisions from running scenario."""
+        import agent.server.dashboard as dashboard_module
+
+        # Start scenario with fast execution
+        response = client.post(
+            "/api/dashboard/runner/start",
+            json={"scenario_id": "normal_ops_001", "time_scale": 50.0, "max_duration_s": 2.0},
+        )
+        assert response.status_code == 200
+
+        # Simulate adding some decisions to the log
+        if dashboard_module._runner_state.runner and dashboard_module._runner_state.runner.run_state:
+            dashboard_module._runner_state.runner.run_state.decision_log.append({
+                "type": "decision",
+                "action": "WAIT",
+                "timestamp": "2024-01-01T12:00:00",
+            })
+
+        response = client.get("/api/dashboard/runner/decisions?limit=10")
+        assert response.status_code == 200
+        data = response.json()
+
+        # Should have response structure
+        assert "decisions" in data
+        assert "total" in data
+
+    def test_runner_status_with_drones(self, client):
+        """Test runner status includes drone details."""
+        # Start scenario
+        response = client.post(
+            "/api/dashboard/runner/start",
+            json={"scenario_id": "battery_cascade_001", "time_scale": 10.0, "max_duration_s": 2.0},
+        )
+        assert response.status_code == 200
+
+        response = client.get("/api/dashboard/runner/status")
+        assert response.status_code == 200
+        data = response.json()
+
+        # Should have drones loaded from scenario
+        assert len(data["drones"]) == 3
+        for drone in data["drones"]:
+            assert "drone_id" in drone
+            assert "name" in drone
+            assert "battery_percent" in drone
+            assert "state" in drone
+            assert "sensors_healthy" in drone

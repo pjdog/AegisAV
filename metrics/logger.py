@@ -21,6 +21,7 @@ class DecisionLogEntry:
 
     # Decision info
     timestamp: str
+    vehicle_id: str | None
     decision_id: str
     action: str
     parameters: dict
@@ -155,6 +156,7 @@ class DecisionLogger:
 
         entry = DecisionLogEntry(
             timestamp=datetime.now().isoformat(),
+            vehicle_id=getattr(world.vehicle, "vehicle_id", None),
             decision_id=decision.decision_id,
             action=decision.action.value,
             parameters=decision.parameters,

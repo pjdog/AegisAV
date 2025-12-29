@@ -196,7 +196,7 @@ class TestAPIKeyAuth:
 
     @pytest.mark.asyncio
     @pytest.mark.allow_error_logs
-    async def test_rate_limiting(self, _auth_config):
+    async def test_rate_limiting(self):
         """Test rate limiting blocks excessive requests."""
         # Create handler with very low rate limit
         config = AuthConfig(

@@ -1,5 +1,4 @@
-"""
-ArduPilot SITL Manager for AegisAV
+"""ArduPilot SITL Manager for AegisAV
 
 Manages ArduPilot Software-In-The-Loop simulation for rock-solid flight control.
 This runs the EXACT same flight controller code that runs on real Pixhawk hardware.
@@ -8,14 +7,12 @@ This runs the EXACT same flight controller code that runs on real Pixhawk hardwa
 import asyncio
 import logging
 import os
-import shutil
 import signal
 import subprocess
 import time
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -79,8 +76,7 @@ class SITLConfig:
 
 
 class SITLManager:
-    """
-    Manager for ArduPilot SITL simulation.
+    """Manager for ArduPilot SITL simulation.
 
     Handles starting, stopping, and monitoring the SITL process.
     Designed for integration with AirSim for rendering.
@@ -152,8 +148,7 @@ class SITLManager:
         return cmd
 
     async def start(self, timeout: float = 60.0) -> bool:
-        """
-        Start ArduPilot SITL.
+        """Start ArduPilot SITL.
 
         Args:
             timeout: Maximum time to wait for SITL to be ready
@@ -230,7 +225,7 @@ class SITLManager:
                 await asyncio.sleep(2.0)
                 return True
 
-            except (socket.error, OSError):
+            except OSError:
                 await asyncio.sleep(check_interval)
 
         return False
@@ -283,8 +278,7 @@ class SITLManager:
 
 
 class SITLEnvironment:
-    """
-    Complete SITL + AirSim environment manager.
+    """Complete SITL + AirSim environment manager.
 
     Coordinates starting both SITL and AirSim together.
     """

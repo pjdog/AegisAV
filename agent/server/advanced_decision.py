@@ -5,6 +5,7 @@ This module provides hierarchical planning, adaptive learning, and explainable A
 """
 
 import asyncio
+import heapq
 import logging
 import os
 from abc import ABC, abstractmethod
@@ -21,6 +22,7 @@ from pydantic_ai.models.test import TestModel
 
 from agent.server.goals import Goal, GoalType
 from agent.server.world_model import Asset, WorldSnapshot
+from autonomy.vehicle_state import Position
 
 logger = logging.getLogger(__name__)
 
@@ -133,7 +135,9 @@ def _create_mission_planner() -> Agent[WorldSnapshot, MissionDecision]:
             "select the most appropriate mission goal. Prioritize safety (battery, "
             "health, weather) above all else. If multiple assets need inspection, "
             "prioritize based on priority level and scheduled time. Provide clear, "
-            "concise reasoning for your decisions."
+            "concise reasoning for your decisions. Use the path-planning tools "
+            "(Dijkstra planner, Markov policy, neural ranker) when route choice or "
+            "asset ordering matters."
         ),
     )
 
@@ -145,7 +149,245 @@ def _create_mission_planner() -> Agent[WorldSnapshot, MissionDecision]:
                 return asset
         return None
 
+    @agent.tool
+    def plan_path_dijkstra(
+        ctx: RunContext[WorldSnapshot],
+        start_id: str,
+        goal_id: str,
+        neighbor_k: int = 4,
+        avoid_ids: list[str] | None = None,
+    ) -> dict[str, Any]:
+        """Find a shortest path using Dijkstra over nearby neighbors.
+
+        start_id/goal_id can be asset IDs, "vehicle", or "dock".
+        """
+        nodes = _collect_nodes(ctx.deps, include_vehicle=True, include_dock=True)
+        if start_id not in nodes or goal_id not in nodes:
+            return {
+                "path": [],
+                "distance_m": None,
+                "error": "unknown_start_or_goal",
+            }
+        graph = _build_neighbor_graph(nodes, neighbor_k=max(1, neighbor_k))
+        path, distance_m = _dijkstra_path(graph, start_id, goal_id, avoid_ids=avoid_ids)
+        return {
+            "path": path,
+            "distance_m": None if not path else distance_m,
+            "neighbor_k": neighbor_k,
+        }
+
+    @agent.tool
+    def markov_next_asset(
+        ctx: RunContext[WorldSnapshot],
+        current_id: str,
+        candidate_ids: list[str] | None = None,
+        temperature: float = 1.0,
+    ) -> dict[str, Any]:
+        """Suggest the next asset using a Markov policy."""
+        ranked = _markov_rank_assets(
+            ctx.deps,
+            current_id=current_id,
+            candidate_ids=candidate_ids,
+            temperature=temperature,
+        )
+        next_asset = ranked[0]["asset_id"] if ranked else None
+        return {"current_id": current_id, "next_asset_id": next_asset, "distribution": ranked}
+
+    @agent.tool
+    def neural_rank_assets(
+        ctx: RunContext[WorldSnapshot],
+        current_id: str,
+        candidate_ids: list[str] | None = None,
+    ) -> dict[str, Any]:
+        """Rank assets using a lightweight neural heuristic."""
+        ranked = _neural_rank_assets(ctx.deps, current_id=current_id, candidate_ids=candidate_ids)
+        next_asset = ranked[0]["asset_id"] if ranked else None
+        return {"current_id": current_id, "next_asset_id": next_asset, "ranked": ranked}
+
     return agent
+
+
+def _collect_nodes(
+    world: WorldSnapshot, *, include_vehicle: bool = True, include_dock: bool = True
+) -> dict[str, Position]:
+    nodes: dict[str, Position] = {}
+    if include_vehicle:
+        nodes["vehicle"] = world.vehicle.position
+    if include_dock:
+        nodes["dock"] = world.dock.position
+    for asset in world.assets:
+        nodes[asset.asset_id] = asset.position
+    return nodes
+
+
+def _build_neighbor_graph(
+    nodes: dict[str, Position], neighbor_k: int
+) -> dict[str, list[tuple[str, float]]]:
+    graph: dict[str, list[tuple[str, float]]] = {}
+    for node_id, position in nodes.items():
+        distances: list[tuple[str, float]] = []
+        for other_id, other_pos in nodes.items():
+            if other_id == node_id:
+                continue
+            distances.append((other_id, position.distance_to(other_pos)))
+        distances.sort(key=lambda item: item[1])
+        graph[node_id] = distances[: min(neighbor_k, len(distances))]
+    return graph
+
+
+def _dijkstra_path(
+    graph: dict[str, list[tuple[str, float]]],
+    start_id: str,
+    goal_id: str,
+    *,
+    avoid_ids: list[str] | None = None,
+) -> tuple[list[str], float]:
+    if start_id not in graph or goal_id not in graph:
+        return [], float("inf")
+
+    avoid = set(avoid_ids or [])
+    if start_id in avoid or goal_id in avoid:
+        return [], float("inf")
+
+    distances: dict[str, float] = {start_id: 0.0}
+    previous: dict[str, str] = {}
+    queue: list[tuple[float, str]] = [(0.0, start_id)]
+
+    while queue:
+        current_distance, node = heapq.heappop(queue)
+        if node == goal_id:
+            break
+        if current_distance > distances.get(node, float("inf")):
+            continue
+        for neighbor, weight in graph.get(node, []):
+            if neighbor in avoid:
+                continue
+            next_distance = current_distance + weight
+            if next_distance < distances.get(neighbor, float("inf")):
+                distances[neighbor] = next_distance
+                previous[neighbor] = node
+                heapq.heappush(queue, (next_distance, neighbor))
+
+    if goal_id not in distances:
+        return [], float("inf")
+
+    path = [goal_id]
+    while path[-1] != start_id:
+        path.append(previous[path[-1]])
+    path.reverse()
+    return path, distances[goal_id]
+
+
+def _candidate_assets(
+    world: WorldSnapshot, candidate_ids: list[str] | None
+) -> list[Asset]:
+    if candidate_ids:
+        asset_map = {asset.asset_id: asset for asset in world.assets}
+        return [asset_map[a_id] for a_id in candidate_ids if a_id in asset_map]
+
+    assets: list[Asset] = []
+    seen: set[str] = set()
+    for asset in world.get_anomaly_assets() + world.get_pending_assets():
+        if asset.asset_id not in seen:
+            assets.append(asset)
+            seen.add(asset.asset_id)
+    if assets:
+        return assets
+    return list(world.assets)
+
+
+def _markov_rank_assets(
+    world: WorldSnapshot,
+    *,
+    current_id: str,
+    candidate_ids: list[str] | None = None,
+    temperature: float = 1.0,
+) -> list[dict[str, float | str]]:
+    nodes = _collect_nodes(world, include_vehicle=True, include_dock=True)
+    if current_id not in nodes:
+        return []
+
+    current_pos = nodes[current_id]
+    assets = _candidate_assets(world, candidate_ids)
+    if not assets:
+        return []
+
+    anomalies = {asset.asset_id for asset in world.get_anomaly_assets()}
+    distances = [current_pos.distance_to(asset.position) for asset in assets]
+    max_distance = max(distances) if distances else 1.0
+    battery_norm = world.vehicle.battery.remaining_percent / 100.0
+
+    scores: list[float] = []
+    for asset, distance in zip(assets, distances, strict=False):
+        distance_score = 1.0 - min(distance / max_distance, 1.0)
+        priority_score = 1.0 / (1.0 + asset.priority)
+        anomaly_bonus = 0.4 if asset.asset_id in anomalies else 0.0
+        score = 0.5 * distance_score + 0.4 * priority_score + anomaly_bonus + 0.1 * battery_norm
+        scores.append(score)
+
+    temp = max(0.1, temperature)
+    logits = np.array(scores, dtype=float) / temp
+    exp = np.exp(logits - logits.max())
+    probs = exp / exp.sum() if exp.sum() else np.zeros_like(exp)
+
+    ranked = [
+        {
+            "asset_id": asset.asset_id,
+            "probability": float(prob),
+            "score": float(score),
+            "distance_m": float(distance),
+        }
+        for asset, prob, score, distance in zip(assets, probs, scores, distances, strict=False)
+    ]
+    ranked.sort(key=lambda item: item["probability"], reverse=True)
+    return ranked
+
+
+def _neural_rank_assets(
+    world: WorldSnapshot,
+    *,
+    current_id: str,
+    candidate_ids: list[str] | None = None,
+) -> list[dict[str, float | str]]:
+    nodes = _collect_nodes(world, include_vehicle=True, include_dock=True)
+    if current_id not in nodes:
+        return []
+
+    current_pos = nodes[current_id]
+    assets = _candidate_assets(world, candidate_ids)
+    if not assets:
+        return []
+
+    distances = [current_pos.distance_to(asset.position) for asset in assets]
+    max_distance = max(distances) if distances else 1.0
+    anomalies = {asset.asset_id for asset in world.get_anomaly_assets()}
+    battery_norm = world.vehicle.battery.remaining_percent / 100.0
+
+    weights_1 = np.array([
+        [-1.4, 1.2, 0.6, 0.3],
+        [-1.0, 0.8, 1.1, 0.2],
+        [-1.8, 1.0, 0.4, 0.4],
+    ])
+    bias_1 = np.array([0.1, 0.0, 0.05])
+    weights_2 = np.array([1.1, 0.9, 0.7])
+    bias_2 = 0.0
+
+    ranked: list[dict[str, float | str]] = []
+    for asset, distance in zip(assets, distances, strict=False):
+        distance_norm = min(distance / max_distance, 1.0)
+        priority_norm = 1.0 / (1.0 + asset.priority)
+        anomaly_flag = 1.0 if asset.asset_id in anomalies else 0.0
+        features = np.array([distance_norm, priority_norm, anomaly_flag, battery_norm], dtype=float)
+        hidden = np.maximum(0.0, weights_1 @ features + bias_1)
+        score = float(1.0 / (1.0 + np.exp(-(weights_2 @ hidden + bias_2))))
+        ranked.append({
+            "asset_id": asset.asset_id,
+            "score": score,
+            "distance_m": float(distance),
+        })
+
+    ranked.sort(key=lambda item: item["score"], reverse=True)
+    return ranked
 
 
 class PredictiveModel(ABC):

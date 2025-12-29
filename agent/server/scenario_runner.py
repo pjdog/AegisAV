@@ -7,7 +7,9 @@ generating decision logs that can be viewed in the dashboard.
 import asyncio
 import json
 import logging
+import random
 import sys
+import uuid
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
@@ -71,6 +73,7 @@ class ScenarioRunState:
     scenario: Scenario
     start_time: datetime
     current_time: datetime
+    run_id: str = field(default_factory=lambda: str(uuid.uuid4())[:8])
     elapsed_seconds: float = 0.0
 
     # Drone states
@@ -91,6 +94,11 @@ class ScenarioRunState:
     is_complete: bool = False
     abort_reason: str | None = None
 
+    # Statistics for summary
+    total_battery_consumed: float = 0.0
+    anomalies_triggered: int = 0
+    decisions_count: int = 0
+
 
 class ScenarioRunner:
     """Executes simulation scenarios with multiple drones.
@@ -103,7 +111,7 @@ class ScenarioRunner:
     - Logs all decisions for dashboard viewing
 
     Example:
-        runner = ScenarioRunner()
+        runner = ScenarioRunner(seed=42)  # Deterministic mode
         await runner.load_scenario("battery_cascade_001")
         await runner.run(time_scale=10.0)  # 10x speed
         runner.save_decision_log("logs/")
@@ -114,6 +122,7 @@ class ScenarioRunner:
         tick_interval_s: float = 1.0,
         decision_interval_s: float = 5.0,
         log_dir: Path | None = None,
+        seed: int | None = None,
     ) -> None:
         """Initialize scenario runner.
 
@@ -121,16 +130,44 @@ class ScenarioRunner:
             tick_interval_s: Simulation tick interval in seconds
             decision_interval_s: How often to make decisions per drone
             log_dir: Directory to save decision logs
+            seed: Random seed for deterministic simulation (None for random)
         """
         self.tick_interval_s = tick_interval_s
         self.decision_interval_s = decision_interval_s
         self.log_dir = log_dir or Path("logs")
         self.run_state: ScenarioRunState | None = None
+        self._seed = seed
+        self._rng = random.Random(seed)
+        self._running_task: asyncio.Task | None = None
 
         # Callbacks for external integration
         self.on_decision: Callable[[str, Goal, dict], None] | None = None
         self.on_event: Callable[[ScenarioEvent], None] | None = None
         self.on_tick: Callable[[ScenarioRunState], None] | None = None
+
+    @property
+    def is_running(self) -> bool:
+        """Check if a scenario is currently running."""
+        return (
+            self.run_state is not None
+            and self.run_state.is_running
+            and self._running_task is not None
+            and not self._running_task.done()
+        )
+
+    @property
+    def run_id(self) -> str | None:
+        """Get the current run ID."""
+        return self.run_state.run_id if self.run_state else None
+
+    def reset_seed(self, seed: int | None = None) -> None:
+        """Reset the random seed for deterministic replays.
+
+        Args:
+            seed: New seed value (None for random)
+        """
+        self._seed = seed
+        self._rng = random.Random(seed)
 
     async def load_scenario(self, scenario_id: str) -> bool:
         """Load a scenario by ID.
@@ -257,6 +294,9 @@ class ScenarioRunner:
     ) -> bool:
         """Run the scenario simulation.
 
+        This method is idempotent - if already running, returns False immediately.
+        Handles cancellation gracefully and saves logs on exit.
+
         Args:
             time_scale: Speed multiplier (1.0 = real-time, 10.0 = 10x speed)
             max_duration_s: Maximum real-time duration to run
@@ -268,41 +308,143 @@ class ScenarioRunner:
             logger.error("No scenario loaded")
             return False
 
-        logger.info(f"Starting scenario: {self.run_state.scenario.name} at {time_scale}x speed")
+        # Idempotent check - don't start if already running
+        if self.is_running:
+            logger.warning(
+                f"Scenario already running (run_id={self.run_state.run_id})"
+            )
+            return False
+
+        logger.info(
+            f"Starting scenario: {self.run_state.scenario.name} "
+            f"(run_id={self.run_state.run_id}) at {time_scale}x speed"
+        )
+
+        # Record initial battery levels for consumption tracking
+        initial_batteries = {
+            drone_id: ds.drone.battery_percent
+            for drone_id, ds in self.run_state.drone_states.items()
+        }
 
         real_start = datetime.now()
         scenario_duration_s = self.run_state.scenario.duration_minutes * 60
+        self._running_task = asyncio.current_task()
 
-        while self.run_state.is_running:
-            # Check if scenario time exceeded
-            if self.run_state.elapsed_seconds >= scenario_duration_s:
-                self.run_state.is_complete = True
-                self.run_state.is_running = False
-                logger.info("Scenario completed: duration reached")
-                break
-
-            # Check real-time limit
-            if max_duration_s:
-                real_elapsed = (datetime.now() - real_start).total_seconds()
-                if real_elapsed >= max_duration_s:
-                    logger.info("Scenario stopped: real-time limit reached")
-                    self.run_state.abort_reason = "real_time_limit"
+        try:
+            while self.run_state.is_running:
+                # Check if scenario time exceeded
+                if self.run_state.elapsed_seconds >= scenario_duration_s:
+                    self.run_state.is_complete = True
                     self.run_state.is_running = False
+                    logger.info(
+                        f"Scenario completed: duration reached "
+                        f"(run_id={self.run_state.run_id})"
+                    )
                     break
 
-            # Execute one tick
-            await self._tick()
+                # Check real-time limit
+                if max_duration_s:
+                    real_elapsed = (datetime.now() - real_start).total_seconds()
+                    if real_elapsed >= max_duration_s:
+                        logger.info(
+                            f"Scenario stopped: real-time limit reached "
+                            f"(run_id={self.run_state.run_id})"
+                        )
+                        self.run_state.abort_reason = "real_time_limit"
+                        self.run_state.is_running = False
+                        break
 
-            # Wait for next tick (scaled by time_scale)
-            await asyncio.sleep(self.tick_interval_s / time_scale)
+                # Execute one tick
+                await self._tick()
 
-            # Advance simulation time
-            self.run_state.elapsed_seconds += self.tick_interval_s
-            self.run_state.current_time = self.run_state.start_time + timedelta(
-                seconds=self.run_state.elapsed_seconds
+                # Wait for next tick (scaled by time_scale)
+                await asyncio.sleep(self.tick_interval_s / time_scale)
+
+                # Advance simulation time
+                self.run_state.elapsed_seconds += self.tick_interval_s
+                self.run_state.current_time = self.run_state.start_time + timedelta(
+                    seconds=self.run_state.elapsed_seconds
+                )
+
+        except asyncio.CancelledError:
+            logger.info(
+                f"Scenario cancelled (run_id={self.run_state.run_id})"
             )
+            self.run_state.is_running = False
+            self.run_state.abort_reason = "cancelled"
+            raise  # Re-raise to propagate cancellation
+
+        finally:
+            # Calculate statistics
+            self._finalize_run_stats(initial_batteries)
+
+            # Log run summary
+            self._log_run_summary()
+
+            # Clear running task reference
+            self._running_task = None
 
         return self.run_state.is_complete
+
+    def _finalize_run_stats(self, initial_batteries: dict[str, float]) -> None:
+        """Calculate final statistics for the run."""
+        if not self.run_state:
+            return
+
+        # Calculate total battery consumed
+        total_consumed = 0.0
+        for drone_id, ds in self.run_state.drone_states.items():
+            initial = initial_batteries.get(drone_id, 100.0)
+            consumed = initial - ds.drone.battery_percent
+            total_consumed += max(0.0, consumed)
+
+        self.run_state.total_battery_consumed = total_consumed
+
+        # Count total decisions
+        self.run_state.decisions_count = sum(
+            ds.decisions_made for ds in self.run_state.drone_states.values()
+        )
+
+        # Count anomalies triggered (from events)
+        self.run_state.anomalies_triggered = sum(
+            1 for e in self.run_state.events_fired if e.event_type == "anomaly"
+        )
+
+    def _log_run_summary(self) -> None:
+        """Log a summary entry at the end of the run."""
+        if not self.run_state:
+            return
+
+        summary_entry = {
+            "type": "run_summary",
+            "run_id": self.run_state.run_id,
+            "scenario_id": self.run_state.scenario.scenario_id,
+            "timestamp": datetime.now().isoformat(),
+            "elapsed_s": self.run_state.elapsed_seconds,
+            "is_complete": self.run_state.is_complete,
+            "abort_reason": self.run_state.abort_reason,
+            "total_decisions": self.run_state.decisions_count,
+            "total_battery_consumed": round(self.run_state.total_battery_consumed, 2),
+            "events_fired": len(self.run_state.events_fired),
+            "anomalies_triggered": self.run_state.anomalies_triggered,
+            "drones": {
+                drone_id: {
+                    "name": ds.drone.name,
+                    "final_battery": round(ds.drone.battery_percent, 1),
+                    "final_state": ds.drone.state.value,
+                    "decisions_made": ds.decisions_made,
+                }
+                for drone_id, ds in self.run_state.drone_states.items()
+            },
+        }
+        self._log_entry(summary_entry)
+
+        logger.info(
+            f"Run {self.run_state.run_id} complete: "
+            f"{self.run_state.decisions_count} decisions, "
+            f"{self.run_state.total_battery_consumed:.1f}% battery consumed, "
+            f"{self.run_state.anomalies_triggered} anomalies"
+        )
 
     async def _tick(self) -> None:
         """Execute one simulation tick."""
@@ -579,9 +721,11 @@ class ScenarioRunner:
             return "LOW"
 
     def _log_entry(self, entry: dict[str, Any]) -> None:
-        """Add entry to decision log."""
+        """Add entry to decision log with run_id."""
         if self.run_state:
-            self.run_state.decision_log.append(entry)
+            # Add run_id to every entry for correlation
+            entry_with_run_id = {"run_id": self.run_state.run_id, **entry}
+            self.run_state.decision_log.append(entry_with_run_id)
 
     def save_decision_log(self, log_dir: Path | None = None) -> Path:
         """Save decision log to file.
@@ -631,11 +775,15 @@ class ScenarioRunner:
             })
 
         return {
+            "run_id": self.run_state.run_id,
             "scenario_id": self.run_state.scenario.scenario_id,
             "scenario_name": self.run_state.scenario.name,
             "duration_s": self.run_state.elapsed_seconds,
             "is_complete": self.run_state.is_complete,
+            "abort_reason": self.run_state.abort_reason,
             "total_decisions": total_decisions,
+            "total_battery_consumed": round(self.run_state.total_battery_consumed, 2),
+            "anomalies_triggered": self.run_state.anomalies_triggered,
             "events_fired": len(self.run_state.events_fired),
             "drones": drone_summaries,
         }

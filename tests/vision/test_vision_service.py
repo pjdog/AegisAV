@@ -11,7 +11,7 @@ Comprehensive tests for the server-side vision service including:
 """
 
 import tempfile
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -32,7 +32,6 @@ from autonomy.vehicle_state import (
 )
 from vision.data_models import BoundingBox, Detection, DetectionClass, DetectionResult
 from vision.image_manager import ImageManager
-
 
 # ============================================================================
 # Fixtures

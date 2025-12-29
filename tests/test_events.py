@@ -4,8 +4,6 @@ Tests for the events module.
 
 from datetime import datetime
 
-import pytest
-
 from agent.server.events import Event, EventSeverity, EventType
 
 

@@ -57,6 +57,41 @@ type RunData = {
   recent: RecentEntry[];
 };
 
+type PerceptionConfig = {
+  resolution_scale: number;
+  frame_drop_probability: number;
+  confidence_noise_std: number;
+  missed_detection_probability: number;
+};
+
+type EnergyConfig = {
+  capture_cost_percent: number;
+  inference_cost_percent: number;
+  uplink_cost_per_kb: number;
+  idle_drain_per_second: number;
+  thermal_throttle_after_s: number;
+  thermal_throttle_factor: number;
+};
+
+type MicroAgentConfig = {
+  burst_capture_on_anomaly: boolean;
+  burst_capture_count: number;
+  cache_and_forward: boolean;
+  cache_max_items: number;
+  local_abort_battery_threshold: number;
+  local_abort_on_critical: boolean;
+  priority_weighted_capture: boolean;
+};
+
+type UplinkConfig = {
+  summary_only: boolean;
+  send_images: boolean;
+  max_images: number;
+  uplink_delay_ms: number;
+  max_payload_bytes: number;
+  drop_probability: number;
+};
+
 type EdgeComputeConfig = {
   profile: string;
   vision_enabled: boolean;
@@ -72,11 +107,10 @@ type EdgeComputeConfig = {
     m?: number | null;
     min_severity_override?: number | null;
   };
-  uplink: {
-    summary_only: boolean;
-    send_images: boolean;
-    max_images: number;
-  };
+  uplink: UplinkConfig;
+  perception: PerceptionConfig;
+  energy: EnergyConfig;
+  micro_agent: MicroAgentConfig;
 };
 
 const LogViewer = ({ logs }: { logs: LogEntry[] }) => {
@@ -166,6 +200,277 @@ const LineChart = ({
   );
 };
 
+// Compute budget score (0-100) based on config complexity
+const computeBudgetScore = (config: EdgeComputeConfig | null): number => {
+  if (!config) return 0;
+  const perception = config.perception;
+  const energy = config.energy;
+  const uplink = config.uplink;
+
+  // Higher resolution = more compute
+  const resolutionCost = perception.resolution_scale * 30;
+  // More captures = more energy
+  const captureCost = config.max_captures_per_inspection * 2;
+  // Inference delay indicates complexity
+  const inferenceCost = Math.min(config.simulated_inference_delay_ms / 10, 20);
+  // Uplink costs
+  const uplinkCost = uplink.send_images ? 15 : 5;
+  // Energy drain rate
+  const energyCost = energy.idle_drain_per_second * 200;
+
+  return Math.min(100, Math.round(resolutionCost + captureCost + inferenceCost + uplinkCost + energyCost));
+};
+
+// Bandwidth budget score (0-100) based on uplink config
+const bandwidthBudgetScore = (config: EdgeComputeConfig | null): number => {
+  if (!config) return 0;
+  const uplink = config.uplink;
+
+  // Images use most bandwidth
+  const imageCost = uplink.send_images ? uplink.max_images * 20 : 0;
+  // Delay indicates bandwidth constraints
+  const delayCost = Math.min(uplink.uplink_delay_ms / 50, 30);
+  // Drop probability indicates poor link
+  const dropCost = uplink.drop_probability * 200;
+  // Summary only is low bandwidth
+  const summaryCost = uplink.summary_only ? 0 : 20;
+
+  return Math.min(100, Math.round(imageCost + delayCost + dropCost + summaryCost));
+};
+
+type AdvancedOverridesProps = {
+  config: EdgeComputeConfig | null;
+  onUpdate: (updates: Record<string, unknown>) => Promise<void>;
+  isExpanded: boolean;
+  onToggle: () => void;
+};
+
+const AdvancedOverrides = ({ config, onUpdate, isExpanded, onToggle }: AdvancedOverridesProps) => {
+  if (!config) return null;
+
+  const computeScore = computeBudgetScore(config);
+  const bandwidthScore = bandwidthBudgetScore(config);
+
+  const handleSlider = (section: string, field: string, value: number) => {
+    onUpdate({ [section]: { [field]: value } });
+  };
+
+  const handleToggle = (section: string, field: string, value: boolean) => {
+    onUpdate({ [section]: { [field]: value } });
+  };
+
+  return (
+    <div className="advanced-overrides">
+      <div className="advanced-header" onClick={onToggle}>
+        <span className="advanced-title">Advanced Edge Overrides</span>
+        <div className="budget-indicators">
+          <div className="budget-item">
+            <span className="budget-label">Compute</span>
+            <div className="budget-bar">
+              <div
+                className="budget-fill compute"
+                style={{ width: `${computeScore}%` }}
+              />
+            </div>
+            <span className="budget-value">{computeScore}%</span>
+          </div>
+          <div className="budget-item">
+            <span className="budget-label">Bandwidth</span>
+            <div className="budget-bar">
+              <div
+                className="budget-fill bandwidth"
+                style={{ width: `${bandwidthScore}%` }}
+              />
+            </div>
+            <span className="budget-value">{bandwidthScore}%</span>
+          </div>
+        </div>
+        <span className="advanced-chevron">{isExpanded ? "−" : "+"}</span>
+      </div>
+
+      {isExpanded && (
+        <div className="advanced-content">
+          {/* Perception Quality */}
+          <div className="override-section">
+            <h4>Perception Quality</h4>
+            <div className="override-row">
+              <span>Resolution Scale</span>
+              <input
+                type="range"
+                min="0.1"
+                max="1"
+                step="0.05"
+                value={config.perception.resolution_scale}
+                onChange={(e) => handleSlider("perception", "resolution_scale", parseFloat(e.target.value))}
+              />
+              <span className="override-value">{(config.perception.resolution_scale * 100).toFixed(0)}%</span>
+            </div>
+            <div className="override-row">
+              <span>Frame Drop Prob</span>
+              <input
+                type="range"
+                min="0"
+                max="0.5"
+                step="0.01"
+                value={config.perception.frame_drop_probability}
+                onChange={(e) => handleSlider("perception", "frame_drop_probability", parseFloat(e.target.value))}
+              />
+              <span className="override-value">{(config.perception.frame_drop_probability * 100).toFixed(0)}%</span>
+            </div>
+            <div className="override-row">
+              <span>Confidence Noise</span>
+              <input
+                type="range"
+                min="0"
+                max="0.3"
+                step="0.01"
+                value={config.perception.confidence_noise_std}
+                onChange={(e) => handleSlider("perception", "confidence_noise_std", parseFloat(e.target.value))}
+              />
+              <span className="override-value">{config.perception.confidence_noise_std.toFixed(2)}</span>
+            </div>
+            <div className="override-row">
+              <span>Missed Detection</span>
+              <input
+                type="range"
+                min="0"
+                max="0.5"
+                step="0.01"
+                value={config.perception.missed_detection_probability}
+                onChange={(e) => handleSlider("perception", "missed_detection_probability", parseFloat(e.target.value))}
+              />
+              <span className="override-value">{(config.perception.missed_detection_probability * 100).toFixed(0)}%</span>
+            </div>
+          </div>
+
+          {/* Energy Costs */}
+          <div className="override-section">
+            <h4>Energy Model</h4>
+            <div className="override-row">
+              <span>Capture Cost</span>
+              <input
+                type="range"
+                min="0"
+                max="0.2"
+                step="0.005"
+                value={config.energy.capture_cost_percent}
+                onChange={(e) => handleSlider("energy", "capture_cost_percent", parseFloat(e.target.value))}
+              />
+              <span className="override-value">{(config.energy.capture_cost_percent * 100).toFixed(1)}%</span>
+            </div>
+            <div className="override-row">
+              <span>Inference Cost</span>
+              <input
+                type="range"
+                min="0"
+                max="0.2"
+                step="0.005"
+                value={config.energy.inference_cost_percent}
+                onChange={(e) => handleSlider("energy", "inference_cost_percent", parseFloat(e.target.value))}
+              />
+              <span className="override-value">{(config.energy.inference_cost_percent * 100).toFixed(1)}%</span>
+            </div>
+            <div className="override-row">
+              <span>Uplink Cost/KB</span>
+              <input
+                type="range"
+                min="0"
+                max="0.01"
+                step="0.0005"
+                value={config.energy.uplink_cost_per_kb}
+                onChange={(e) => handleSlider("energy", "uplink_cost_per_kb", parseFloat(e.target.value))}
+              />
+              <span className="override-value">{(config.energy.uplink_cost_per_kb * 1000).toFixed(1)}‰</span>
+            </div>
+            <div className="override-row">
+              <span>Idle Drain/s</span>
+              <input
+                type="range"
+                min="0"
+                max="0.1"
+                step="0.005"
+                value={config.energy.idle_drain_per_second}
+                onChange={(e) => handleSlider("energy", "idle_drain_per_second", parseFloat(e.target.value))}
+              />
+              <span className="override-value">{(config.energy.idle_drain_per_second * 100).toFixed(1)}%</span>
+            </div>
+          </div>
+
+          {/* Uplink Simulation */}
+          <div className="override-section">
+            <h4>Uplink Simulation</h4>
+            <div className="override-row">
+              <span>Uplink Delay</span>
+              <input
+                type="range"
+                min="0"
+                max="2000"
+                step="50"
+                value={config.uplink.uplink_delay_ms}
+                onChange={(e) => handleSlider("uplink", "uplink_delay_ms", parseInt(e.target.value))}
+              />
+              <span className="override-value">{config.uplink.uplink_delay_ms}ms</span>
+            </div>
+            <div className="override-row">
+              <span>Drop Probability</span>
+              <input
+                type="range"
+                min="0"
+                max="0.2"
+                step="0.01"
+                value={config.uplink.drop_probability}
+                onChange={(e) => handleSlider("uplink", "drop_probability", parseFloat(e.target.value))}
+              />
+              <span className="override-value">{(config.uplink.drop_probability * 100).toFixed(0)}%</span>
+            </div>
+          </div>
+
+          {/* Micro-Agent Behaviors */}
+          <div className="override-section">
+            <h4>Micro-Agent Behaviors</h4>
+            <div className="override-toggle-row" onClick={() => handleToggle("micro_agent", "burst_capture_on_anomaly", !config.micro_agent.burst_capture_on_anomaly)}>
+              <span>Burst Capture on Anomaly</span>
+              <div className={`toggle ${config.micro_agent.burst_capture_on_anomaly ? "on" : ""}`}>
+                <div className="toggle-thumb" />
+              </div>
+            </div>
+            <div className="override-toggle-row" onClick={() => handleToggle("micro_agent", "cache_and_forward", !config.micro_agent.cache_and_forward)}>
+              <span>Cache &amp; Forward</span>
+              <div className={`toggle ${config.micro_agent.cache_and_forward ? "on" : ""}`}>
+                <div className="toggle-thumb" />
+              </div>
+            </div>
+            <div className="override-toggle-row" onClick={() => handleToggle("micro_agent", "local_abort_on_critical", !config.micro_agent.local_abort_on_critical)}>
+              <span>Local Abort on Critical</span>
+              <div className={`toggle ${config.micro_agent.local_abort_on_critical ? "on" : ""}`}>
+                <div className="toggle-thumb" />
+              </div>
+            </div>
+            <div className="override-toggle-row" onClick={() => handleToggle("micro_agent", "priority_weighted_capture", !config.micro_agent.priority_weighted_capture)}>
+              <span>Priority Weighted Capture</span>
+              <div className={`toggle ${config.micro_agent.priority_weighted_capture ? "on" : ""}`}>
+                <div className="toggle-thumb" />
+              </div>
+            </div>
+            <div className="override-row">
+              <span>Abort Battery Threshold</span>
+              <input
+                type="range"
+                min="0"
+                max="30"
+                step="1"
+                value={config.micro_agent.local_abort_battery_threshold}
+                onChange={(e) => handleSlider("micro_agent", "local_abort_battery_threshold", parseFloat(e.target.value))}
+              />
+              <span className="override-value">{config.micro_agent.local_abort_battery_threshold.toFixed(0)}%</span>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
 const Dashboard = () => {
   const [runId, setRunId] = useState<string | null>(null);
   const [runData, setRunData] = useState<RunData | null>(null);
@@ -176,6 +481,7 @@ const Dashboard = () => {
   const [showSettings, setShowSettings] = useState<boolean>(false);
   const [edgeConfig, setEdgeConfig] = useState<EdgeComputeConfig | null>(null);
   const [edgeProfiles, setEdgeProfiles] = useState<string[]>([]);
+  const [showAdvanced, setShowAdvanced] = useState<boolean>(false);
 
   const loadRun = useCallback(async () => {
     try {
@@ -242,6 +548,20 @@ const Dashboard = () => {
     }
   };
 
+  const updateEdgeOverrides = async (updates: Record<string, unknown>) => {
+    try {
+      const resp = await fetch("/api/config/edge", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(updates),
+      });
+      const data = await resp.json();
+      setEdgeConfig(data.edge_config ?? null);
+    } catch (error) {
+      console.error("Failed to update edge config", error);
+    }
+  };
+
   useEffect(() => {
     loadRun();
     const timer = window.setInterval(loadRun, 5000);
@@ -304,6 +624,13 @@ const Dashboard = () => {
       </header>
 
       {showSettings && <SettingsPanel onClose={() => setShowSettings(false)} />}
+
+      <AdvancedOverrides
+        config={edgeConfig}
+        onUpdate={updateEdgeOverrides}
+        isExpanded={showAdvanced}
+        onToggle={() => setShowAdvanced(!showAdvanced)}
+      />
 
       <section className="grid">
         <article className="card primary">

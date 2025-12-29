@@ -197,12 +197,20 @@ def load_config(config_path: Path) -> tuple[MAVLinkConfig, CollectorConfig]:
         # Client/collector config
         client_section = config.get("client", {})
         server_section = config.get("server", {})
+        agent_name = config.get("agent", {}).get("name", collector_config.vehicle_id)
         collector_config = CollectorConfig(
             server_url=client_section.get(
                 "server_url",
                 f"http://localhost:{server_section.get('port', 8080)}",
             ),
             update_interval_s=client_section.get("update_interval_ms", 100) / 1000,
+            retry_delay_s=client_section.get("reconnect_delay_s", collector_config.retry_delay_s),
+            async_mode=client_section.get("async_mode", collector_config.async_mode),
+            decision_poll_timeout_s=client_section.get(
+                "decision_poll_timeout_s",
+                collector_config.decision_poll_timeout_s,
+            ),
+            vehicle_id=client_section.get("vehicle_id", agent_name),
         )
 
     return mavlink_config, collector_config

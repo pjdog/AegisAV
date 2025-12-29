@@ -212,6 +212,7 @@ class VehicleStateRequest(BaseModel):
     """API request model for vehicle state updates."""
 
     timestamp: datetime
+    vehicle_id: str | None = None
     position: PositionModel
     velocity: VelocityModel
     attitude: AttitudeModel
@@ -228,6 +229,7 @@ class VehicleStateRequest(BaseModel):
         """Convert to VehicleState dataclass."""
         return VehicleState(
             timestamp=self.timestamp,
+            vehicle_id=self.vehicle_id,
             position=self.position.to_dataclass(),
             velocity=self.velocity.to_dataclass(),
             attitude=self.attitude.to_dataclass(),
@@ -246,6 +248,7 @@ class VehicleStateRequest(BaseModel):
         """Create from VehicleState dataclass."""
         return cls(
             timestamp=state.timestamp,
+            vehicle_id=state.vehicle_id,
             position=PositionModel.from_dataclass(state.position),
             velocity=VelocityModel.from_dataclass(state.velocity),
             attitude=AttitudeModel.from_dataclass(state.attitude),

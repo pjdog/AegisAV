@@ -217,6 +217,7 @@ class VehicleState(BaseModel):
     """
 
     timestamp: datetime
+    vehicle_id: str | None = None
     position: Position
     velocity: Velocity
     attitude: Attitude
@@ -247,7 +248,7 @@ class VehicleState(BaseModel):
 
     def to_dict(self) -> dict:
         """Convert to dictionary for serialization."""
-        return {
+        payload = {
             "timestamp": self.timestamp.isoformat(),
             "position": {
                 "latitude": self.position.latitude,
@@ -276,3 +277,6 @@ class VehicleState(BaseModel):
             "healthy": self.health.is_healthy if self.health else True,
             "in_air": self.in_air,
         }
+        if self.vehicle_id:
+            payload["vehicle_id"] = self.vehicle_id
+        return payload

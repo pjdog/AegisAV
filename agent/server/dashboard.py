@@ -11,6 +11,11 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+from agent.server.feedback_store import (
+    get_anomalies_for_run,
+    get_feedback_for_run,
+    get_run_summary,
+)
 from agent.server.scenario_runner import ScenarioRunner
 from agent.server.scenarios import (
     ScenarioCategory,
@@ -42,6 +47,9 @@ class RunnerState:
 
 # Global runner state
 _runner_state = RunnerState()
+
+# Global store reference (set by add_dashboard_routes)
+_store: Any = None
 
 
 def _load_entries(run_file: Path) -> list[dict[str, Any]]:
@@ -206,13 +214,16 @@ def _recent(entries: list[dict[str, Any]], limit: int = 12) -> list[dict[str, An
     return items
 
 
-def add_dashboard_routes(app: FastAPI, log_dir: Path) -> None:
+def add_dashboard_routes(app: FastAPI, log_dir: Path, store: Any = None) -> None:
     """Register dashboard routes and static assets.
 
     Args:
         app: FastAPI application instance.
         log_dir: Directory containing decision log files.
+        store: Optional state store for feedback persistence.
     """
+    global _store
+    _store = store
     repo_root = Path(__file__).resolve().parents[2]
     dist_dir = repo_root / "frontend" / "dist"
     assets_dir = dist_dir / "assets"
@@ -385,6 +396,7 @@ def add_dashboard_routes(app: FastAPI, log_dir: Path) -> None:
         return JSONResponse({
             "status": "started",
             "scenario_id": request.scenario_id,
+            "run_id": _runner_state.runner.run_id,
             "time_scale": request.time_scale,
         })
 
@@ -441,6 +453,7 @@ def add_dashboard_routes(app: FastAPI, log_dir: Path) -> None:
         if not _runner_state.runner or not _runner_state.runner.run_state:
             return JSONResponse({
                 "is_running": _runner_state.is_running,
+                "run_id": None,
                 "scenario_id": None,
                 "elapsed_seconds": 0,
                 "drones": [],
@@ -470,6 +483,7 @@ def add_dashboard_routes(app: FastAPI, log_dir: Path) -> None:
 
         return JSONResponse({
             "is_running": _runner_state.is_running,
+            "run_id": run_state.run_id,
             "scenario_id": run_state.scenario.scenario_id,
             "scenario_name": run_state.scenario.name,
             "elapsed_seconds": run_state.elapsed_seconds,
@@ -513,3 +527,92 @@ def add_dashboard_routes(app: FastAPI, log_dir: Path) -> None:
             "offset": offset,
             "limit": limit,
         })
+
+    @app.get("/api/dashboard/runner/summary", response_class=JSONResponse)
+    async def runner_summary() -> JSONResponse:
+        """Get full summary of the current or most recent run.
+
+        Returns comprehensive statistics including:
+        - Run identification (run_id, scenario_id)
+        - Completion status
+        - Total decisions and battery consumption
+        - Per-drone breakdowns
+
+        Returns:
+            JSON response with run summary or 404 if no run available.
+        """
+        global _runner_state
+
+        if not _runner_state.runner or not _runner_state.runner.run_state:
+            raise HTTPException(status_code=404, detail="No run available")
+
+        summary = _runner_state.runner.get_summary()
+        return JSONResponse(summary)
+
+    # ========================================================================
+    # Run-based feedback APIs
+    # ========================================================================
+
+    @app.get("/api/dashboard/run/{run_id}/feedback", response_class=JSONResponse)
+    async def run_feedback(run_id: str) -> JSONResponse:
+        """Get all feedback entries for a specific run.
+
+        Args:
+            run_id: The run ID to query.
+
+        Returns:
+            JSON response with feedback list for this run.
+        """
+        global _store
+
+        feedback_list = await get_feedback_for_run(_store, run_id)
+        return JSONResponse({
+            "run_id": run_id,
+            "feedback": feedback_list,
+            "total": len(feedback_list),
+        })
+
+    @app.get("/api/dashboard/run/{run_id}/anomalies", response_class=JSONResponse)
+    async def run_anomalies(run_id: str) -> JSONResponse:
+        """Get all anomaly-related feedback for a specific run.
+
+        Returns entries where anomalies were detected or resolved.
+
+        Args:
+            run_id: The run ID to query.
+
+        Returns:
+            JSON response with anomaly list.
+        """
+        global _store
+
+        anomalies = await get_anomalies_for_run(_store, run_id)
+        return JSONResponse({
+            "run_id": run_id,
+            "anomalies": anomalies,
+            "total": len(anomalies),
+        })
+
+    @app.get("/api/dashboard/run/{run_id}/summary", response_class=JSONResponse)
+    async def run_feedback_summary(run_id: str) -> JSONResponse:
+        """Get summary statistics for a run's feedback.
+
+        Returns aggregated metrics including success/fail counts,
+        anomaly counts, battery consumption, and timing.
+
+        Args:
+            run_id: The run ID to summarize.
+
+        Returns:
+            JSON response with run summary or 404 if no feedback found.
+        """
+        global _store
+
+        summary = await get_run_summary(_store, run_id)
+        if summary is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"No feedback found for run: {run_id}"
+            )
+
+        return JSONResponse(summary.to_dict())

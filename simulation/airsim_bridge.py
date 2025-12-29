@@ -1,11 +1,9 @@
-"""
-AirSim Bridge for AegisAV
+"""AirSim Bridge for AegisAV
 
 Provides integration between AirSim (Unreal Engine) and the AegisAV vision pipeline.
 Captures high-fidelity camera frames from the simulated environment.
 """
 
-import asyncio
 import logging
 import time
 from dataclasses import dataclass, field
@@ -25,8 +23,8 @@ except ImportError:
 
 from PIL import Image
 
-from vision.data_models import CaptureResult, CameraState, CameraStatus
-from autonomy.vehicle_state import Position, Attitude, VehicleState
+from autonomy.vehicle_state import Attitude, Position, VehicleState
+from vision.data_models import CameraState, CameraStatus, CaptureResult
 
 logger = logging.getLogger(__name__)
 
@@ -57,8 +55,7 @@ class AirSimCameraConfig:
 
 
 class AirSimBridge:
-    """
-    Bridge between AirSim and AegisAV vision pipeline.
+    """Bridge between AirSim and AegisAV vision pipeline.
 
     Captures camera frames from the Unreal Engine rendered environment
     and converts them to the format expected by the vision pipeline.
@@ -93,8 +90,7 @@ class AirSimBridge:
         logger.info(f"AirSimBridge initialized (camera: {self.config.camera_name})")
 
     async def connect(self) -> bool:
-        """
-        Connect to AirSim simulator.
+        """Connect to AirSim simulator.
 
         Returns:
             True if connected successfully
@@ -141,8 +137,7 @@ class AirSimBridge:
         self,
         metadata: dict[str, Any] | None = None
     ) -> CaptureResult:
-        """
-        Capture a frame from the AirSim camera.
+        """Capture a frame from the AirSim camera.
 
         Args:
             metadata: Optional metadata to include with capture
@@ -258,8 +253,7 @@ class AirSimBridge:
             )
 
     async def get_vehicle_state(self) -> VehicleState | None:
-        """
-        Get current vehicle state from AirSim.
+        """Get current vehicle state from AirSim.
 
         Returns:
             VehicleState or None if not connected
@@ -313,8 +307,7 @@ class AirSimBridge:
         fog: float = 0.0,
         dust: float = 0.0
     ) -> bool:
-        """
-        Set weather conditions in the simulation.
+        """Set weather conditions in the simulation.
 
         Args:
             rain: Rain intensity 0-1
@@ -348,8 +341,7 @@ class AirSimBridge:
         is_enabled: bool = True,
         celestial_clock_speed: float = 1.0
     ) -> bool:
-        """
-        Set time of day in the simulation.
+        """Set time of day in the simulation.
 
         Args:
             hour: Hour of day (0-23)
@@ -396,5 +388,6 @@ class AirSimBridge:
 
 
 # Import at end to avoid circular imports
-from autonomy.vehicle_state import Velocity, BatteryState, FlightMode
 import io
+
+from autonomy.vehicle_state import BatteryState, FlightMode, Velocity

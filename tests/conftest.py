@@ -6,13 +6,17 @@ import asyncio
 import logging
 import sys
 import tempfile
-from collections.abc import Generator
+from collections.abc import AsyncGenerator, Callable, Generator
+from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock
 
+import httpx
 import pytest
+import pytest_asyncio
+from fastapi import FastAPI
 
 from agent.server.goal_selector import GoalSelector
 from agent.server.risk_evaluator import RiskEvaluator, RiskThresholds
@@ -75,6 +79,74 @@ def event_loop():
     loop = asyncio.get_event_loop_policy().new_event_loop()
     yield loop
     loop.close()
+
+
+# ============================================================================
+# Async HTTP Client Fixtures
+# ============================================================================
+
+
+@pytest.fixture
+def make_async_client() -> Callable[[FastAPI], "AsyncClientContextManager"]:
+    """
+    Factory fixture that creates httpx.AsyncClient instances for testing FastAPI apps.
+
+    Usage:
+        @pytest.mark.asyncio
+        async def test_something(self, make_async_client, my_app):
+            async with make_async_client(my_app) as client:
+                response = await client.get("/endpoint")
+                assert response.status_code == 200
+    """
+
+    @asynccontextmanager
+    async def _make_client(
+        app: FastAPI, base_url: str = "http://test"
+    ) -> AsyncGenerator[httpx.AsyncClient, None]:
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(
+            transport=transport, base_url=base_url
+        ) as client:
+            yield client
+
+    return _make_client
+
+
+# Type alias for the async client context manager
+AsyncClientContextManager = Callable[
+    [FastAPI], AsyncGenerator[httpx.AsyncClient, None]
+]
+
+
+@pytest_asyncio.fixture
+async def async_client_for_app():
+    """
+    Async fixture that provides a reusable async client creator.
+
+    This is an alternative to make_async_client that can be used when you
+    need to create multiple clients within the same async context.
+
+    Usage:
+        @pytest.mark.asyncio
+        async def test_something(self, async_client_for_app, my_app):
+            client = await async_client_for_app(my_app)
+            response = await client.get("/endpoint")
+    """
+    clients: list[httpx.AsyncClient] = []
+
+    async def create_client(
+        app: FastAPI, base_url: str = "http://test"
+    ) -> httpx.AsyncClient:
+        transport = httpx.ASGITransport(app=app)
+        client = httpx.AsyncClient(transport=transport, base_url=base_url)
+        clients.append(client)
+        return client
+
+    yield create_client
+
+    # Cleanup all created clients
+    for client in clients:
+        await client.aclose()
 
 
 @pytest.fixture

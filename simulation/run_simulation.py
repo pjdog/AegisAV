@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
-"""
-AegisAV Full Simulation Runner
+"""AegisAV Full Simulation Runner
 
 Runs the complete high-fidelity simulation:
 1. ArduPilot SITL - Real flight controller
@@ -20,14 +19,12 @@ import logging
 import os
 import subprocess
 import sys
-import time
-from datetime import datetime
 from pathlib import Path
 
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from simulation.sitl_manager import SITLManager, SITLConfig, SITLFrame, SITLVehicle
+from simulation.sitl_manager import SITLConfig, SITLFrame, SITLManager, SITLVehicle
 
 try:
     from simulation.airsim_bridge import AirSimBridge, AirSimCameraConfig
@@ -47,8 +44,7 @@ logger = logging.getLogger("Simulation")
 
 
 class FullSimulation:
-    """
-    Orchestrates the complete AegisAV simulation.
+    """Orchestrates the complete AegisAV simulation.
 
     Manages all components:
     - ArduPilot SITL (flight control)
@@ -176,8 +172,7 @@ class FullSimulation:
         return True
 
     async def run_inspection_mission(self, waypoints: list[tuple[float, float, float]]) -> None:
-        """
-        Run an inspection mission.
+        """Run an inspection mission.
 
         Args:
             waypoints: List of (lat, lon, alt) waypoints to inspect
@@ -193,7 +188,7 @@ class FullSimulation:
             if not self.mission_active:
                 break
 
-            logger.info(f"\n--- Waypoint {i+1}/{len(waypoints)} ---")
+            logger.info(f"\n--- Waypoint {i + 1}/{len(waypoints)} ---")
             logger.info(f"Target: {lat:.6f}, {lon:.6f}, {alt:.1f}m")
 
             # Navigate to waypoint

@@ -2,7 +2,6 @@
 Integration tests for MAVLink interface and vehicle communication.
 """
 
-import asyncio
 import json
 from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock, patch

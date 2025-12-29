@@ -10,7 +10,10 @@ from typing import Any
 
 try:
     from pydantic_ai import Agent
-    from pydantic_ai.models.openai import OpenAIModel
+    try:
+        from pydantic_ai.models.openai import OpenAIChatModel as OpenAIModel
+    except ImportError:  # pragma: no cover - older pydantic-ai
+        from pydantic_ai.models.openai import OpenAIModel
 except ImportError:  # pragma: no cover - optional dependency
     Agent = None
     OpenAIModel = None

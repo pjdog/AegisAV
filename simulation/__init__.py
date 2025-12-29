@@ -1,5 +1,4 @@
-"""
-AegisAV High-Fidelity Simulation Package
+"""AegisAV High-Fidelity Simulation Package
 
 Integrates with:
 - AirSim (Unreal Engine) for photorealistic rendering

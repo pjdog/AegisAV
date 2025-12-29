@@ -20,8 +20,9 @@ try:
     import logfire
 except ImportError:  # pragma: no cover - optional dependency
     logfire = None
-from fastapi import Depends, FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import Depends, FastAPI, HTTPException, Response, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from agent.api_models import ActionType, DecisionResponse, HealthResponse, VehicleStateRequest
 from agent.edge_config import (
@@ -36,19 +37,35 @@ from agent.server.critics import AuthorityModel, CriticOrchestrator
 from agent.server.dashboard import add_dashboard_routes
 from agent.server.decision import Decision
 from agent.server.events import Event, EventSeverity, EventType
-from agent.server.feedback_store import persist_feedback
+from agent.server.feedback_store import (
+    get_feedback_for_decision,
+    get_outcome_for_decision,
+    get_recent_feedback,
+    get_recent_outcomes,
+    persist_feedback,
+)
 from agent.server.goal_selector import GoalSelector
 from agent.server.goals import Goal, GoalType
 from agent.server.models import DecisionFeedback
 from agent.server.monitoring import OutcomeTracker
 from agent.server.persistence import RedisConfig, create_store
 from agent.server.risk_evaluator import RiskAssessment, RiskEvaluator, RiskThresholds
+from agent.server.unreal_stream import (
+    CognitiveLevel as UnrealCognitiveLevel,
+)
+from agent.server.unreal_stream import (
+    CriticVerdict,
+    add_unreal_routes,
+    thinking_tracker,
+    unreal_manager,
+)
 from agent.server.vision.vision_service import VisionService, VisionServiceConfig
 from agent.server.world_model import DockStatus, WorldModel, WorldSnapshot
 from autonomy.vehicle_state import (
     Position,
 )
 from metrics.logger import DecisionLogContext, DecisionLogger
+from metrics.telemetry_logger import TelemetryLogger
 from vision.data_models import DetectionResult
 
 # Configure structured logging
@@ -73,6 +90,38 @@ structlog.configure(
 logger = structlog.get_logger(__name__)
 
 
+class DecisionQueueManager:
+    """Async decision queues keyed by vehicle ID."""
+
+    def __init__(self, maxsize: int = 100) -> None:
+        """Initialize the queue manager."""
+        self._queues: dict[str, asyncio.Queue[DecisionResponse]] = {}
+        self._maxsize = maxsize
+
+    def _get_queue(self, vehicle_id: str) -> asyncio.Queue[DecisionResponse]:
+        if vehicle_id not in self._queues:
+            self._queues[vehicle_id] = asyncio.Queue(maxsize=self._maxsize)
+        return self._queues[vehicle_id]
+
+    async def put(self, vehicle_id: str, decision: DecisionResponse) -> None:
+        """Enqueue a decision for a vehicle, dropping oldest if full."""
+        queue = self._get_queue(vehicle_id)
+        if queue.full():
+            try:
+                queue.get_nowait()
+            except asyncio.QueueEmpty:
+                pass
+        await queue.put(decision)
+
+    async def get(self, vehicle_id: str, timeout_s: float) -> DecisionResponse | None:
+        """Await next decision for a vehicle."""
+        queue = self._get_queue(vehicle_id)
+        try:
+            return await asyncio.wait_for(queue.get(), timeout=timeout_s)
+        except asyncio.TimeoutError:
+            return None
+
+
 # Global state
 class ServerState:
     """Container for server-wide state and shared services."""
@@ -89,6 +138,7 @@ class ServerState:
         self.config: dict = {}
         self.log_dir = Path(__file__).resolve().parents[2] / "logs"
         self.decision_logger = DecisionLogger(self.log_dir)
+        self.telemetry_logger = TelemetryLogger(self.log_dir)
         self.current_run_id: str | None = None
 
         # Phase 2: Multi-agent critics
@@ -105,6 +155,9 @@ class ServerState:
         # Phase 4: Persistence (Redis)
         self.store = None  # Initialized in lifespan
         self.persistence_enabled = False
+
+        # Async decision queue for long-polling clients
+        self.decision_queue = DecisionQueueManager()
 
     def load_config(self, config_path: Path) -> None:
         """Load configuration from YAML file.
@@ -306,6 +359,7 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
         logger.info("persistence_initialized", type="in_memory", reason="redis_disabled")
 
     server_state.current_run_id = server_state.decision_logger.start_run()
+    server_state.telemetry_logger.start_run(server_state.current_run_id)
     logger.info("server_started")
 
     yield
@@ -320,6 +374,7 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
         logger.info("persistence_shutdown")
 
     server_state.decision_logger.end_run()
+    server_state.telemetry_logger.end_run()
     logger.info("server_stopped")
 
 
@@ -332,6 +387,15 @@ app = FastAPI(
 
 # Dashboard routes
 add_dashboard_routes(app, server_state.log_dir)
+
+# Unreal real-time streaming routes
+add_unreal_routes(app)
+
+# Serve overlay static files for OBS Browser Source
+overlay_dir = Path(__file__).resolve().parents[2] / "overlay"
+if overlay_dir.exists():
+    app.mount("/overlay", StaticFiles(directory=str(overlay_dir), html=True), name="overlay")
+    logger.info("overlay_mounted", path=str(overlay_dir))
 
 # API Authentication
 auth_handler = APIKeyAuth(AuthConfig.from_env())
@@ -472,6 +536,38 @@ async def get_logs() -> dict:
         Dictionary containing list of recent log entries.
     """
     return {"logs": log_buffer.buffer}
+
+
+@app.get("/api/dashboard/feedback")
+async def get_dashboard_feedback(limit: int = 50) -> dict:
+    """Get the most recent decision feedback entries."""
+    feedback = await get_recent_feedback(server_state.store, limit=limit)
+    return {"feedback": feedback, "count": len(feedback)}
+
+
+@app.get("/api/dashboard/feedback/{decision_id}")
+async def get_dashboard_feedback_for_decision(decision_id: str) -> dict:
+    """Get the latest feedback for a decision."""
+    feedback = await get_feedback_for_decision(server_state.store, decision_id)
+    if feedback is None:
+        raise HTTPException(status_code=404, detail="Feedback not found")
+    return {"feedback": feedback}
+
+
+@app.get("/api/dashboard/outcomes")
+async def get_dashboard_outcomes(limit: int = 50) -> dict:
+    """Get the most recent decision outcomes."""
+    outcomes = await get_recent_outcomes(server_state.store, limit=limit)
+    return {"outcomes": outcomes, "count": len(outcomes)}
+
+
+@app.get("/api/dashboard/outcomes/{decision_id}")
+async def get_dashboard_outcome_for_decision(decision_id: str) -> dict:
+    """Get the latest outcome for a decision."""
+    outcome = await get_outcome_for_decision(server_state.store, decision_id)
+    if outcome is None:
+        raise HTTPException(status_code=404, detail="Outcome not found")
+    return {"outcome": outcome}
 
 
 # CORS middleware
@@ -923,13 +1019,31 @@ async def receive_feedback(feedback: DecisionFeedback) -> dict:
     }
 
 
-@app.post("/state", response_model=DecisionResponse)
-async def receive_state(state: VehicleStateRequest) -> DecisionResponse:
-    """Receive vehicle state and return decision.
+async def _record_telemetry(
+    state: VehicleStateRequest,
+    vehicle_id: str,
+    source: str,
+) -> None:
+    payload = state.model_dump(mode="json")
+    payload["vehicle_id"] = vehicle_id
+    payload["source"] = source
 
-    This is the main endpoint called by the agent client.
-    """
+    try:
+        server_state.telemetry_logger.log_telemetry(vehicle_id, payload, source=source)
+    except Exception as e:
+        logger.warning("telemetry_log_failed", error=str(e), vehicle_id=vehicle_id)
+
+    if server_state.store:
+        stored = await server_state.store.add_telemetry(vehicle_id, payload)
+        if not stored:
+            logger.warning("telemetry_store_failed", vehicle_id=vehicle_id)
+
+
+async def _process_state(state: VehicleStateRequest, *, source: str) -> DecisionResponse:
     logger.debug("state_received", armed=state.armed, mode=state.mode)
+
+    vehicle_id = state.vehicle_id or "drone_001"
+    await _record_telemetry(state, vehicle_id, source)
 
     # Convert to internal VehicleState using the helper method
     vehicle_state = (
@@ -943,6 +1057,14 @@ async def receive_state(state: VehicleStateRequest) -> DecisionResponse:
     snapshot = server_state.world_model.get_snapshot()
     if snapshot is None:
         raise HTTPException(status_code=500, detail="World model not initialized")
+
+    # Emit thinking start event for Unreal visualization
+    drone_id = vehicle_id
+    if unreal_manager.active_connections > 0:
+        await thinking_tracker.start_thinking(
+            drone_id=drone_id,
+            cognitive_level=UnrealCognitiveLevel.DELIBERATIVE,
+        )
 
     # Evaluate risk
     risk = server_state.risk_evaluator.evaluate(snapshot)
@@ -966,6 +1088,21 @@ async def receive_state(state: VehicleStateRequest) -> DecisionResponse:
     # Log warnings
     for warning in risk.warnings:
         logger.warning("risk_warning", warning=warning)
+
+    # Update thinking state with risk assessment for Unreal
+    if unreal_manager.active_connections > 0:
+        await thinking_tracker.update_thinking(
+            drone_id=drone_id,
+            situation=f"Evaluating situation. Battery: {snapshot.vehicle.battery.remaining_percent:.0f}%",
+            considerations=[
+                f"Risk level: {risk.overall_level.value}",
+                f"Battery remaining: {snapshot.vehicle.battery.remaining_percent:.0f}%",
+                *risk.warnings[:3],  # First 3 warnings
+            ],
+            risk_score=risk.overall_score,
+            risk_level=risk.overall_level.value,
+            risk_factors={name: f.value for name, f in risk.factors.items()},
+        )
 
     # Make decision
     decision, goal = await _make_decision(snapshot, risk)
@@ -1013,6 +1150,20 @@ async def receive_state(state: VehicleStateRequest) -> DecisionResponse:
             severity=EventSeverity.WARNING if not approved else EventSeverity.INFO,
         )
     )
+
+    # Emit critic results to Unreal for thought bubble visualization
+    if unreal_manager.active_connections > 0:
+        # Report each critic's verdict (simplified - actual critic details from orchestrator)
+        verdict = CriticVerdict.APPROVE if approved else CriticVerdict.REJECT
+        concerns = [escalation.reason] if escalation else []
+        for critic_name in ["safety", "efficiency", "goal_alignment"]:
+            await thinking_tracker.report_critic(
+                drone_id=drone_id,
+                critic_name=critic_name,
+                verdict=verdict,
+                confidence=0.9 if approved else 0.7,
+                concerns=concerns if critic_name == "safety" else [],
+            )
 
     # If decision was blocked, override with abort
     if not approved:
@@ -1070,6 +1221,16 @@ async def receive_state(state: VehicleStateRequest) -> DecisionResponse:
         )
     )
 
+    # Complete thinking state for Unreal visualization
+    if unreal_manager.active_connections > 0:
+        await thinking_tracker.complete_thinking(
+            drone_id=drone_id,
+            action=decision.action.value,
+            confidence=decision.confidence,
+            reasoning=decision.reasoning,
+            parameters=decision.parameters,
+        )
+
     # Map RiskLevel to numerical or string value expected by response
     # The new DecisionResponse uses risk_assessment: Dict[str, float]
     # Older one used risk_level: str
@@ -1083,6 +1244,38 @@ async def receive_state(state: VehicleStateRequest) -> DecisionResponse:
         risk_assessment={name: f.value for name, f in risk.factors.items()},
         timestamp=decision.timestamp,
     )
+
+
+@app.post("/state", response_model=DecisionResponse)
+async def receive_state(state: VehicleStateRequest) -> DecisionResponse:
+    """Receive vehicle state and return decision.
+
+    This is the main endpoint called by the agent client.
+    """
+    return await _process_state(state, source="http")
+
+
+@app.post("/state/async")
+async def receive_state_async(state: VehicleStateRequest) -> dict:
+    """Receive vehicle state and enqueue decision for async retrieval."""
+    decision = await _process_state(state, source="async")
+    vehicle_id = state.vehicle_id or "drone_001"
+    await server_state.decision_queue.put(vehicle_id, decision)
+    return {
+        "status": "queued",
+        "vehicle_id": vehicle_id,
+        "decision_id": decision.decision_id,
+    }
+
+
+@app.get("/decisions/next", response_model=DecisionResponse)
+async def get_next_decision(vehicle_id: str, timeout_s: float = 10.0) -> DecisionResponse | Response:
+    """Long-poll for the next decision for a vehicle."""
+    timeout_s = max(0.1, min(timeout_s, 30.0))
+    decision = await server_state.decision_queue.get(vehicle_id, timeout_s)
+    if decision is None:
+        return Response(status_code=204)
+    return decision
 
 
 async def _make_decision(snapshot: WorldSnapshot, risk: RiskAssessment) -> tuple[Decision, Goal | None]:

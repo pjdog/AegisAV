@@ -3,11 +3,11 @@ from datetime import datetime
 import pytest
 
 from agent.server.advanced_decision import (
-    _build_neighbor_graph,
-    _collect_nodes,
-    _dijkstra_path,
-    _markov_rank_assets,
-    _neural_rank_assets,
+    build_neighbor_graph,
+    collect_nodes,
+    dijkstra_path,
+    markov_rank_assets,
+    neural_rank_assets,
 )
 from agent.server.world_model import (
     Asset,
@@ -89,9 +89,9 @@ def sample_world() -> WorldSnapshot:
 
 
 def test_dijkstra_path_basic(sample_world: WorldSnapshot) -> None:
-    nodes = _collect_nodes(sample_world, include_vehicle=True, include_dock=True)
-    graph = _build_neighbor_graph(nodes, neighbor_k=3)
-    path, distance_m = _dijkstra_path(graph, "vehicle", "asset_b")
+    nodes = collect_nodes(sample_world, include_vehicle=True, include_dock=True)
+    graph = build_neighbor_graph(nodes, neighbor_k=3)
+    path, distance_m = dijkstra_path(graph, "vehicle", "asset_b")
 
     assert path[0] == "vehicle"
     assert path[-1] == "asset_b"
@@ -99,14 +99,14 @@ def test_dijkstra_path_basic(sample_world: WorldSnapshot) -> None:
 
 
 def test_markov_rank_assets_sorted(sample_world: WorldSnapshot) -> None:
-    ranked = _markov_rank_assets(sample_world, current_id="vehicle")
+    ranked = markov_rank_assets(sample_world, current_id="vehicle")
 
     assert ranked
     assert ranked[0]["probability"] >= ranked[-1]["probability"]
 
 
 def test_neural_rank_assets_sorted(sample_world: WorldSnapshot) -> None:
-    ranked = _neural_rank_assets(sample_world, current_id="vehicle")
+    ranked = neural_rank_assets(sample_world, current_id="vehicle")
 
     assert ranked
     assert ranked[0]["score"] >= ranked[-1]["score"]

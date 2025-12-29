@@ -19,7 +19,9 @@ from vision.data_models import CaptureResult, DetectionResult
 logger = logging.getLogger(__name__)
 
 
-def apply_edge_config_to_vision_client(vision_client: VisionClient, edge: EdgeComputeConfig) -> None:
+def apply_edge_config_to_vision_client(
+    vision_client: VisionClient, edge: EdgeComputeConfig
+) -> None:
     """Apply edge config knobs to an existing VisionClient instance."""
     vision_client.config = VisionClientConfig(
         capture_interval_s=edge.capture_interval_s,
@@ -50,7 +52,8 @@ def _detection_meets_gate(detection: DetectionResult, edge: EdgeComputeConfig) -
     if not detection.detected_defects:
         return False
     return (
-        detection.max_confidence >= gate.min_confidence and detection.max_severity >= gate.min_severity
+        detection.max_confidence >= gate.min_confidence
+        and detection.max_severity >= gate.min_severity
     )
 
 
@@ -103,7 +106,9 @@ def select_best_detection(results: InspectionVisionResults) -> DetectionResult |
     return None
 
 
-def select_best_image_path(best_detection: DetectionResult | None, edge: EdgeComputeConfig) -> Path | None:
+def select_best_image_path(
+    best_detection: DetectionResult | None, edge: EdgeComputeConfig
+) -> Path | None:
     """Select the image path from the best detection if image upload is enabled.
 
     Args:
@@ -137,7 +142,9 @@ def _find_capture_for_image(
     return next((c for c in captures if c.image_path == image_path), None)
 
 
-def build_inspection_data(results: InspectionVisionResults, edge: EdgeComputeConfig) -> dict[str, Any]:
+def build_inspection_data(
+    results: InspectionVisionResults, edge: EdgeComputeConfig
+) -> dict[str, Any]:
     """Build the `inspection_data` payload attached to DecisionFeedback."""
     best_detection = select_best_detection(results)
     best_image_path = select_best_image_path(best_detection, edge)

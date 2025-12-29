@@ -4,6 +4,7 @@ Provides integration between AirSim (Unreal Engine) and the AegisAV vision pipel
 Captures high-fidelity camera frames from the simulated environment.
 """
 
+import io
 import logging
 import time
 from dataclasses import dataclass, field
@@ -16,6 +17,7 @@ import numpy as np
 
 try:
     import airsim
+
     AIRSIM_AVAILABLE = True
 except ImportError:
     AIRSIM_AVAILABLE = False
@@ -23,7 +25,14 @@ except ImportError:
 
 from PIL import Image
 
-from autonomy.vehicle_state import Attitude, Position, VehicleState
+from autonomy.vehicle_state import (
+    Attitude,
+    BatteryState,
+    FlightMode,
+    Position,
+    VehicleState,
+    Velocity,
+)
 from vision.data_models import CameraState, CameraStatus, CaptureResult
 
 logger = logging.getLogger(__name__)
@@ -31,12 +40,13 @@ logger = logging.getLogger(__name__)
 
 class AirSimImageType(Enum):
     """AirSim camera image types."""
-    SCENE = 0           # RGB scene
-    DEPTH_PLANNER = 1   # Depth from planner perspective
+
+    SCENE = 0  # RGB scene
+    DEPTH_PLANNER = 1  # Depth from planner perspective
     DEPTH_PERSPECTIVE = 2  # Depth from camera perspective
-    DEPTH_VIS = 3       # Depth visualization
-    SEGMENTATION = 5    # Semantic segmentation
-    INFRARED = 7        # Infrared
+    DEPTH_VIS = 3  # Depth visualization
+    SEGMENTATION = 5  # Semantic segmentation
+    INFRARED = 7  # Infrared
 
 
 @dataclass
@@ -71,12 +81,10 @@ class AirSimBridge:
             detection = await detector.analyze_image(result.image_path)
     """
 
-    def __init__(self, config: AirSimCameraConfig | None = None):
+    def __init__(self, config: AirSimCameraConfig | None = None) -> None:
         """Initialize AirSim bridge."""
         if not AIRSIM_AVAILABLE:
-            raise ImportError(
-                "airsim package not installed. Install with: pip install airsim"
-            )
+            raise ImportError("airsim package not installed. Install with: pip install airsim")
 
         self.config = config or AirSimCameraConfig()
         self.client: airsim.MultirotorClient | None = None
@@ -110,8 +118,7 @@ class AirSimBridge:
 
             # Log camera info
             camera_info = self.client.simGetCameraInfo(
-                self.config.camera_name,
-                self.config.vehicle_name
+                self.config.camera_name, self.config.vehicle_name
             )
             logger.info(f"Camera info: FOV={camera_info.fov}, Pose={camera_info.pose}")
 
@@ -127,16 +134,13 @@ class AirSimBridge:
         if self.client:
             try:
                 self.client.enableApiControl(False, self.config.vehicle_name)
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning("Failed to release API control: %s", exc)
             self.client = None
         self.connected = False
         logger.info("Disconnected from AirSim")
 
-    async def capture_frame(
-        self,
-        metadata: dict[str, Any] | None = None
-    ) -> CaptureResult:
+    async def capture_frame(self, metadata: dict[str, Any] | None = None) -> CaptureResult:
         """Capture a frame from the AirSim camera.
 
         Args:
@@ -151,21 +155,24 @@ class AirSimBridge:
                 timestamp=datetime.now(),
                 image_path=None,
                 camera_state=self._get_camera_state(error="Not connected"),
-                metadata={"error": "Not connected to AirSim"}
+                metadata={"error": "Not connected to AirSim"},
             )
 
         try:
             start_time = time.time()
 
             # Request image from AirSim
-            responses = self.client.simGetImages([
-                airsim.ImageRequest(
-                    self.config.camera_name,
-                    self.config.image_type.value,
-                    pixels_as_float=False,
-                    compress=self.config.compress
-                )
-            ], self.config.vehicle_name)
+            responses = self.client.simGetImages(
+                [
+                    airsim.ImageRequest(
+                        self.config.camera_name,
+                        self.config.image_type.value,
+                        pixels_as_float=False,
+                        compress=self.config.compress,
+                    )
+                ],
+                self.config.vehicle_name,
+            )
 
             if not responses or len(responses) == 0:
                 return CaptureResult(
@@ -173,7 +180,7 @@ class AirSimBridge:
                     timestamp=datetime.now(),
                     image_path=None,
                     camera_state=self._get_camera_state(error="No response"),
-                    metadata={"error": "No image response from AirSim"}
+                    metadata={"error": "No image response from AirSim"},
                 )
 
             response = responses[0]
@@ -185,10 +192,9 @@ class AirSimBridge:
                 img = Image.open(io.BytesIO(img_array))
             else:
                 # Uncompressed RGB
-                img_array = np.frombuffer(
-                    response.image_data_uint8,
-                    dtype=np.uint8
-                ).reshape(response.height, response.width, 3)
+                img_array = np.frombuffer(response.image_data_uint8, dtype=np.uint8).reshape(
+                    response.height, response.width, 3
+                )
                 img = Image.fromarray(img_array)
 
             # Generate filename
@@ -207,7 +213,7 @@ class AirSimBridge:
                 latitude=pose.position.x_val,  # Note: AirSim uses NED, convert as needed
                 longitude=pose.position.y_val,
                 altitude_msl=abs(pose.position.z_val),
-                altitude_agl=abs(pose.position.z_val)
+                altitude_agl=abs(pose.position.z_val),
             )
 
             capture_time = (time.time() - start_time) * 1000
@@ -226,10 +232,16 @@ class AirSimBridge:
                         pose.orientation.w_val,
                         pose.orientation.x_val,
                         pose.orientation.y_val,
-                        pose.orientation.z_val
-                    ]
+                        pose.orientation.z_val,
+                    ],
                 },
-                **(metadata or {})
+                "vehicle_position": {
+                    "latitude": vehicle_position.latitude,
+                    "longitude": vehicle_position.longitude,
+                    "altitude_msl": vehicle_position.altitude_msl,
+                    "altitude_agl": vehicle_position.altitude_agl,
+                },
+                **(metadata or {}),
             }
 
             logger.debug(f"Captured frame {self.capture_count} in {capture_time:.1f}ms")
@@ -239,7 +251,7 @@ class AirSimBridge:
                 timestamp=timestamp,
                 image_path=image_path,
                 camera_state=self._get_camera_state(),
-                metadata=capture_metadata
+                metadata=capture_metadata,
             )
 
         except Exception as e:
@@ -249,7 +261,7 @@ class AirSimBridge:
                 timestamp=datetime.now(),
                 image_path=None,
                 camera_state=self._get_camera_state(error=str(e)),
-                metadata={"error": str(e)}
+                metadata={"error": str(e)},
             )
 
     async def get_vehicle_state(self) -> VehicleState | None:
@@ -274,26 +286,26 @@ class AirSimBridge:
                     latitude=pose.position.x_val,
                     longitude=pose.position.y_val,
                     altitude_msl=abs(pose.position.z_val),
-                    altitude_agl=abs(pose.position.z_val)
+                    altitude_agl=abs(pose.position.z_val),
                 ),
                 velocity=Velocity(
                     north=pose.linear_velocity.x_val,
                     east=pose.linear_velocity.y_val,
-                    down=pose.linear_velocity.z_val
+                    down=pose.linear_velocity.z_val,
                 ),
                 attitude=Attitude(
                     roll=airsim.to_eularian_angles(pose.orientation)[0],
                     pitch=airsim.to_eularian_angles(pose.orientation)[1],
-                    yaw=airsim.to_eularian_angles(pose.orientation)[2]
+                    yaw=airsim.to_eularian_angles(pose.orientation)[2],
                 ),
                 battery=BatteryState(
                     voltage=22.2,  # Simulated
                     current=5.0,
-                    remaining_percent=100.0  # TODO: Simulate drain
+                    remaining_percent=100.0,  # TODO: Simulate drain
                 ),
                 mode=FlightMode.GUIDED,
                 armed=state.landed_state != airsim.LandedState.Landed,
-                in_air=state.landed_state == airsim.LandedState.Flying
+                in_air=state.landed_state == airsim.LandedState.Flying,
             )
 
         except Exception as e:
@@ -301,11 +313,7 @@ class AirSimBridge:
             return None
 
     async def set_weather(
-        self,
-        rain: float = 0.0,
-        snow: float = 0.0,
-        fog: float = 0.0,
-        dust: float = 0.0
+        self, rain: float = 0.0, snow: float = 0.0, fog: float = 0.0, dust: float = 0.0
     ) -> bool:
         """Set weather conditions in the simulation.
 
@@ -336,10 +344,7 @@ class AirSimBridge:
             return False
 
     async def set_time_of_day(
-        self,
-        hour: int = 12,
-        is_enabled: bool = True,
-        celestial_clock_speed: float = 1.0
+        self, hour: int = 12, is_enabled: bool = True, celestial_clock_speed: float = 1.0
     ) -> bool:
         """Set time of day in the simulation.
 
@@ -359,7 +364,7 @@ class AirSimBridge:
             self.client.simSetTimeOfDay(
                 is_enabled=is_enabled,
                 start_datetime=start_time,
-                celestial_clock_speed=celestial_clock_speed
+                celestial_clock_speed=celestial_clock_speed,
             )
 
             logger.info(f"Time of day set to {hour}:00")
@@ -378,16 +383,10 @@ class AirSimBridge:
             capture_format="RGB",
             total_captures=self.capture_count,
             last_capture_time=self.last_capture_time,
-            error_message=error
+            error_message=error,
         )
 
     @property
     def is_connected(self) -> bool:
         """Check if connected to AirSim."""
         return self.connected and self.client is not None
-
-
-# Import at end to avoid circular imports
-import io
-
-from autonomy.vehicle_state import BatteryState, FlightMode, Velocity

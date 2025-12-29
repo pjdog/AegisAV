@@ -220,8 +220,7 @@ class APIKeyAuth:
 
         # Remove old entries
         self._request_counts[client_ip] = [
-            t for t in self._request_counts[client_ip]
-            if t > window_start
+            t for t in self._request_counts[client_ip] if t > window_start
         ]
 
         # Check limit
@@ -255,9 +254,7 @@ def create_auth_dependency(config: AuthConfig | None = None) -> APIKeyAuth:
 
 
 # Convenience function for requiring authentication
-def require_auth(
-    auth_result: Annotated[dict, Depends(APIKeyAuth())]
-) -> dict:
+def require_auth(auth_result: Annotated[dict, Depends(APIKeyAuth())]) -> dict:
     """Dependency that requires authentication.
 
     Use in endpoint definitions:

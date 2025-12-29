@@ -16,13 +16,13 @@ logger = logging.getLogger(__name__)
 
 
 class SimOrchestrator:
-    def __init__(self, connection_string: str):
+    def __init__(self, connection_string: str) -> None:
         logger.info(f"Connecting to SITL at {connection_string}...")
         self.master = mavutil.mavlink_connection(connection_string)
         self.master.wait_heartbeat()
         logger.info("Connected to vehicle.")
 
-    def set_param(self, param_name: str, value: float):
+    def set_param(self, param_name: str, value: float) -> None:
         """Set a MAVLink parameter in SITL."""
         logger.info(f"Setting parameter {param_name} to {value}")
         self.master.mav.param_set_send(
@@ -35,7 +35,7 @@ class SimOrchestrator:
 
     def set_wind(
         self, speed: float, direction: float | None = None, turbulence: float | None = None
-    ):
+    ) -> None:
         """Set wind conditions."""
         self.set_param("SIM_WIND_SPD", speed)
         if direction is not None:
@@ -43,17 +43,17 @@ class SimOrchestrator:
         if turbulence is not None:
             self.set_param("SIM_WIND_TURB", turbulence)
 
-    def set_gps_accuracy(self, horizontal_acc: float):
+    def set_gps_accuracy(self, horizontal_acc: float) -> None:
         """Set GPS horizontal accuracy (meters)."""
         self.set_param("SIM_GPS_ACC", horizontal_acc)
 
-    def set_battery(self, voltage: float | None = None, _pct: float | None = None):
+    def set_battery(self, voltage: float | None = None, _pct: float | None = None) -> None:
         """Set battery state (if supported by SITL backend)."""
         if voltage is not None:
             self.set_param("SIM_BATT_VOLTAGE", voltage)
         # Note: Percentage is usually derived from voltage in SITL
 
-    def run_gust_scenario(self, duration_s: int, peak_speed: float):
+    def run_gust_scenario(self, duration_s: int, peak_speed: float) -> None:
         """Simulate a temporary wind gust."""
         original_speed = 5.0  # Assume default
         logger.info(
@@ -68,7 +68,7 @@ class SimOrchestrator:
         self.set_wind(original_speed)
         logger.info("Gust scenario complete.")
 
-    def run_gps_glitch(self, duration_s: int):
+    def run_gps_glitch(self, duration_s: int) -> None:
         """Simulate a temporary GPS glitch."""
         logger.info(f"Injecting GPS glitch (100m error) for {duration_s}s")
         self.set_gps_accuracy(100.0)
@@ -77,7 +77,7 @@ class SimOrchestrator:
         logger.info("GPS glitch cleared.")
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(description="AegisAV SITL Scenario Orchestrator")
     parser.add_argument(
         "--connect", default="udp:127.0.0.1:14550", help="MAVLink connection string"

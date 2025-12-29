@@ -2,6 +2,7 @@
 Integration tests for MAVLink interface and vehicle communication.
 """
 
+import asyncio
 import json
 from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -627,7 +628,7 @@ class TestMAVLinkInterfaceExtended:
         interface = MAVLinkInterface(_make_config())
         interface._connection = mock_mavlink_connection
 
-        def bad_callback(state):
+        def bad_callback(_state):
             raise RuntimeError("Callback error")
 
         interface.on_connection_change(bad_callback)
@@ -786,7 +787,7 @@ class TestMissionPrimitivesExtended:
 
     @pytest.mark.asyncio
     @pytest.mark.allow_error_logs
-    async def test_goto_failure(self, mock_mavlink_connection):
+    async def test_goto_failure(self, _mock_mavlink_connection):
         """Test goto fails when goto command fails."""
         interface = MAVLinkInterface(_make_config())
         interface._connection = None  # No connection
@@ -993,10 +994,11 @@ class TestMissionPrimitivesExtended:
 
         call_count = [0]
 
-        async def mock_goto_with_abort(target, speed=None, timeout=None):
+        async def mock_goto_with_abort(_target, _speed=None, _timeout=None):
             call_count[0] += 1
             if call_count[0] >= 3:
                 primitives.request_abort()
+            await asyncio.sleep(0)
             return PrimitiveResult.SUCCESS
 
         with patch("autonomy.mission_primitives.asyncio.sleep", new=AsyncMock()):
@@ -1040,10 +1042,12 @@ class TestMissionPrimitivesExtended:
             altitude_msl=TEST_HOME_POSITION["alt"],
         )
 
-        async def mock_goto(target, speed=None, timeout=None):
+        async def mock_goto(_target, _speed=None, _timeout=None):
+            await asyncio.sleep(0)
             return PrimitiveResult.SUCCESS
 
-        async def mock_land(timeout=None):
+        async def mock_land(_timeout=None):
+            await asyncio.sleep(0)
             return PrimitiveResult.SUCCESS
 
         with patch("autonomy.mission_primitives.asyncio.sleep", new=AsyncMock()):
@@ -1065,10 +1069,12 @@ class TestMissionPrimitivesExtended:
         dock_position = Position(latitude=47.0, longitude=8.0, altitude_msl=100.0)
         plan = DockPlan(approach_altitude=15.0, approach_speed=3.0, landing_speed=0.3)
 
-        async def mock_goto(target, speed=None, timeout=None):
+        async def mock_goto(_target, _speed=None, _timeout=None):
+            await asyncio.sleep(0)
             return PrimitiveResult.SUCCESS
 
-        async def mock_land(timeout=None):
+        async def mock_land(_timeout=None):
+            await asyncio.sleep(0)
             return PrimitiveResult.SUCCESS
 
         with patch("autonomy.mission_primitives.asyncio.sleep", new=AsyncMock()):
@@ -1106,7 +1112,8 @@ class TestMissionPrimitivesExtended:
 
         dock_position = Position(latitude=47.0, longitude=8.0, altitude_msl=100.0)
 
-        async def mock_goto(target, speed=None, timeout=None):
+        async def mock_goto(_target, _speed=None, _timeout=None):
+            await asyncio.sleep(0)
             return PrimitiveResult.SUCCESS
 
         with patch("autonomy.mission_primitives.asyncio.sleep", new=AsyncMock()):
@@ -1128,6 +1135,7 @@ class TestMissionPrimitivesExtended:
 
         # Test at angle pi/2 (90 degrees)
         import math
+
         waypoint2 = MissionPrimitives._calculate_orbit_waypoint(center, plan, math.pi / 2)
         assert waypoint2 is not None
         assert waypoint2.latitude != waypoint.latitude or waypoint2.longitude != waypoint.longitude
@@ -1296,11 +1304,13 @@ class TestBackgroundLoops:
         interface.config.heartbeat_interval_s = 0.01
 
         call_count = [0]
+        real_sleep = asyncio.sleep
 
-        async def mock_sleep(duration):
+        async def mock_sleep(_duration):
             call_count[0] += 1
             if call_count[0] >= 2:
                 interface._running = False
+            await real_sleep(0)
 
         with patch("asyncio.sleep", mock_sleep):
             await interface._heartbeat_loop()
@@ -1320,14 +1330,17 @@ class TestBackgroundLoops:
 
         # Set last heartbeat to 10 seconds ago (exceeds 5s timeout)
         from datetime import timedelta
+
         interface._telemetry.status.last_heartbeat = datetime.now() - timedelta(seconds=10)
 
         call_count = [0]
+        real_sleep = asyncio.sleep
 
-        async def mock_sleep(duration):
+        async def mock_sleep(_duration):
             call_count[0] += 1
             if call_count[0] >= 2:
                 interface._running = False
+            await real_sleep(0)
 
         with patch("asyncio.sleep", mock_sleep):
             await interface._heartbeat_loop()
@@ -1346,7 +1359,7 @@ class TestBackgroundLoops:
 
         call_count = [0]
 
-        def mock_heartbeat_send(*args):
+        def mock_heartbeat_send(*_args):
             call_count[0] += 1
             if call_count[0] == 1:
                 raise RuntimeError("Heartbeat send error")
@@ -1383,7 +1396,7 @@ class TestBackgroundLoops:
         mock_mavlink_connection.mav.heartbeat_send.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_receive_loop_stops_when_no_connection(self, mock_mavlink_connection):
+    async def test_receive_loop_stops_when_no_connection(self, _mock_mavlink_connection):
         """Test receive loop stops when connection is None."""
         interface = MAVLinkInterface(_make_config())
         interface._connection = None  # No connection
@@ -1393,7 +1406,7 @@ class TestBackgroundLoops:
         # Should return immediately
 
     @pytest.mark.asyncio
-    async def test_heartbeat_loop_stops_when_no_connection(self, mock_mavlink_connection):
+    async def test_heartbeat_loop_stops_when_no_connection(self, _mock_mavlink_connection):
         """Test heartbeat loop stops when connection is None."""
         interface = MAVLinkInterface(_make_config())
         interface._connection = None  # No connection
@@ -1412,7 +1425,7 @@ class TestBackgroundLoops:
         interface._process_attitude(mock_mavlink_connection.messages["ATTITUDE"])
         interface._process_sys_status(mock_mavlink_connection.messages["SYS_STATUS"])
 
-        def bad_callback(state):
+        def bad_callback(_state):
             raise RuntimeError("Callback error")
 
         interface.on_state_update(bad_callback)

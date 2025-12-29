@@ -65,7 +65,9 @@ class AgentClient:
         self.state_collector = StateCollector(self.mavlink, collector_config)
         self.vision_client = vision_client
         self.action_executor = ActionExecutor(self.mavlink, vision_client=vision_client)
-        self.edge_config: EdgeComputeConfig = default_edge_compute_config(EdgeComputeProfile.SBC_CPU)
+        self.edge_config: EdgeComputeConfig = default_edge_compute_config(
+            EdgeComputeProfile.SBC_CPU
+        )
 
         self._running = False
         self._shutdown_event = asyncio.Event()
@@ -244,13 +246,19 @@ def _build_vision_client(vision_config: dict[str, Any]) -> VisionClient | None:
     if not isinstance(resolution, list) or len(resolution) != 2:
         resolution = [1920, 1080]
 
-    defect_probs = simulation_section.get("defects", {}) if isinstance(simulation_section, dict) else {}
-    severity_cfg = simulation_section.get("severity", {}) if isinstance(simulation_section, dict) else {}
+    defect_probs = (
+        simulation_section.get("defects", {}) if isinstance(simulation_section, dict) else {}
+    )
+    severity_cfg = (
+        simulation_section.get("severity", {}) if isinstance(simulation_section, dict) else {}
+    )
 
     defect_config = DefectConfig(
         crack_probability=float(defect_probs.get("crack_probability", 0.10)),
         corrosion_probability=float(defect_probs.get("corrosion_probability", 0.08)),
-        structural_damage_probability=float(defect_probs.get("structural_damage_probability", 0.03)),
+        structural_damage_probability=float(
+            defect_probs.get("structural_damage_probability", 0.03)
+        ),
         discoloration_probability=float(defect_probs.get("discoloration_probability", 0.05)),
         vegetation_probability=float(defect_probs.get("vegetation_probability", 0.05)),
         damage_probability=float(defect_probs.get("damage_probability", 0.03)),
@@ -268,7 +276,9 @@ def _build_vision_client(vision_config: dict[str, Any]) -> VisionClient | None:
         )
     )
 
-    detection_section = client_section.get("detection", {}) if isinstance(client_section, dict) else {}
+    detection_section = (
+        client_section.get("detection", {}) if isinstance(client_section, dict) else {}
+    )
     model_section = client_section.get("model", {}) if isinstance(client_section, dict) else {}
     capture_section = client_section.get("capture", {}) if isinstance(client_section, dict) else {}
 

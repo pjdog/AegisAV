@@ -1,0 +1,33 @@
+# Drone alpha configuration for AegisAV agent
+# All values can be overridden via environment variables with AEGIS_ prefix
+
+agent:
+  name: "aegis-alpha"
+  loop_rate_hz: 10
+  log_level: "INFO"
+
+server:
+  host: "0.0.0.0"
+  port: 8080
+  cors_origins:
+    - "http://localhost:3000"
+
+client:
+  server_url: "http://localhost:8080"
+  update_interval_ms: 100
+  reconnect_delay_s: 5
+  async_mode: true
+  decision_poll_timeout_s: 10
+  vehicle_id: "aegis-alpha"
+
+mavlink:
+  connection: "udp:127.0.0.1:14550"
+  source_system: 251
+  source_component: 0
+  timeout_ms: 1000
+  heartbeat_interval_s: 1
+
+decision:
+  confidence_threshold: 0.7
+  max_replan_attempts: 3
+  min_decision_interval_ms: 500

@@ -20,9 +20,7 @@ class TestDashboardHelpers:
 
     def test_calculate_relative_pos_same_location(self):
         """Test relative position calculation for same location."""
-        result = dashboard_module._calculate_relative_pos(
-            37.7749, -122.4194, 37.7749, -122.4194
-        )
+        result = dashboard_module._calculate_relative_pos(37.7749, -122.4194, 37.7749, -122.4194)
         assert result["x"] == pytest.approx(0.0, abs=0.01)
         assert result["y"] == pytest.approx(0.0, abs=0.01)
 
@@ -444,7 +442,10 @@ class TestRunnerRoutes:
         loop = asyncio.get_running_loop()
 
         # Cancel any running task first
-        if dashboard_module._runner_state.run_task and not dashboard_module._runner_state.run_task.done():
+        if (
+            dashboard_module._runner_state.run_task
+            and not dashboard_module._runner_state.run_task.done()
+        ):
             dashboard_module._runner_state.run_task.cancel()
             if dashboard_module._runner_state.run_task.get_loop() is loop:
                 try:
@@ -462,7 +463,10 @@ class TestRunnerRoutes:
         dashboard_module._runner_state.last_error = None
         yield
         # Cleanup after test
-        if dashboard_module._runner_state.run_task and not dashboard_module._runner_state.run_task.done():
+        if (
+            dashboard_module._runner_state.run_task
+            and not dashboard_module._runner_state.run_task.done()
+        ):
             dashboard_module._runner_state.run_task.cancel()
             if dashboard_module._runner_state.run_task.get_loop() is loop:
                 try:
@@ -597,7 +601,10 @@ class TestRunnerRoutes:
         assert response.status_code == 200
 
         # Simulate adding some decisions to the log
-        if dashboard_module._runner_state.runner and dashboard_module._runner_state.runner.run_state:
+        if (
+            dashboard_module._runner_state.runner
+            and dashboard_module._runner_state.runner.run_state
+        ):
             dashboard_module._runner_state.runner.run_state.decision_log.append({
                 "type": "decision",
                 "action": "WAIT",

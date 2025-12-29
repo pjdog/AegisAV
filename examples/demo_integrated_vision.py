@@ -464,17 +464,13 @@ async def run_visual_demo():
         demo.log_event("system", f"✓ Added asset: {asset.name} ({asset.asset_id})")
 
     # Initialize dock position
-    dock_position = Position(
-        latitude=37.7749, longitude=-122.4194, altitude_msl=0, altitude_agl=0
-    )
+    dock_position = Position(latitude=37.7749, longitude=-122.4194, altitude_msl=0, altitude_agl=0)
     world_model.set_dock(dock_position)
 
     # Initialize vehicle state for goal selection
     vehicle_state = VehicleState(
         timestamp=datetime.now(),
-        position=Position(
-            latitude=37.7749, longitude=-122.4194, altitude_msl=50, altitude_agl=50
-        ),
+        position=Position(latitude=37.7749, longitude=-122.4194, altitude_msl=50, altitude_agl=50),
         velocity=Velocity(north=0.0, east=0.0, down=0.0),
         attitude=Attitude(roll=0.0, pitch=0.0, yaw=0.0),
         battery=BatteryState(voltage=22.5, current=5.0, remaining_percent=85.0),

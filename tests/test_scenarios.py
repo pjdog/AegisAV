@@ -203,8 +203,11 @@ class TestScenario:
             ],
             assets=[
                 SimulatedAsset(
-                    asset_id="a1", name="Asset 1", asset_type="solar_panel",
-                    latitude=37.77, longitude=-122.42
+                    asset_id="a1",
+                    name="Asset 1",
+                    asset_type="solar_panel",
+                    latitude=37.77,
+                    longitude=-122.42,
                 ),
             ],
             events=[
@@ -226,8 +229,7 @@ class TestScenario:
             drones=[SimulatedDrone(drone_id="d1", name="D1")],
             assets=[
                 SimulatedAsset(
-                    asset_id="a1", name="A1", asset_type="tower",
-                    latitude=37.77, longitude=-122.42
+                    asset_id="a1", name="A1", asset_type="tower", latitude=37.77, longitude=-122.42
                 ),
             ],
             events=[ScenarioEvent(0.0, "start", "Begin")],
@@ -291,7 +293,8 @@ class TestPreloadedScenarios:
         assert scenario.difficulty == "extreme"
         # Check sensor issues
         unhealthy_sensors = [
-            d for d in scenario.drones
+            d
+            for d in scenario.drones
             if not d.sensors_healthy or not d.ekf_healthy or not d.motors_healthy
         ]
         assert len(unhealthy_sensors) >= 2

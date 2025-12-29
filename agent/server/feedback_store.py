@@ -225,9 +225,7 @@ async def get_outcome_for_decision(
 # ============================================================================
 
 
-async def get_feedback_for_run(
-    store: StateStore | None, run_id: str
-) -> list[dict[str, Any]]:
+async def get_feedback_for_run(store: StateStore | None, run_id: str) -> list[dict[str, Any]]:
     """Get all feedback entries for a specific run.
 
     Args:
@@ -254,9 +252,7 @@ async def get_feedback_for_run(
     return results
 
 
-async def get_outcomes_for_run(
-    store: StateStore | None, run_id: str
-) -> list[dict[str, Any]]:
+async def get_outcomes_for_run(store: StateStore | None, run_id: str) -> list[dict[str, Any]]:
     """Get all outcomes for a specific run.
 
     Args:
@@ -283,9 +279,7 @@ async def get_outcomes_for_run(
     return results
 
 
-async def get_anomalies_for_run(
-    store: StateStore | None, run_id: str
-) -> list[dict[str, Any]]:
+async def get_anomalies_for_run(store: StateStore | None, run_id: str) -> list[dict[str, Any]]:
     """Get all anomaly-related feedback for a specific run.
 
     Returns feedback entries where anomaly_detected or anomaly_resolved is True.
@@ -392,8 +386,11 @@ async def save_run_metadata(
     if store is None:
         return
 
-    await store.set_state(_run_meta_key(run_id), {
-        "run_id": run_id,
-        "scenario_id": scenario_id,
-        "start_time": start_time,
-    })
+    await store.set_state(
+        _run_meta_key(run_id),
+        {
+            "run_id": run_id,
+            "scenario_id": scenario_id,
+            "start_time": start_time,
+        },
+    )

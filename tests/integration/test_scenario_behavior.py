@@ -5,7 +5,6 @@ These tests verify that the system makes CORRECT decisions
 in various edge cases - not just that it runs without errors.
 """
 
-
 import pytest
 
 from agent.server.goals import GoalType
@@ -33,9 +32,7 @@ class TestScenarioBehavior:
         await runner.run(time_scale=50.0, max_duration_s=2)
 
         # Check decision log for battery-related decisions
-        decisions = [
-            e for e in runner.run_state.decision_log if e.get("type") == "decision"
-        ]
+        decisions = [e for e in runner.run_state.decision_log if e.get("type") == "decision"]
 
         # Should have made decisions
         assert len(decisions) > 0, "Should have made at least one decision"
@@ -45,15 +42,12 @@ class TestScenarioBehavior:
         assert critical_drone is not None, "Critical battery drone should exist"
 
         # Critical drone should have received RETURN or ABORT goal
-        critical_decisions = [
-            d for d in decisions if d.get("drone_id") == "critical_bat"
-        ]
+        critical_decisions = [d for d in decisions if d.get("drone_id") == "critical_bat"]
         if critical_decisions:
             actions = [d.get("action", "").lower() for d in critical_decisions]
-            assert any(
-                action in ["return_low_battery", "abort", "return"]
-                for action in actions
-            ), f"Critical battery drone should RETURN or ABORT, got: {actions}"
+            assert any(action in ["return_low_battery", "abort", "return"] for action in actions), (
+                f"Critical battery drone should RETURN or ABORT, got: {actions}"
+            )
 
     async def test_gps_loss_triggers_abort(self):
         """
@@ -135,13 +129,9 @@ class TestScenarioBehavior:
         await runner.run(time_scale=50.0, max_duration_s=2)
 
         # Check that no abort decisions were made (all drones healthy)
-        decisions = [
-            e for e in runner.run_state.decision_log if e.get("type") == "decision"
-        ]
+        decisions = [e for e in runner.run_state.decision_log if e.get("type") == "decision"]
 
-        abort_count = sum(
-            1 for d in decisions if d.get("action", "").lower() == "abort"
-        )
+        abort_count = sum(1 for d in decisions if d.get("action", "").lower() == "abort")
 
         # Normal ops shouldn't have aborts (drones are healthy)
         assert abort_count == 0, f"Normal ops shouldn't abort: {abort_count} aborts"
@@ -149,9 +139,9 @@ class TestScenarioBehavior:
         # Should have inspection or wait goals
         actions = [d.get("action", "").lower() for d in decisions]
         valid_normal_actions = ["inspect_asset", "wait", "inspect"]
-        assert any(
-            action in valid_normal_actions for action in actions
-        ), f"Normal ops should have inspect/wait actions, got: {actions}"
+        assert any(action in valid_normal_actions for action in actions), (
+            f"Normal ops should have inspect/wait actions, got: {actions}"
+        )
 
     async def test_weather_emergency_triggers_return(self):
         """
@@ -181,7 +171,9 @@ class TestScenarioBehavior:
 class TestMultiDroneCoordination:
     """Test multi-drone coordination behavior."""
 
-    @pytest.mark.xfail(reason="Fleet coordination not yet implemented - all drones may target same asset")
+    @pytest.mark.xfail(
+        reason="Fleet coordination not yet implemented - all drones may target same asset"
+    )
     async def test_drones_dont_collide_in_decisions(self):
         """
         Verify that the system doesn't assign same asset to multiple drones.
@@ -203,23 +195,19 @@ class TestMultiDroneCoordination:
 
         # Check that drones have distinct goals
         goals = [
-            ds.current_goal
-            for ds in runner.run_state.drone_states.values()
-            if ds.current_goal
+            ds.current_goal for ds in runner.run_state.drone_states.values() if ds.current_goal
         ]
 
         # Extract target assets
-        target_assets = [
-            g.target_asset.asset_id if g.target_asset else None for g in goals
-        ]
+        target_assets = [g.target_asset.asset_id if g.target_asset else None for g in goals]
         target_assets = [t for t in target_assets if t is not None]
 
         # No duplicates (unless WAIT/ABORT which have no target)
         unique_targets = set(target_assets)
         if len(target_assets) > 1:
-            assert len(unique_targets) == len(
-                target_assets
-            ), f"Drones should have unique targets: {target_assets}"
+            assert len(unique_targets) == len(target_assets), (
+                f"Drones should have unique targets: {target_assets}"
+            )
 
     async def test_fleet_coverage_distributes_work(self):
         """
@@ -237,16 +225,14 @@ class TestMultiDroneCoordination:
         await runner.run(time_scale=50.0, max_duration_s=3)
 
         # Check that decisions were made for multiple drones
-        decisions = [
-            e for e in runner.run_state.decision_log if e.get("type") == "decision"
-        ]
+        decisions = [e for e in runner.run_state.decision_log if e.get("type") == "decision"]
 
-        drones_with_decisions = set(d.get("drone_id") for d in decisions if d.get("drone_id"))
+        drones_with_decisions = {d.get("drone_id") for d in decisions if d.get("drone_id")}
 
         # With 3 drones, at least 2 should have received decisions
-        assert (
-            len(drones_with_decisions) >= 2
-        ), f"Work should be distributed: only {len(drones_with_decisions)} drones got decisions"
+        assert len(drones_with_decisions) >= 2, (
+            f"Work should be distributed: only {len(drones_with_decisions)} drones got decisions"
+        )
 
 
 @pytest.mark.asyncio
@@ -267,9 +253,7 @@ class TestDecisionQuality:
         runner.run_state.scenario.duration_minutes = 0.05
         await runner.run(time_scale=100.0, max_duration_s=2)
 
-        decisions = [
-            e for e in runner.run_state.decision_log if e.get("type") == "decision"
-        ]
+        decisions = [e for e in runner.run_state.decision_log if e.get("type") == "decision"]
 
         for decision in decisions[:5]:  # Check first 5
             # Should have key fields
@@ -294,11 +278,7 @@ class TestDecisionQuality:
                 assert risk >= 0.3, f"Low battery drone {drone_id} should have high risk"
 
             # Healthy drone with good battery should have low risk
-            if (
-                ds.drone.battery_percent > 50
-                and ds.drone.sensors_healthy
-                and ds.drone.gps_healthy
-            ):
+            if ds.drone.battery_percent > 50 and ds.drone.sensors_healthy and ds.drone.gps_healthy:
                 assert risk < 0.3, f"Healthy drone {drone_id} should have low risk"
 
     async def test_goal_priority_ordering(self):

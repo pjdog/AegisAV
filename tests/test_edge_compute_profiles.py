@@ -57,7 +57,9 @@ def _make_capture(image_path: Path) -> CaptureResult:
         timestamp=datetime.now(),
         image_path=image_path,
         camera_state=CameraState(status=CameraStatus.READY),
-        metadata={"vehicle_state": {"position": {"latitude": 0.0, "longitude": 0.0, "altitude_msl": 0.0}}},
+        metadata={
+            "vehicle_state": {"position": {"latitude": 0.0, "longitude": 0.0, "altitude_msl": 0.0}}
+        },
     )
 
 
@@ -112,7 +114,9 @@ def test_anomaly_gate_n_of_m():
         _make_detection(img, defect=True, confidence=0.4, severity=0.2),  # below threshold
         _make_detection(img, defect=False, confidence=0.0, severity=0.0),
     ]
-    results = InspectionVisionResults(asset_id="asset-1", captures=[_make_capture(img)], detections=detections)
+    results = InspectionVisionResults(
+        asset_id="asset-1", captures=[_make_capture(img)], detections=detections
+    )
 
     assert compute_anomaly_detected(results, edge) is True
 
@@ -124,7 +128,9 @@ def test_anomaly_gate_severity_override():
     detections = [
         _make_detection(img, defect=True, confidence=0.9, severity=0.8),  # override hit
     ]
-    results = InspectionVisionResults(asset_id="asset-1", captures=[_make_capture(img)], detections=detections)
+    results = InspectionVisionResults(
+        asset_id="asset-1", captures=[_make_capture(img)], detections=detections
+    )
 
     assert compute_anomaly_detected(results, edge) is True
 
@@ -138,7 +144,9 @@ def test_anomaly_gate_severity_override():
         (EdgeComputeProfile.SBC_CPU, True, True),
     ],
 )
-def test_feedback_payload_shaping(profile: EdgeComputeProfile, expect_detection: bool, expect_image: bool):
+def test_feedback_payload_shaping(
+    profile: EdgeComputeProfile, expect_detection: bool, expect_image: bool
+):
     edge = default_edge_compute_config(profile)
 
     img = Path("img.png")

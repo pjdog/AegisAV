@@ -218,27 +218,33 @@ class ScenarioRunner:
 
         # Add assets
         for asset in scenario.assets:
-            world.add_asset(Asset(
-                asset_id=asset.asset_id,
-                name=asset.name,
-                asset_type=AssetType(asset.asset_type) if asset.asset_type in [e.value for e in AssetType] else AssetType.OTHER,
-                position=Position(
-                    latitude=asset.latitude,
-                    longitude=asset.longitude,
-                    altitude_msl=50.0,
-                ),
-                priority=asset.priority,
-            ))
+            world.add_asset(
+                Asset(
+                    asset_id=asset.asset_id,
+                    name=asset.name,
+                    asset_type=AssetType(asset.asset_type)
+                    if asset.asset_type in [e.value for e in AssetType]
+                    else AssetType.OTHER,
+                    position=Position(
+                        latitude=asset.latitude,
+                        longitude=asset.longitude,
+                        altitude_msl=50.0,
+                    ),
+                    priority=asset.priority,
+                )
+            )
 
             # Add anomalies for assets that have them
             if asset.has_anomaly:
-                world.add_anomaly(Anomaly(
-                    anomaly_id=f"anom_{asset.asset_id}",
-                    asset_id=asset.asset_id,
-                    detected_at=datetime.now(),
-                    severity=asset.anomaly_severity,
-                    description=f"Pre-existing anomaly on {asset.name}",
-                ))
+                world.add_anomaly(
+                    Anomaly(
+                        anomaly_id=f"anom_{asset.asset_id}",
+                        asset_id=asset.asset_id,
+                        detected_at=datetime.now(),
+                        severity=asset.anomaly_severity,
+                        description=f"Pre-existing anomaly on {asset.name}",
+                    )
+                )
 
         # Start mission
         world.start_mission(
@@ -310,9 +316,7 @@ class ScenarioRunner:
 
         # Idempotent check - don't start if already running
         if self.is_running:
-            logger.warning(
-                f"Scenario already running (run_id={self.run_state.run_id})"
-            )
+            logger.warning(f"Scenario already running (run_id={self.run_state.run_id})")
             return False
 
         logger.info(
@@ -337,8 +341,7 @@ class ScenarioRunner:
                     self.run_state.is_complete = True
                     self.run_state.is_running = False
                     logger.info(
-                        f"Scenario completed: duration reached "
-                        f"(run_id={self.run_state.run_id})"
+                        f"Scenario completed: duration reached (run_id={self.run_state.run_id})"
                     )
                     break
 
@@ -367,9 +370,7 @@ class ScenarioRunner:
                 )
 
         except asyncio.CancelledError:
-            logger.info(
-                f"Scenario cancelled (run_id={self.run_state.run_id})"
-            )
+            logger.info(f"Scenario cancelled (run_id={self.run_state.run_id})")
             self.run_state.is_running = False
             self.run_state.abort_reason = "cancelled"
             raise  # Re-raise to propagate cancellation
@@ -491,7 +492,9 @@ class ScenarioRunner:
 
         for event in events_to_fire:
             self.run_state.events_fired.append(event)
-            logger.info(f"[{event.timestamp_offset_s:.0f}s] {event.event_type}: {event.description}")
+            logger.info(
+                f"[{event.timestamp_offset_s:.0f}s] {event.event_type}: {event.description}"
+            )
 
             # Log event
             self._log_entry({
@@ -518,19 +521,13 @@ class ScenarioRunner:
         if env.wind_increase_at and current >= env.wind_increase_at:
             if env.wind_speed_ms < env.wind_increase_to:
                 # Gradual increase
-                env.wind_speed_ms = min(
-                    env.wind_speed_ms + 0.5,
-                    env.wind_increase_to
-                )
+                env.wind_speed_ms = min(env.wind_speed_ms + 0.5, env.wind_increase_to)
 
         # Visibility drop trigger
         if env.visibility_drop_at and current >= env.visibility_drop_at:
             if env.visibility_m > env.visibility_drop_to:
                 # Gradual decrease
-                env.visibility_m = max(
-                    env.visibility_m - 500,
-                    env.visibility_drop_to
-                )
+                env.visibility_m = max(env.visibility_m - 500, env.visibility_drop_to)
 
     def _update_drone_state(self, drone_state: DroneSimState) -> None:
         """Update drone physical state (battery, position, etc.)."""
@@ -557,7 +554,9 @@ class ScenarioRunner:
         if drone.battery_failure_at and drone.battery_percent <= drone.battery_failure_at:
             if drone.sensors_healthy:  # Only trigger once
                 drone.sensors_healthy = False
-                logger.warning(f"{drone.name}: Battery-triggered sensor failure at {drone.battery_percent:.1f}%")
+                logger.warning(
+                    f"{drone.name}: Battery-triggered sensor failure at {drone.battery_percent:.1f}%"
+                )
 
         # GPS loss trigger
         if drone.gps_loss_at and current >= drone.gps_loss_at:
@@ -656,7 +655,11 @@ class ScenarioRunner:
             drone.in_air = False
             drone.armed = False
 
-        elif goal.goal_type in (GoalType.RETURN_LOW_BATTERY, GoalType.RETURN_WEATHER, GoalType.RETURN_MISSION_COMPLETE):
+        elif goal.goal_type in (
+            GoalType.RETURN_LOW_BATTERY,
+            GoalType.RETURN_WEATHER,
+            GoalType.RETURN_MISSION_COMPLETE,
+        ):
             drone.state = DroneState.RETURNING
 
         elif goal.goal_type in (GoalType.INSPECT_ASSET, GoalType.INSPECT_ANOMALY):
@@ -759,9 +762,7 @@ class ScenarioRunner:
         if not self.run_state:
             return {}
 
-        total_decisions = sum(
-            ds.decisions_made for ds in self.run_state.drone_states.values()
-        )
+        total_decisions = sum(ds.decisions_made for ds in self.run_state.drone_states.values())
 
         drone_summaries = []
         for drone_id, ds in self.run_state.drone_states.items():

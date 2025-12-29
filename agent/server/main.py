@@ -50,6 +50,14 @@ from agent.server.models import DecisionFeedback
 from agent.server.monitoring import OutcomeTracker
 from agent.server.persistence import RedisConfig, create_store
 from agent.server.risk_evaluator import RiskAssessment, RiskEvaluator, RiskThresholds
+from agent.server.scenarios import (
+    Scenario,
+    ScenarioCategory,
+    get_all_scenarios,
+    get_scenario,
+    get_scenarios_by_category,
+    get_scenarios_by_difficulty,
+)
 from agent.server.unreal_stream import (
     CognitiveLevel as UnrealCognitiveLevel,
 )
@@ -158,6 +166,10 @@ class ServerState:
 
         # Async decision queue for long-polling clients
         self.decision_queue = DecisionQueueManager()
+
+        # Telemetry cache for dashboard access
+        self.known_vehicles: set[str] = set()
+        self.latest_telemetry: dict[str, dict] = {}
 
     def load_config(self, config_path: Path) -> None:
         """Load configuration from YAML file.
@@ -322,7 +334,9 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
         else:
             logger.info("vision_config_disabled", message="Vision system disabled in config")
     else:
-        logger.info("vision_config_not_found", message="Vision config file not found, vision disabled")
+        logger.info(
+            "vision_config_not_found", message="Vision config file not found, vision disabled"
+        )
 
     # Initialize persistence based on config
     config = get_config_manager().config
@@ -353,6 +367,7 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
     else:
         # Redis disabled - use in-memory (this is expected, not a fallback)
         from agent.server.persistence import InMemoryStore  # noqa: PLC0415
+
         server_state.store = InMemoryStore()
         await server_state.store.connect()
         server_state.persistence_enabled = False
@@ -536,6 +551,29 @@ async def get_logs() -> dict:
         Dictionary containing list of recent log entries.
     """
     return {"logs": log_buffer.buffer}
+
+
+@app.get("/api/telemetry/latest")
+async def get_latest_telemetry(vehicle_id: str | None = None) -> dict:
+    """Get the latest telemetry for a vehicle or all known vehicles."""
+    if vehicle_id:
+        payload = server_state.latest_telemetry.get(vehicle_id)
+        if payload is None and server_state.store:
+            payload = await server_state.store.get_latest_telemetry(vehicle_id)
+        if payload is None:
+            raise HTTPException(status_code=404, detail="Telemetry not found")
+        return {"vehicle_id": vehicle_id, "telemetry": payload}
+
+    vehicle_ids = sorted(server_state.known_vehicles)
+    items: list[dict] = []
+    for vid in vehicle_ids:
+        payload = server_state.latest_telemetry.get(vid)
+        if payload is None and server_state.store:
+            payload = await server_state.store.get_latest_telemetry(vid)
+        if payload is not None:
+            items.append({"vehicle_id": vid, "telemetry": payload})
+
+    return {"vehicles": items, "count": len(items)}
 
 
 @app.get("/api/dashboard/feedback")
@@ -1027,6 +1065,8 @@ async def _record_telemetry(
     payload = state.model_dump(mode="json")
     payload["vehicle_id"] = vehicle_id
     payload["source"] = source
+    server_state.known_vehicles.add(vehicle_id)
+    server_state.latest_telemetry[vehicle_id] = payload
 
     try:
         server_state.telemetry_logger.log_telemetry(vehicle_id, payload, source=source)
@@ -1116,9 +1156,9 @@ async def _process_state(state: VehicleStateRequest, *, source: str) -> Decision
                 data={
                     "goal_type": goal.goal_type.value,
                     "priority": goal.priority,
-                    "target": goal.parameters,
+                    "target": goal.target_asset.asset_id if goal.target_asset else None,
                     "confidence": goal.confidence,
-                    "reasoning": goal.reasoning,
+                    "reasoning": goal.reason,
                 },
                 severity=EventSeverity.INFO,
             )
@@ -1269,7 +1309,9 @@ async def receive_state_async(state: VehicleStateRequest) -> dict:
 
 
 @app.get("/decisions/next", response_model=DecisionResponse)
-async def get_next_decision(vehicle_id: str, timeout_s: float = 10.0) -> DecisionResponse | Response:
+async def get_next_decision(
+    vehicle_id: str, timeout_s: float = 10.0
+) -> DecisionResponse | Response:
     """Long-poll for the next decision for a vehicle."""
     timeout_s = max(0.1, min(timeout_s, 30.0))
     decision = await server_state.decision_queue.get(vehicle_id, timeout_s)
@@ -1278,7 +1320,9 @@ async def get_next_decision(vehicle_id: str, timeout_s: float = 10.0) -> Decisio
     return decision
 
 
-async def _make_decision(snapshot: WorldSnapshot, risk: RiskAssessment) -> tuple[Decision, Goal | None]:
+async def _make_decision(
+    snapshot: WorldSnapshot, risk: RiskAssessment
+) -> tuple[Decision, Goal | None]:
     # pylint: disable=too-many-return-statements
     """Core decision-making logic.
 
@@ -1427,6 +1471,296 @@ async def get_asset_observations(asset_id: str) -> dict:
             for obs in observations
         ],
         "total": len(observations),
+    }
+
+
+# =========================================================================
+# Scenario API Endpoints
+# =========================================================================
+
+
+@app.get("/api/scenarios")
+async def list_scenarios(
+    category: str | None = None,
+    difficulty: str | None = None,
+) -> dict:
+    """List all available scenarios with optional filtering.
+
+    Args:
+        category: Optional category filter (normal_operations, battery_critical, etc.)
+        difficulty: Optional difficulty filter (easy, normal, hard, extreme)
+
+    Returns:
+        Dictionary with scenarios list and count.
+    """
+    scenarios: list[Scenario]
+
+    if category:
+        try:
+            cat_enum = ScenarioCategory(category)
+            scenarios = get_scenarios_by_category(cat_enum)
+        except ValueError:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid category: {category}. Valid: {[c.value for c in ScenarioCategory]}",
+            ) from None
+    elif difficulty:
+        scenarios = get_scenarios_by_difficulty(difficulty)
+    else:
+        scenarios = get_all_scenarios()
+
+    return {
+        "scenarios": [s.to_dict() for s in scenarios],
+        "count": len(scenarios),
+        "categories": [c.value for c in ScenarioCategory],
+    }
+
+
+@app.get("/api/scenarios/{scenario_id}")
+async def get_scenario_detail(scenario_id: str) -> dict:
+    """Get detailed information about a specific scenario.
+
+    Args:
+        scenario_id: The scenario identifier.
+
+    Returns:
+        Full scenario details including drones, assets, and events.
+    """
+    scenario = get_scenario(scenario_id)
+    if not scenario:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Scenario not found: {scenario_id}",
+        )
+
+    return {
+        "scenario": scenario.to_dict(),
+        "drones": [
+            {
+                "drone_id": d.drone_id,
+                "name": d.name,
+                "battery_percent": d.battery_percent,
+                "state": d.state.value,
+                "position": {
+                    "latitude": d.latitude,
+                    "longitude": d.longitude,
+                    "altitude_agl": d.altitude_agl,
+                },
+            }
+            for d in scenario.drones
+        ],
+        "assets": [
+            {
+                "asset_id": a.asset_id,
+                "name": a.name,
+                "asset_type": a.asset_type,
+                "priority": a.priority,
+                "has_anomaly": a.has_anomaly,
+                "anomaly_severity": a.anomaly_severity,
+                "position": {
+                    "latitude": a.latitude,
+                    "longitude": a.longitude,
+                },
+            }
+            for a in scenario.assets
+        ],
+        "environment": {
+            "wind_speed_ms": scenario.environment.wind_speed_ms,
+            "wind_direction_deg": scenario.environment.wind_direction_deg,
+            "visibility_m": scenario.environment.visibility_m,
+            "temperature_c": scenario.environment.temperature_c,
+            "precipitation": scenario.environment.precipitation,
+            "is_daylight": scenario.environment.is_daylight,
+        },
+        "events": [
+            {
+                "timestamp_offset_s": e.timestamp_offset_s,
+                "event_type": e.event_type,
+                "description": e.description,
+                "data": e.data,
+            }
+            for e in scenario.events
+        ],
+    }
+
+
+class ScenarioRunState:
+    """Track running scenario state."""
+
+    def __init__(self) -> None:
+        self.running: bool = False
+        self.scenario_id: str | None = None
+        self.mode: str = "live"  # 'live' or 'demo'
+        self.edge_profile: str = "SBC_CPU"
+        self.time_scale: float = 1.0
+        self.start_time: datetime | None = None
+
+
+scenario_run_state = ScenarioRunState()
+
+
+@app.post("/api/scenarios/{scenario_id}/start")
+async def start_scenario(
+    scenario_id: str,
+    mode: str = "live",
+    edge_profile: str = "SBC_CPU",
+    time_scale: float = 1.0,
+) -> dict:
+    """Start a scenario execution.
+
+    Args:
+        scenario_id: The scenario to start.
+        mode: Execution mode - 'live' for real agent, 'demo' for playback.
+        edge_profile: Edge compute profile (FC_ONLY, MCU_HEURISTIC, etc.).
+        time_scale: Simulation speed factor (0.5 to 5.0).
+
+    Returns:
+        Status and run information.
+    """
+    scenario = get_scenario(scenario_id)
+    if not scenario:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Scenario not found: {scenario_id}",
+        )
+
+    if scenario_run_state.running:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Scenario already running: {scenario_run_state.scenario_id}. Stop it first.",
+        )
+
+    # Validate parameters
+    if mode not in ("live", "demo"):
+        raise HTTPException(status_code=400, detail="Mode must be 'live' or 'demo'")
+
+    valid_profiles = ["FC_ONLY", "MCU_HEURISTIC", "MCU_TINY_CNN", "SBC_CPU", "SBC_ACCEL", "JETSON_FULL"]
+    if edge_profile not in valid_profiles:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid edge profile: {edge_profile}. Valid: {valid_profiles}",
+        )
+
+    time_scale = max(0.5, min(5.0, time_scale))
+
+    # Update run state
+    scenario_run_state.running = True
+    scenario_run_state.scenario_id = scenario_id
+    scenario_run_state.mode = mode
+    scenario_run_state.edge_profile = edge_profile
+    scenario_run_state.time_scale = time_scale
+    scenario_run_state.start_time = datetime.now()
+
+    # Apply edge profile
+    try:
+        profile = EdgeComputeProfile[edge_profile]
+        server_state.edge_config = default_edge_compute_config(profile)
+    except KeyError:
+        pass  # Use current config
+
+    logger.info(
+        "scenario_started",
+        scenario_id=scenario_id,
+        mode=mode,
+        edge_profile=edge_profile,
+        time_scale=time_scale,
+    )
+
+    # Broadcast scenario start event
+    await connection_manager.broadcast(
+        Event(
+            event_type=EventType.CLIENT_EXECUTION,
+            timestamp=datetime.now(),
+            data={
+                "event": "scenario_started",
+                "scenario_id": scenario_id,
+                "scenario_name": scenario.name,
+                "mode": mode,
+                "edge_profile": edge_profile,
+                "time_scale": time_scale,
+                "drone_count": len(scenario.drones),
+                "asset_count": len(scenario.assets),
+            },
+            severity=EventSeverity.INFO,
+        )
+    )
+
+    return {
+        "status": "started",
+        "scenario_id": scenario_id,
+        "scenario_name": scenario.name,
+        "mode": mode,
+        "edge_profile": edge_profile,
+        "time_scale": time_scale,
+        "start_time": scenario_run_state.start_time.isoformat(),
+    }
+
+
+@app.post("/api/scenarios/stop")
+async def stop_scenario() -> dict:
+    """Stop the currently running scenario.
+
+    Returns:
+        Status and summary information.
+    """
+    if not scenario_run_state.running:
+        return {"status": "not_running"}
+
+    scenario_id = scenario_run_state.scenario_id
+    duration = None
+    if scenario_run_state.start_time:
+        duration = (datetime.now() - scenario_run_state.start_time).total_seconds()
+
+    # Reset state
+    scenario_run_state.running = False
+    scenario_run_state.scenario_id = None
+    scenario_run_state.start_time = None
+
+    logger.info("scenario_stopped", scenario_id=scenario_id, duration_s=duration)
+
+    # Broadcast scenario stop event
+    await connection_manager.broadcast(
+        Event(
+            event_type=EventType.CLIENT_EXECUTION,
+            timestamp=datetime.now(),
+            data={
+                "event": "scenario_stopped",
+                "scenario_id": scenario_id,
+                "duration_s": duration,
+            },
+            severity=EventSeverity.INFO,
+        )
+    )
+
+    return {
+        "status": "stopped",
+        "scenario_id": scenario_id,
+        "duration_s": duration,
+    }
+
+
+@app.get("/api/scenarios/status")
+async def get_scenario_status() -> dict:
+    """Get the status of the currently running scenario.
+
+    Returns:
+        Current scenario run state.
+    """
+    if not scenario_run_state.running:
+        return {"running": False}
+
+    elapsed = None
+    if scenario_run_state.start_time:
+        elapsed = (datetime.now() - scenario_run_state.start_time).total_seconds()
+
+    return {
+        "running": True,
+        "scenario_id": scenario_run_state.scenario_id,
+        "mode": scenario_run_state.mode,
+        "edge_profile": scenario_run_state.edge_profile,
+        "time_scale": scenario_run_state.time_scale,
+        "elapsed_s": elapsed,
+        "start_time": scenario_run_state.start_time.isoformat() if scenario_run_state.start_time else None,
     }
 
 

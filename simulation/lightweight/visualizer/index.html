@@ -1,0 +1,1380 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AegisAV Simulator</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <style>
+        :root {
+            --bg-base: #08080a;
+            --bg-surface: #111114;
+            --bg-elevated: #1a1a1f;
+            --bg-hover: #222228;
+            --border: rgba(255, 255, 255, 0.06);
+            --border-focus: rgba(59, 130, 246, 0.5);
+            --text: #f0f0f5;
+            --text-secondary: #a0a0a8;
+            --text-muted: #606068;
+            --accent: #3b82f6;
+            --accent-hover: #60a5fa;
+            --accent-glow: rgba(59, 130, 246, 0.25);
+            --success: #10b981;
+            --success-glow: rgba(16, 185, 129, 0.25);
+            --warning: #f59e0b;
+            --danger: #ef4444;
+            --purple: #8b5cf6;
+            --cyan: #06b6d4;
+            --radius: 8px;
+            --radius-lg: 12px;
+            --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.3);
+            --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.4);
+            --shadow-glow: 0 0 20px var(--accent-glow);
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: var(--bg-base);
+            color: var(--text);
+            overflow: hidden;
+            font-size: 13px;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        #app { display: flex; height: 100vh; }
+
+        /* Sidebar */
+        .sidebar {
+            width: 320px;
+            background: var(--bg-surface);
+            border-right: 1px solid var(--border);
+            display: flex;
+            flex-direction: column;
+            flex-shrink: 0;
+        }
+
+        .sidebar-header {
+            padding: 16px 20px;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .logo {
+            width: 36px;
+            height: 36px;
+            background: linear-gradient(135deg, var(--accent), var(--purple));
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+            font-size: 15px;
+            box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3), inset 0 1px 0 rgba(255,255,255,0.1);
+            position: relative;
+        }
+
+        .logo::after {
+            content: '';
+            position: absolute;
+            inset: 0;
+            border-radius: 10px;
+            border: 1px solid rgba(255, 255, 255, 0.15);
+        }
+
+        .sidebar-title {
+            font-weight: 600;
+            font-size: 15px;
+        }
+
+        .sidebar-subtitle {
+            font-size: 11px;
+            color: var(--text-muted);
+        }
+
+        .sidebar-content {
+            flex: 1;
+            overflow-y: auto;
+            padding: 16px;
+        }
+
+        /* Tabs */
+        .tabs {
+            display: flex;
+            gap: 4px;
+            margin-bottom: 16px;
+            background: var(--bg-base);
+            padding: 4px;
+            border-radius: var(--radius);
+        }
+
+        .tab {
+            flex: 1;
+            padding: 8px 12px;
+            background: transparent;
+            border: none;
+            color: var(--text-muted);
+            font-size: 12px;
+            font-weight: 500;
+            cursor: pointer;
+            border-radius: 6px;
+            transition: all 0.15s;
+        }
+
+        .tab:hover { color: var(--text-secondary); }
+        .tab.active { background: var(--bg-elevated); color: var(--text); }
+
+        .tab-panel { display: none; }
+        .tab-panel.active { display: block; }
+
+        /* Form Groups */
+        .form-group {
+            margin-bottom: 16px;
+        }
+
+        .form-label {
+            display: block;
+            font-size: 11px;
+            font-weight: 500;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-bottom: 6px;
+        }
+
+        .form-select, .form-input {
+            width: 100%;
+            padding: 10px 12px;
+            background: var(--bg-base);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            color: var(--text);
+            font-size: 13px;
+            font-family: inherit;
+            transition: border-color 0.15s;
+        }
+
+        .form-select:focus, .form-input:focus {
+            outline: none;
+            border-color: var(--border-focus);
+        }
+
+        .form-select { cursor: pointer; }
+
+        .form-hint {
+            font-size: 11px;
+            color: var(--text-muted);
+            margin-top: 6px;
+            line-height: 1.4;
+        }
+
+        /* Range Slider */
+        .range-group {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .range-slider {
+            flex: 1;
+            -webkit-appearance: none;
+            height: 4px;
+            background: var(--bg-base);
+            border-radius: 2px;
+            cursor: pointer;
+        }
+
+        .range-slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 14px;
+            height: 14px;
+            background: var(--accent);
+            border-radius: 50%;
+            cursor: pointer;
+        }
+
+        .range-value {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 12px;
+            color: var(--accent);
+            min-width: 40px;
+            text-align: right;
+        }
+
+        /* Button */
+        .btn {
+            width: 100%;
+            padding: 12px 16px;
+            background: linear-gradient(135deg, var(--accent), #2563eb);
+            border: none;
+            border-radius: var(--radius);
+            color: white;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            box-shadow: 0 2px 8px rgba(59, 130, 246, 0.3);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .btn::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: linear-gradient(135deg, rgba(255,255,255,0.1), transparent);
+            pointer-events: none;
+        }
+
+        .btn:hover {
+            background: linear-gradient(135deg, var(--accent-hover), #3b82f6);
+            box-shadow: 0 4px 16px rgba(59, 130, 246, 0.4);
+            transform: translateY(-1px);
+        }
+
+        .btn:active {
+            transform: translateY(0);
+        }
+
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            box-shadow: none;
+            transform: none;
+        }
+
+        .btn-danger {
+            background: linear-gradient(135deg, var(--danger), #dc2626);
+            box-shadow: 0 2px 8px rgba(239, 68, 68, 0.3);
+        }
+
+        .btn-danger:hover {
+            background: linear-gradient(135deg, #f87171, #ef4444);
+            box-shadow: 0 4px 16px rgba(239, 68, 68, 0.4);
+        }
+
+        /* Status Badge */
+        .status-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 10px;
+            background: var(--bg-base);
+            border-radius: var(--radius);
+            font-size: 11px;
+            font-weight: 500;
+        }
+
+        .status-dot {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+        }
+
+        .status-dot.connected { background: var(--success); }
+        .status-dot.disconnected { background: var(--danger); }
+        .status-dot.connecting { background: var(--warning); animation: pulse 1s infinite; }
+
+        @keyframes pulse { 50% { opacity: 0.5; } }
+
+        /* Stats */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 8px;
+            margin-bottom: 16px;
+        }
+
+        .stat-card {
+            background: var(--bg-base);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 14px 12px;
+            text-align: center;
+            transition: all 0.2s;
+        }
+
+        .stat-card:hover {
+            border-color: rgba(255, 255, 255, 0.1);
+            background: var(--bg-hover);
+        }
+
+        .stat-value {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 22px;
+            font-weight: 600;
+            background: linear-gradient(135deg, var(--accent), var(--cyan));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .stat-label {
+            font-size: 10px;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.03em;
+            margin-top: 4px;
+        }
+
+        /* Scenario Card */
+        .scenario-card {
+            padding: 12px;
+            background: var(--bg-base);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            margin-bottom: 12px;
+        }
+
+        .scenario-card.active {
+            border-color: var(--accent);
+            background: rgba(59, 130, 246, 0.05);
+        }
+
+        .scenario-name {
+            font-weight: 600;
+            margin-bottom: 4px;
+        }
+
+        .scenario-desc {
+            font-size: 12px;
+            color: var(--text-secondary);
+            line-height: 1.4;
+        }
+
+        .scenario-meta {
+            display: flex;
+            gap: 12px;
+            margin-top: 8px;
+            font-size: 11px;
+            color: var(--text-muted);
+        }
+
+        .scenario-meta span {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        /* Config Section */
+        .config-section {
+            margin-bottom: 20px;
+        }
+
+        .config-section-title {
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--text);
+            margin-bottom: 12px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .config-section-title::before {
+            content: '';
+            width: 3px;
+            height: 14px;
+            background: var(--accent);
+            border-radius: 2px;
+        }
+
+        /* Toggle */
+        .toggle-group {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 10px 0;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .toggle-label {
+            font-size: 13px;
+        }
+
+        .toggle-desc {
+            font-size: 11px;
+            color: var(--text-muted);
+        }
+
+        .toggle {
+            width: 40px;
+            height: 22px;
+            background: var(--bg-base);
+            border-radius: 11px;
+            position: relative;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        .toggle.active { background: var(--accent); }
+
+        .toggle::after {
+            content: '';
+            position: absolute;
+            width: 18px;
+            height: 18px;
+            background: white;
+            border-radius: 50%;
+            top: 2px;
+            left: 2px;
+            transition: transform 0.2s;
+        }
+
+        .toggle.active::after { transform: translateX(18px); }
+
+        /* Main Content */
+        .main {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            position: relative;
+        }
+
+        #canvas {
+            flex: 1;
+            display: block;
+        }
+
+        /* Floating Panel */
+        .float-panel {
+            position: absolute;
+            top: 16px;
+            right: 16px;
+            width: 360px;
+            background: rgba(17, 17, 20, 0.95);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: var(--radius-lg);
+            overflow: hidden;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+        }
+
+        .float-panel-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 14px 18px;
+            background: rgba(26, 26, 31, 0.8);
+            border-bottom: 1px solid var(--border);
+        }
+
+        .float-panel-title {
+            font-weight: 600;
+            font-size: 13px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .float-panel-title::before {
+            content: '';
+            width: 8px;
+            height: 8px;
+            border-radius: 2px;
+            background: linear-gradient(135deg, var(--accent), var(--purple));
+        }
+
+        .float-panel-content {
+            padding: 16px;
+            max-height: 420px;
+            overflow-y: auto;
+        }
+
+        /* Thought Bubble */
+        .thought-header {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 12px;
+        }
+
+        .cognitive-badge {
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 10px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.03em;
+        }
+
+        .cognitive-badge.reactive { background: rgba(107, 114, 128, 0.2); color: #9ca3af; }
+        .cognitive-badge.deliberative { background: rgba(59, 130, 246, 0.2); color: #60a5fa; }
+        .cognitive-badge.reflective { background: rgba(139, 92, 246, 0.2); color: #a78bfa; }
+        .cognitive-badge.predictive { background: rgba(16, 185, 129, 0.2); color: #34d399; }
+
+        .situation-box {
+            background: var(--bg-base);
+            border-left: 3px solid var(--accent);
+            padding: 10px 12px;
+            border-radius: 0 var(--radius) var(--radius) 0;
+            margin-bottom: 12px;
+        }
+
+        .situation-label {
+            font-size: 10px;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            margin-bottom: 4px;
+        }
+
+        .situation-text {
+            font-weight: 500;
+        }
+
+        .risk-bar {
+            margin-bottom: 12px;
+        }
+
+        .risk-header {
+            display: flex;
+            justify-content: space-between;
+            font-size: 11px;
+            margin-bottom: 4px;
+        }
+
+        .risk-track {
+            height: 4px;
+            background: var(--bg-base);
+            border-radius: 2px;
+            overflow: hidden;
+        }
+
+        .risk-fill {
+            height: 100%;
+            border-radius: 2px;
+            transition: width 0.3s;
+        }
+
+        .risk-fill.low { background: var(--success); }
+        .risk-fill.moderate { background: var(--warning); }
+        .risk-fill.high { background: #f97316; }
+        .risk-fill.critical { background: var(--danger); }
+
+        .critics-row {
+            display: flex;
+            gap: 6px;
+            margin-bottom: 12px;
+        }
+
+        .critic {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 4px;
+            padding: 8px;
+            background: var(--bg-base);
+            border-radius: var(--radius);
+            font-size: 10px;
+            font-weight: 500;
+            transition: all 0.2s;
+        }
+
+        .critic.approve { background: rgba(16, 185, 129, 0.15); color: var(--success); }
+        .critic.reject { background: rgba(239, 68, 68, 0.15); color: var(--danger); }
+
+        .decision-box {
+            background: rgba(16, 185, 129, 0.1);
+            border: 1px solid var(--success);
+            border-radius: var(--radius);
+            padding: 12px;
+            display: none;
+        }
+
+        .decision-box.active { display: block; }
+
+        .decision-action {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--success);
+        }
+
+        .decision-confidence {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 12px;
+            color: var(--success);
+        }
+
+        /* Empty State */
+        .empty-state {
+            text-align: center;
+            padding: 32px;
+            color: var(--text-muted);
+        }
+
+        .empty-icon {
+            font-size: 32px;
+            margin-bottom: 8px;
+            opacity: 0.5;
+        }
+
+        /* Divider */
+        .divider {
+            height: 1px;
+            background: var(--border);
+            margin: 16px 0;
+        }
+
+        /* Launcher Cards */
+        .launch-card {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            padding: 14px;
+            background: var(--bg-base);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-lg);
+            margin-bottom: 10px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .launch-card:hover {
+            background: var(--bg-hover);
+            border-color: rgba(255, 255, 255, 0.1);
+            transform: translateY(-1px);
+            box-shadow: var(--shadow-sm);
+        }
+
+        .launch-card.running {
+            border-color: var(--success);
+            background: rgba(16, 185, 129, 0.05);
+        }
+
+        .launch-icon {
+            width: 40px;
+            height: 40px;
+            border-radius: var(--radius);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px;
+            flex-shrink: 0;
+        }
+
+        .launch-icon.blue { background: linear-gradient(135deg, var(--accent), #1d4ed8); }
+        .launch-icon.purple { background: linear-gradient(135deg, var(--purple), #6d28d9); }
+        .launch-icon.cyan { background: linear-gradient(135deg, var(--cyan), #0891b2); }
+        .launch-icon.green { background: linear-gradient(135deg, var(--success), #047857); }
+
+        .launch-info { flex: 1; min-width: 0; }
+        .launch-name { font-weight: 600; font-size: 13px; margin-bottom: 2px; }
+        .launch-desc { font-size: 11px; color: var(--text-muted); line-height: 1.4; }
+
+        .launch-status {
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 10px;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+
+        .launch-status.running { background: rgba(16, 185, 129, 0.2); color: var(--success); }
+        .launch-status.stopped { background: rgba(255, 255, 255, 0.05); color: var(--text-muted); }
+        .launch-status.starting { background: rgba(245, 158, 11, 0.2); color: var(--warning); }
+
+        .launch-action {
+            padding: 6px 12px;
+            background: var(--accent);
+            border: none;
+            border-radius: 6px;
+            color: white;
+            font-size: 11px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+
+        .launch-action:hover { background: var(--accent-hover); }
+        .launch-action.stop { background: var(--danger); }
+        .launch-action.stop:hover { background: #dc2626; }
+
+        /* Section Headers */
+        .section-header {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 14px;
+            font-size: 11px;
+            font-weight: 600;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .section-header::after {
+            content: '';
+            flex: 1;
+            height: 1px;
+            background: var(--border);
+        }
+
+        /* Scrollbar */
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.12); }
+    </style>
+</head>
+<body>
+    <div id="app">
+        <!-- Sidebar -->
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <div class="logo">A</div>
+                <div>
+                    <div class="sidebar-title">AegisAV</div>
+                    <div class="sidebar-subtitle">Lightweight Simulator</div>
+                </div>
+            </div>
+
+            <div class="sidebar-content">
+                <!-- Tabs -->
+                <div class="tabs">
+                    <button class="tab active" data-tab="scenarios">Scenarios</button>
+                    <button class="tab" data-tab="launch">Launch</button>
+                    <button class="tab" data-tab="config">Config</button>
+                </div>
+
+                <!-- Scenarios Panel -->
+                <div class="tab-panel active" id="panel-scenarios">
+                    <!-- Status -->
+                    <div class="form-group">
+                        <div style="display: flex; justify-content: space-between; align-items: center;">
+                            <span class="form-label" style="margin: 0;">Status</span>
+                            <div class="status-badge">
+                                <span class="status-dot connecting" id="status-dot"></span>
+                                <span id="status-text">Connecting</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Stats -->
+                    <div class="stats-grid">
+                        <div class="stat-card">
+                            <div class="stat-value" id="stat-drones">0</div>
+                            <div class="stat-label">Drones</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-value" id="stat-assets">0</div>
+                            <div class="stat-label">Assets</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-value" id="stat-time">0s</div>
+                            <div class="stat-label">Time</div>
+                        </div>
+                    </div>
+
+                    <div class="divider"></div>
+
+                    <!-- Scenario Selection -->
+                    <div class="form-group">
+                        <label class="form-label">Scenario</label>
+                        <select class="form-select" id="scenario-select">
+                            <option value="">Loading scenarios...</option>
+                        </select>
+                    </div>
+
+                    <div id="scenario-info" style="display: none;">
+                        <div class="scenario-card active">
+                            <div class="scenario-name" id="scenario-name"></div>
+                            <div class="scenario-desc" id="scenario-desc"></div>
+                            <div class="scenario-meta">
+                                <span id="scenario-drones"></span>
+                                <span id="scenario-duration"></span>
+                                <span id="scenario-difficulty"></span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Edge Profile -->
+                    <div class="form-group">
+                        <label class="form-label">Edge Profile</label>
+                        <select class="form-select" id="profile-select">
+                            <option value="FC_ONLY">FC Only</option>
+                            <option value="MCU_HEURISTIC">MCU Heuristic</option>
+                            <option value="MCU_TINY_CNN">MCU Tiny CNN</option>
+                            <option value="SBC_CPU" selected>SBC CPU</option>
+                            <option value="SBC_ACCEL">SBC Accelerated</option>
+                            <option value="JETSON_FULL">Jetson Full</option>
+                        </select>
+                    </div>
+
+                    <!-- Speed -->
+                    <div class="form-group">
+                        <label class="form-label">Simulation Speed</label>
+                        <div class="range-group">
+                            <input type="range" class="range-slider" id="speed-slider" min="0.5" max="5" step="0.5" value="1">
+                            <span class="range-value" id="speed-value">1.0x</span>
+                        </div>
+                    </div>
+
+                    <div class="divider"></div>
+
+                    <!-- Start Button -->
+                    <button class="btn" id="start-btn" disabled>Start Scenario</button>
+                </div>
+
+                <!-- Launch Panel -->
+                <div class="tab-panel" id="panel-launch">
+                    <div class="section-header">Core Services</div>
+
+                    <div class="launch-card" id="launch-agent-server">
+                        <div class="launch-icon blue">🤖</div>
+                        <div class="launch-info">
+                            <div class="launch-name">Agent Server</div>
+                            <div class="launch-desc">AI reasoning engine with GoalSelector and Critics</div>
+                        </div>
+                        <span class="launch-status stopped" id="agent-server-status">Stopped</span>
+                    </div>
+
+                    <div class="launch-card running" id="launch-sim-server">
+                        <div class="launch-icon cyan">📡</div>
+                        <div class="launch-info">
+                            <div class="launch-name">Simulation Server</div>
+                            <div class="launch-desc">Lightweight physics simulator (current)</div>
+                        </div>
+                        <span class="launch-status running">Running</span>
+                    </div>
+
+                    <div class="section-header">Visualization</div>
+
+                    <div class="launch-card" id="launch-unreal">
+                        <div class="launch-icon purple">🎮</div>
+                        <div class="launch-info">
+                            <div class="launch-name">Unreal Engine</div>
+                            <div class="launch-desc">High-fidelity 3D simulation environment</div>
+                        </div>
+                        <span class="launch-status stopped" id="unreal-status">Stopped</span>
+                    </div>
+
+                    <div class="launch-card" id="launch-obs-overlay">
+                        <div class="launch-icon green">🎬</div>
+                        <div class="launch-info">
+                            <div class="launch-name">OBS Overlay</div>
+                            <div class="launch-desc">Real-time streaming thought bubble overlay</div>
+                        </div>
+                        <span class="launch-status stopped" id="obs-status">Stopped</span>
+                    </div>
+
+                    <div class="section-header">Resources</div>
+
+                    <div class="launch-card" onclick="window.open('/docs/', '_blank')">
+                        <div class="launch-icon blue">📚</div>
+                        <div class="launch-info">
+                            <div class="launch-name">Documentation</div>
+                            <div class="launch-desc">API reference and user guides</div>
+                        </div>
+                        <span style="color: var(--text-muted); font-size: 12px;">↗</span>
+                    </div>
+
+                    <div class="launch-card" onclick="window.open('https://github.com/aegisav/aegisav', '_blank')">
+                        <div class="launch-icon purple">💻</div>
+                        <div class="launch-info">
+                            <div class="launch-name">GitHub Repository</div>
+                            <div class="launch-desc">Source code and issue tracker</div>
+                        </div>
+                        <span style="color: var(--text-muted); font-size: 12px;">↗</span>
+                    </div>
+
+                    <div class="divider"></div>
+
+                    <div class="form-hint" style="text-align: center;">
+                        Launch components to enable full simulation capabilities.
+                        The Agent Server provides AI reasoning for live mode.
+                    </div>
+                </div>
+
+                <!-- Config Panel -->
+                <div class="tab-panel" id="panel-config">
+                    <div class="config-section">
+                        <div class="config-section-title">API Configuration</div>
+
+                        <div class="form-group">
+                            <label class="form-label">Agent Server URL</label>
+                            <input type="text" class="form-input" id="config-agent-url" placeholder="http://localhost:8080" value="http://localhost:8080">
+                            <div class="form-hint">URL of the AegisAV agent server for live reasoning</div>
+                        </div>
+
+                        <div class="form-group">
+                            <label class="form-label">API Key</label>
+                            <input type="password" class="form-input" id="config-api-key" placeholder="Enter API key (optional)">
+                            <div class="form-hint">Authentication key for the agent server</div>
+                        </div>
+                    </div>
+
+                    <div class="config-section">
+                        <div class="config-section-title">LLM Settings</div>
+
+                        <div class="form-group">
+                            <label class="form-label">Model Provider</label>
+                            <select class="form-select" id="config-llm-provider">
+                                <option value="anthropic">Anthropic (Claude)</option>
+                                <option value="openai">OpenAI (GPT)</option>
+                                <option value="local">Local Model</option>
+                            </select>
+                        </div>
+
+                        <div class="form-group">
+                            <label class="form-label">Model</label>
+                            <select class="form-select" id="config-llm-model">
+                                <option value="claude-3-5-sonnet">Claude 3.5 Sonnet</option>
+                                <option value="claude-3-opus">Claude 3 Opus</option>
+                                <option value="claude-3-haiku">Claude 3 Haiku</option>
+                            </select>
+                        </div>
+
+                        <div class="form-group">
+                            <label class="form-label">Temperature</label>
+                            <div class="range-group">
+                                <input type="range" class="range-slider" id="config-temperature" min="0" max="1" step="0.1" value="0.3">
+                                <span class="range-value" id="config-temp-value">0.3</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="config-section">
+                        <div class="config-section-title">Display Options</div>
+
+                        <div class="toggle-group">
+                            <div>
+                                <div class="toggle-label">Show Grid</div>
+                                <div class="toggle-desc">Display ground grid in 3D view</div>
+                            </div>
+                            <div class="toggle active" id="toggle-grid"></div>
+                        </div>
+
+                        <div class="toggle-group">
+                            <div>
+                                <div class="toggle-label">Show Labels</div>
+                                <div class="toggle-desc">Display drone and asset labels</div>
+                            </div>
+                            <div class="toggle active" id="toggle-labels"></div>
+                        </div>
+
+                        <div class="toggle-group">
+                            <div>
+                                <div class="toggle-label">Auto-follow</div>
+                                <div class="toggle-desc">Camera follows active drone</div>
+                            </div>
+                            <div class="toggle" id="toggle-follow"></div>
+                        </div>
+                    </div>
+
+                    <div class="divider"></div>
+
+                    <button class="btn" id="save-config-btn">Save Configuration</button>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main View -->
+        <main class="main">
+            <canvas id="canvas"></canvas>
+
+            <!-- Agent Reasoning Panel -->
+            <div class="float-panel">
+                <div class="float-panel-header">
+                    <span class="float-panel-title">Agent Reasoning</span>
+                    <div class="status-badge">
+                        <span class="status-dot disconnected" id="agent-status-dot"></span>
+                        <span id="agent-status-text">Offline</span>
+                    </div>
+                </div>
+                <div class="float-panel-content" id="thought-content">
+                    <div class="empty-state">
+                        <div class="empty-icon">🤖</div>
+                        <div>Awaiting agent activity</div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script type="module">
+        // =========================================================================
+        // Configuration
+        // =========================================================================
+        const CONFIG = {
+            apiBase: window.location.origin,
+            agentUrl: localStorage.getItem('aegis_agent_url') || 'http://localhost:8080',
+            wsUrl: `ws://${window.location.host}/ws/sim`,
+            reconnectDelay: 3000,
+        };
+
+        // =========================================================================
+        // State
+        // =========================================================================
+        const state = {
+            ws: null,
+            connected: false,
+            scenarios: [],
+            selectedScenario: null,
+            isRunning: false,
+            drones: new Map(),
+            assets: new Map(),
+            simTime: 0,
+        };
+
+        // =========================================================================
+        // Three.js
+        // =========================================================================
+        let scene, camera, renderer, controls, gridHelper;
+        const droneObjects = new Map();
+        const assetObjects = new Map();
+
+        function initScene() {
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x0f0f12);
+            scene.fog = new THREE.Fog(0x0f0f12, 150, 400);
+
+            camera = new THREE.PerspectiveCamera(55, (window.innerWidth - 320) / window.innerHeight, 0.1, 1000);
+            camera.position.set(60, 50, 80);
+
+            renderer = new THREE.WebGLRenderer({ canvas: document.getElementById('canvas'), antialias: true });
+            renderer.setSize(window.innerWidth - 320, window.innerHeight);
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+
+            controls = new THREE.OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.05;
+            controls.target.set(50, 0, 0);
+
+            // Grid
+            gridHelper = new THREE.GridHelper(200, 20, 0x3b82f6, 0x1f1f24);
+            gridHelper.material.opacity = 0.4;
+            gridHelper.material.transparent = true;
+            scene.add(gridHelper);
+
+            // Ground
+            const groundGeo = new THREE.PlaneGeometry(200, 200);
+            const groundMat = new THREE.MeshBasicMaterial({ color: 0x0f0f12, transparent: true, opacity: 0.9 });
+            const ground = new THREE.Mesh(groundGeo, groundMat);
+            ground.rotation.x = -Math.PI / 2;
+            ground.position.y = -0.1;
+            scene.add(ground);
+
+            // Lights
+            scene.add(new THREE.AmbientLight(0xffffff, 0.5));
+            const dirLight = new THREE.DirectionalLight(0xffffff, 0.5);
+            dirLight.position.set(50, 100, 50);
+            scene.add(dirLight);
+
+            window.addEventListener('resize', onResize);
+            animate();
+        }
+
+        function onResize() {
+            const w = window.innerWidth - 320;
+            camera.aspect = w / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(w, window.innerHeight);
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            controls.update();
+            renderer.render(scene, camera);
+        }
+
+        function createDrone(id) {
+            const group = new THREE.Group();
+
+            // Body
+            const body = new THREE.Mesh(
+                new THREE.CylinderGeometry(0.8, 1, 0.5, 8),
+                new THREE.MeshPhongMaterial({ color: 0x3b82f6, emissive: 0x1e3a5f })
+            );
+            group.add(body);
+
+            // Arms
+            const armMat = new THREE.MeshPhongMaterial({ color: 0x404040 });
+            for (let i = 0; i < 2; i++) {
+                const arm = new THREE.Mesh(new THREE.BoxGeometry(3, 0.12, 0.12), armMat);
+                arm.rotation.y = i * Math.PI / 2;
+                arm.position.y = 0.1;
+                group.add(arm);
+            }
+
+            // Rotors
+            const rotorMat = new THREE.MeshPhongMaterial({ color: 0x10b981, emissive: 0x052e16 });
+            [[1.2, 0.25, 0], [-1.2, 0.25, 0], [0, 0.25, 1.2], [0, 0.25, -1.2]].forEach(pos => {
+                const rotor = new THREE.Mesh(new THREE.TorusGeometry(0.45, 0.04, 8, 16), rotorMat);
+                rotor.position.set(...pos);
+                rotor.rotation.x = Math.PI / 2;
+                group.add(rotor);
+            });
+
+            // Label
+            const canvas = document.createElement('canvas');
+            canvas.width = 256; canvas.height = 64;
+            const ctx = canvas.getContext('2d');
+            ctx.fillStyle = '#3b82f6';
+            ctx.font = 'bold 22px Inter';
+            ctx.textAlign = 'center';
+            ctx.fillText(id, 128, 40);
+            const tex = new THREE.CanvasTexture(canvas);
+            const label = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true }));
+            label.position.y = 2.2;
+            label.scale.set(4, 1, 1);
+            group.add(label);
+
+            group.scale.set(1.8, 1.8, 1.8);
+            scene.add(group);
+            droneObjects.set(id, group);
+            return group;
+        }
+
+        function createAsset(id, data) {
+            const group = new THREE.Group();
+            const color = data.has_anomaly ? 0xef4444 : 0x3b82f6;
+
+            const panel = new THREE.Mesh(
+                new THREE.BoxGeometry(5, 0.25, 3.5),
+                new THREE.MeshPhongMaterial({ color, emissive: data.has_anomaly ? 0x3f1111 : 0x1e3a5f })
+            );
+            panel.position.y = 1.8;
+            panel.rotation.x = -0.3;
+            group.add(panel);
+
+            const support = new THREE.Mesh(
+                new THREE.CylinderGeometry(0.15, 0.15, 1.8, 8),
+                new THREE.MeshPhongMaterial({ color: 0x404040 })
+            );
+            support.position.y = 0.9;
+            group.add(support);
+
+            if (data.has_anomaly) {
+                const beacon = new THREE.Mesh(
+                    new THREE.SphereGeometry(0.4, 16, 16),
+                    new THREE.MeshBasicMaterial({ color: 0xef4444 })
+                );
+                beacon.position.y = 3.5;
+                group.add(beacon);
+            }
+
+            scene.add(group);
+            assetObjects.set(id, group);
+            return group;
+        }
+
+        function updateDrone(id, pos) {
+            let obj = droneObjects.get(id) || createDrone(id);
+            obj.position.set(pos[0], -pos[2], pos[1]);
+        }
+
+        // =========================================================================
+        // WebSocket
+        // =========================================================================
+        function connectWebSocket() {
+            setStatus('connecting');
+
+            state.ws = new WebSocket(CONFIG.wsUrl);
+
+            state.ws.onopen = () => {
+                state.connected = true;
+                setStatus('connected');
+            };
+
+            state.ws.onclose = () => {
+                state.connected = false;
+                setStatus('disconnected');
+                setTimeout(connectWebSocket, CONFIG.reconnectDelay);
+            };
+
+            state.ws.onerror = () => setStatus('disconnected');
+
+            state.ws.onmessage = (e) => {
+                try {
+                    const data = JSON.parse(e.data);
+                    if (data.type === 'state_update') {
+                        if (data.drones) {
+                            Object.entries(data.drones).forEach(([id, d]) => {
+                                state.drones.set(id, d);
+                                updateDrone(id, d.position);
+                            });
+                            document.getElementById('stat-drones').textContent = state.drones.size;
+                        }
+                        if (data.assets) {
+                            data.assets.forEach(a => {
+                                if (!assetObjects.has(a.asset_id)) {
+                                    const obj = createAsset(a.asset_id, a);
+                                    obj.position.set(a.position[0], 0, a.position[1]);
+                                }
+                                state.assets.set(a.asset_id, a);
+                            });
+                            document.getElementById('stat-assets').textContent = state.assets.size;
+                        }
+                        if (data.sim_time !== undefined) {
+                            state.simTime = data.sim_time;
+                            document.getElementById('stat-time').textContent = `${Math.floor(data.sim_time)}s`;
+                        }
+                    }
+                } catch (err) {
+                    console.error('Parse error:', err);
+                }
+            };
+        }
+
+        function setStatus(status) {
+            const dot = document.getElementById('status-dot');
+            const text = document.getElementById('status-text');
+            dot.className = 'status-dot ' + status;
+            text.textContent = status === 'connected' ? 'Online' : status === 'connecting' ? 'Connecting' : 'Offline';
+        }
+
+        // =========================================================================
+        // API
+        // =========================================================================
+        async function loadScenarios() {
+            try {
+                const res = await fetch(`${CONFIG.apiBase}/api/scenarios`);
+                const data = await res.json();
+                state.scenarios = data.scenarios || [];
+
+                const select = document.getElementById('scenario-select');
+                select.innerHTML = '<option value="">Select a scenario...</option>' +
+                    state.scenarios.map(s => `<option value="${s.scenario_id}">${s.name}</option>`).join('');
+            } catch (err) {
+                console.error('Failed to load scenarios:', err);
+                document.getElementById('scenario-select').innerHTML = '<option value="">Failed to load</option>';
+            }
+        }
+
+        async function startScenario() {
+            if (!state.selectedScenario) return;
+
+            const speed = document.getElementById('speed-slider').value;
+            const profile = document.getElementById('profile-select').value;
+
+            try {
+                const res = await fetch(
+                    `${CONFIG.apiBase}/api/scenarios/${state.selectedScenario}/start?mode=live&edge_profile=${profile}&time_scale=${speed}`,
+                    { method: 'POST' }
+                );
+                if (res.ok) {
+                    state.isRunning = true;
+                    updateStartButton();
+                }
+            } catch (err) {
+                console.error('Failed to start:', err);
+            }
+        }
+
+        async function stopScenario() {
+            try {
+                await fetch(`${CONFIG.apiBase}/api/scenarios/stop`, { method: 'POST' });
+                state.isRunning = false;
+                updateStartButton();
+            } catch (err) {
+                console.error('Failed to stop:', err);
+            }
+        }
+
+        // =========================================================================
+        // UI
+        // =========================================================================
+        function updateStartButton() {
+            const btn = document.getElementById('start-btn');
+            if (state.isRunning) {
+                btn.textContent = 'Stop Scenario';
+                btn.className = 'btn btn-danger';
+            } else {
+                btn.textContent = 'Start Scenario';
+                btn.className = 'btn';
+            }
+            btn.disabled = !state.selectedScenario && !state.isRunning;
+        }
+
+        function showScenarioInfo(scenario) {
+            const info = document.getElementById('scenario-info');
+            if (!scenario) {
+                info.style.display = 'none';
+                return;
+            }
+            info.style.display = 'block';
+            document.getElementById('scenario-name').textContent = scenario.name;
+            document.getElementById('scenario-desc').textContent = scenario.description;
+            document.getElementById('scenario-drones').innerHTML = `<span>🚁</span> ${scenario.drone_count} drones`;
+            document.getElementById('scenario-duration').innerHTML = `<span>⏱</span> ${scenario.duration_minutes}min`;
+            document.getElementById('scenario-difficulty').innerHTML = `<span>📊</span> ${scenario.difficulty}`;
+        }
+
+        function setupUI() {
+            // Tabs
+            document.querySelectorAll('.tab').forEach(tab => {
+                tab.addEventListener('click', () => {
+                    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+                    document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+                    tab.classList.add('active');
+                    document.getElementById('panel-' + tab.dataset.tab).classList.add('active');
+                });
+            });
+
+            // Scenario select
+            document.getElementById('scenario-select').addEventListener('change', (e) => {
+                state.selectedScenario = e.target.value || null;
+                const scenario = state.scenarios.find(s => s.scenario_id === state.selectedScenario);
+                showScenarioInfo(scenario);
+                updateStartButton();
+            });
+
+            // Speed slider
+            document.getElementById('speed-slider').addEventListener('input', (e) => {
+                document.getElementById('speed-value').textContent = e.target.value + 'x';
+            });
+
+            // Temperature slider
+            document.getElementById('config-temperature').addEventListener('input', (e) => {
+                document.getElementById('config-temp-value').textContent = e.target.value;
+            });
+
+            // Start button
+            document.getElementById('start-btn').addEventListener('click', () => {
+                if (state.isRunning) {
+                    stopScenario();
+                } else {
+                    startScenario();
+                }
+            });
+
+            // Toggles
+            document.querySelectorAll('.toggle').forEach(toggle => {
+                toggle.addEventListener('click', () => {
+                    toggle.classList.toggle('active');
+                    if (toggle.id === 'toggle-grid') {
+                        gridHelper.visible = toggle.classList.contains('active');
+                    }
+                });
+            });
+
+            // Save config
+            document.getElementById('save-config-btn').addEventListener('click', () => {
+                localStorage.setItem('aegis_agent_url', document.getElementById('config-agent-url').value);
+                CONFIG.agentUrl = document.getElementById('config-agent-url').value;
+                alert('Configuration saved');
+            });
+        }
+
+        // =========================================================================
+        // Init
+        // =========================================================================
+        async function init() {
+            initScene();
+            setupUI();
+            connectWebSocket();
+            await loadScenarios();
+        }
+
+        init();
+    </script>
+</body>
+</html>

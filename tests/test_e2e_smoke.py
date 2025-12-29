@@ -49,7 +49,7 @@ class TestE2ESmoke:
             assert runner.run_id is not None
 
             # Run for short duration
-            completed = await runner.run(
+            await runner.run(
                 time_scale=50.0,  # Fast for testing
                 max_duration_s=5.0,  # Short real-time limit
             )
@@ -82,7 +82,7 @@ class TestE2ESmoke:
             log_dir = Path(tmpdir)
 
             results = []
-            for i in range(2):
+            for _ in range(2):
                 runner = ScenarioRunner(
                     tick_interval_s=1.0,
                     decision_interval_s=3.0,
@@ -101,8 +101,9 @@ class TestE2ESmoke:
                 })
 
             # Both runs should produce identical results
-            assert results[0]["decisions"] == results[1]["decisions"], \
+            assert results[0]["decisions"] == results[1]["decisions"], (
                 f"Decision counts differ: {results[0]['decisions']} vs {results[1]['decisions']}"
+            )
 
     @pytest.mark.asyncio
     async def test_smoke_runner_lifecycle(self):
@@ -125,9 +126,7 @@ class TestE2ESmoke:
             assert runner.run_id is not None
 
             # Start in background task
-            run_task = asyncio.create_task(
-                runner.run(time_scale=50.0, max_duration_s=10.0)
-            )
+            run_task = asyncio.create_task(runner.run(time_scale=50.0, max_duration_s=10.0))
 
             # Let it run briefly
             await asyncio.sleep(0.3)
@@ -167,26 +166,27 @@ class TestE2ESmoke:
             await runner.run(time_scale=100.0, max_duration_s=3.0)
 
             # Get decision entries
-            decisions = [
-                e for e in runner.run_state.decision_log
-                if e.get("type") == "decision"
-            ]
+            decisions = [e for e in runner.run_state.decision_log if e.get("type") == "decision"]
             assert len(decisions) >= 1
 
             # Check decision format
             decision = decisions[0]
             required_fields = [
-                "run_id", "type", "timestamp", "drone_id", "drone_name",
-                "action", "confidence", "risk_score", "battery_percent",
+                "run_id",
+                "type",
+                "timestamp",
+                "drone_id",
+                "drone_name",
+                "action",
+                "confidence",
+                "risk_score",
+                "battery_percent",
             ]
             for field in required_fields:
                 assert field in decision, f"Missing field: {field}"
 
             # Check run_summary entry exists
-            summaries = [
-                e for e in runner.run_state.decision_log
-                if e.get("type") == "run_summary"
-            ]
+            summaries = [e for e in runner.run_state.decision_log if e.get("type") == "run_summary"]
             assert len(summaries) == 1
             summary_entry = summaries[0]
             assert "run_id" in summary_entry

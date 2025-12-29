@@ -321,6 +321,12 @@ If Unreal setup is too heavy, consider a **Three.js web demo**:
 - `Content/Widgets/WBP_ThoughtBubble.uasset`
 - `Content/Maps/DemoFacility.umap`
 
+**Assets:**
+- `simulation/assets/logo_shield.svg` - Main Aegis Shield Logo
+- `simulation/assets/icon_ai.svg` - AI/Cognitive State Icon
+- `simulation/assets/icon_vision.svg` - Computer Vision Icon
+
+
 ## Success Criteria
 
 1. **Real-time sync**: <100ms latency from decision to bubble update

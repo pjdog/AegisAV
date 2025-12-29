@@ -554,7 +554,7 @@ const SettingsPanel = ({ onClose }: { onClose: () => void }) => {
       const resp = await fetch("/api/config");
       const data = await resp.json();
       setConfig(data.config);
-    } catch (error) {
+    } catch {
       setMessage({ type: "error", text: "Failed to load configuration" });
     } finally {
       setLoading(false);

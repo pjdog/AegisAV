@@ -31,7 +31,9 @@ def build_feedback(
 
     decision_id = decision.get("decision_id", "unknown")
     action = decision.get("action", "none")
-    parameters = decision.get("parameters", {}) if isinstance(decision.get("parameters"), dict) else {}
+    parameters = (
+        decision.get("parameters", {}) if isinstance(decision.get("parameters"), dict) else {}
+    )
 
     feedback: dict[str, Any] = {
         "decision_id": decision_id,
@@ -40,7 +42,9 @@ def build_feedback(
         "mission_objective_achieved": status == "success" and action != "abort",
         "asset_inspected": parameters.get("asset_id") if action == "inspect" else None,
         "anomaly_detected": False,
-        "errors": [result.message] if result.state == ExecutionState.FAILED and result.message else [],
+        "errors": [result.message]
+        if result.state == ExecutionState.FAILED and result.message
+        else [],
         "notes": result.message or None,
     }
 

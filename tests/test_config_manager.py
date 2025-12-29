@@ -207,10 +207,13 @@ class TestConfigManager:
             manager.load()
 
             # Update redis section
-            success = manager.update_section("redis", {
-                "host": "new-host",
-                "port": 6380,
-            })
+            success = manager.update_section(
+                "redis",
+                {
+                    "host": "new-host",
+                    "port": 6380,
+                },
+            )
 
             assert success is True
             assert manager.config.redis.host == "new-host"

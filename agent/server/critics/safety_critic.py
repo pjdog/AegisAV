@@ -10,6 +10,7 @@ from typing import Any
 
 try:
     from pydantic_ai import Agent
+
     try:
         from pydantic_ai.models.openai import OpenAIChatModel as OpenAIModel
     except ImportError:  # pragma: no cover - older pydantic-ai
@@ -63,7 +64,9 @@ class SafetyCritic(BaseCritic):
     - Distance from dock/safe zones
     """
 
-    def __init__(self, config: SafetyCriticConfig | None = None, llm_model: str | None = None) -> None:
+    def __init__(
+        self, config: SafetyCriticConfig | None = None, llm_model: str | None = None
+    ) -> None:
         """Initialize safety critic with configuration."""
         self.safety_config = config or SafetyCriticConfig()
         super().__init__(config=self.safety_config, llm_model=llm_model)

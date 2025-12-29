@@ -278,9 +278,7 @@ def _dijkstra_path(
     return path, distances[goal_id]
 
 
-def _candidate_assets(
-    world: WorldSnapshot, candidate_ids: list[str] | None
-) -> list[Asset]:
+def _candidate_assets(world: WorldSnapshot, candidate_ids: list[str] | None) -> list[Asset]:
     if candidate_ids:
         asset_map = {asset.asset_id: asset for asset in world.assets}
         return [asset_map[a_id] for a_id in candidate_ids if a_id in asset_map]
@@ -388,6 +386,54 @@ def _neural_rank_assets(
 
     ranked.sort(key=lambda item: item["score"], reverse=True)
     return ranked
+
+
+def collect_nodes(
+    world: WorldSnapshot, *, include_vehicle: bool = True, include_dock: bool = True
+) -> dict[str, Position]:
+    """Collect node positions from the world snapshot."""
+    return _collect_nodes(world, include_vehicle=include_vehicle, include_dock=include_dock)
+
+
+def build_neighbor_graph(
+    nodes: dict[str, Position], neighbor_k: int
+) -> dict[str, list[tuple[str, float]]]:
+    """Build a neighbor graph for pathfinding."""
+    return _build_neighbor_graph(nodes, neighbor_k)
+
+
+def dijkstra_path(
+    graph: dict[str, list[tuple[str, float]]],
+    start_id: str,
+    goal_id: str,
+    *,
+    avoid_ids: list[str] | None = None,
+) -> tuple[list[str], float]:
+    """Compute a shortest path using Dijkstra's algorithm."""
+    return _dijkstra_path(graph, start_id, goal_id, avoid_ids=avoid_ids)
+
+
+def markov_rank_assets(
+    world: WorldSnapshot,
+    *,
+    current_id: str,
+    candidate_ids: list[str] | None = None,
+    temperature: float = 1.0,
+) -> list[dict[str, float | str]]:
+    """Rank assets using a Markov-style heuristic."""
+    return _markov_rank_assets(
+        world, current_id=current_id, candidate_ids=candidate_ids, temperature=temperature
+    )
+
+
+def neural_rank_assets(
+    world: WorldSnapshot,
+    *,
+    current_id: str,
+    candidate_ids: list[str] | None = None,
+) -> list[dict[str, float | str]]:
+    """Rank assets using a lightweight neural heuristic."""
+    return _neural_rank_assets(world, current_id=current_id, candidate_ids=candidate_ids)
 
 
 class PredictiveModel(ABC):
@@ -1175,6 +1221,6 @@ class EnhancedGoalSelector:
             cognitive_level=context.cognitive_level.value,
             confidence=context.confidence_type.value,
             urgency=context.urgency_level.value,
-            reasoning=goal.reasoning,
+            reasoning=goal.reason,
         )
         return goal

@@ -10,6 +10,7 @@ from typing import Any
 
 try:
     from pydantic_ai import Agent
+
     try:
         from pydantic_ai.models.openai import OpenAIChatModel as OpenAIModel
     except ImportError:  # pragma: no cover - older pydantic-ai
@@ -60,7 +61,9 @@ class EfficiencyCritic(BaseCritic):
     - Resource allocation
     """
 
-    def __init__(self, config: EfficiencyCriticConfig | None = None, llm_model: str | None = None) -> None:
+    def __init__(
+        self, config: EfficiencyCriticConfig | None = None, llm_model: str | None = None
+    ) -> None:
         """Initialize efficiency critic with configuration."""
         self.efficiency_config = config or EfficiencyCriticConfig()
         super().__init__(config=self.efficiency_config, llm_model=llm_model)

@@ -63,7 +63,9 @@ class ActionExecutor:
                 logger.error(f"Execution failed: {result.message}")
     """
 
-    def __init__(self, mavlink: MAVLinkInterface, vision_client: "VisionClient | None" = None) -> None:
+    def __init__(
+        self, mavlink: MAVLinkInterface, vision_client: "VisionClient | None" = None
+    ) -> None:
         """Initialize the ActionExecutor.
 
         Args:

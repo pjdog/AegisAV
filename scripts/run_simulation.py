@@ -19,9 +19,11 @@ from pathlib import Path
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
-from agent.edge_config import EdgeComputeProfile
-from agent.server.scenario_runner import ScenarioRunner
-from agent.server.scenarios import get_all_scenarios, get_scenario
+from agent.edge_config import EdgeComputeProfile  # noqa: E402
+from agent.server.scenario_runner import ScenarioRunner  # noqa: E402
+from agent.server.scenarios import get_all_scenarios, get_scenario  # noqa: E402
+
+logger = logging.getLogger("simulation")
 
 
 def setup_logging(verbose: bool = False) -> None:
@@ -40,13 +42,13 @@ def setup_logging(verbose: bool = False) -> None:
 def list_scenarios() -> None:
     """Print available scenarios."""
     scenarios = get_all_scenarios()
-    print("\nAvailable scenarios:")
-    print("-" * 60)
+    logger.info("Available scenarios:")
+    logger.info("-" * 60)
     for s in scenarios:
-        print(f"  {s.scenario_id:<25} {s.name}")
-        print(f"    Category: {s.category.value}, Difficulty: {s.difficulty}")
-        print(f"    Drones: {len(s.drones)}, Duration: {s.duration_minutes} min")
-        print()
+        logger.info("  %s %s", f"{s.scenario_id:<25}", s.name)
+        logger.info("    Category: %s, Difficulty: %s", s.category.value, s.difficulty)
+        logger.info("    Drones: %s, Duration: %s min", len(s.drones), s.duration_minutes)
+        logger.info("")
 
 
 async def run_simulation(
@@ -70,8 +72,6 @@ async def run_simulation(
     Returns:
         Summary dict with run results
     """
-    logger = logging.getLogger("simulation")
-
     # Validate scenario
     scenario = get_scenario(scenario_id)
     if not scenario:
@@ -174,17 +174,20 @@ Examples:
     )
 
     parser.add_argument(
-        "--scenario", "-s",
+        "--scenario",
+        "-s",
         help="Scenario ID to run",
     )
     parser.add_argument(
-        "--duration", "-d",
+        "--duration",
+        "-d",
         type=float,
         default=30.0,
         help="Maximum real-time duration in seconds (default: 30)",
     )
     parser.add_argument(
-        "--time-scale", "-t",
+        "--time-scale",
+        "-t",
         type=float,
         default=10.0,
         help="Simulation speed multiplier (default: 10)",
@@ -195,7 +198,8 @@ Examples:
         help="Random seed for deterministic simulation",
     )
     parser.add_argument(
-        "--profile", "-p",
+        "--profile",
+        "-p",
         choices=[p.value for p in EdgeComputeProfile],
         help="Edge compute profile to use",
     )
@@ -205,12 +209,14 @@ Examples:
         help="Directory for decision logs (default: logs/)",
     )
     parser.add_argument(
-        "--list", "-l",
+        "--list",
+        "-l",
         action="store_true",
         help="List available scenarios and exit",
     )
     parser.add_argument(
-        "--verbose", "-v",
+        "--verbose",
+        "-v",
         action="store_true",
         help="Enable verbose logging",
     )

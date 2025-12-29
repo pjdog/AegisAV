@@ -308,8 +308,6 @@ class DecisionResponse(BaseModel):
     execution_time_s: float | None = None
     waypoint_index: int | None = None
 
-    model_config = {"json_encoders": {datetime: lambda v: v.isoformat()}}
-
 
 class HealthResponse(BaseModel):
     """Health check response model."""
@@ -323,8 +321,6 @@ class HealthResponse(BaseModel):
     # Optional system info
     memory_usage_mb: float | None = None
     cpu_usage_percent: float | None = None
-
-    model_config = {"json_encoders": {datetime: lambda v: v.isoformat()}}
 
 
 # Configuration Models

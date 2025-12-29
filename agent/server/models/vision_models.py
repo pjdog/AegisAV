@@ -143,11 +143,6 @@ class VisionObservation(BaseModel):
     )
     anomaly_id: str | None = Field(default=None, description="ID of created anomaly")
 
-    class Config:
-        """Pydantic config."""
-
-        frozen = False  # Allow updates for anomaly tracking
-
 
 class InspectionVisionSummary(BaseModel, frozen=True):
     """

@@ -6,7 +6,7 @@ Handles real-time event broadcasting via WebSocket for dashboard updates.
 
 from datetime import datetime
 from enum import Enum
-from typing import Any, ClassVar
+from typing import Any
 
 from pydantic import BaseModel
 
@@ -39,8 +39,3 @@ class Event(BaseModel):
     timestamp: datetime
     data: dict[str, Any]
     severity: EventSeverity = EventSeverity.INFO
-
-    class Config:
-        """Pydantic config."""
-
-        json_encoders: ClassVar[dict] = {datetime: lambda v: v.isoformat()}

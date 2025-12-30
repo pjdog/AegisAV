@@ -126,6 +126,55 @@ class Dependency:
     path: str = ""
 
 
+def default_server_port() -> int:
+    """Choose a default server port (prefer config file)."""
+    default_port = 8080
+    config_path = PROJECT_ROOT / "configs" / "aegis_config.yaml"
+    if config_path.exists():
+        try:
+            import yaml
+
+            with open(config_path, encoding="utf-8") as file_handle:
+                data = yaml.safe_load(file_handle) or {}
+            if isinstance(data, dict):
+                server_block = data.get("server")
+                if isinstance(server_block, dict):
+                    port = server_block.get("port")
+                    if isinstance(port, int) and 1 <= port <= 65535:
+                        return port
+                    if isinstance(port, str) and port.isdigit():
+                        parsed = int(port)
+                        if 1 <= parsed <= 65535:
+                            return parsed
+        except Exception:
+            return default_port
+    return default_port
+
+
+def is_port_available(port: int) -> bool:
+    """Check if a TCP port is available on localhost."""
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            sock.bind(("127.0.0.1", port))
+        return True
+    except OSError:
+        return False
+
+
+def pick_available_port(preferred: int) -> int:
+    """Pick the first available port from a preferred list."""
+    candidates = [preferred, 8000, 8080, 8090, 8100, 8181, 8200, 8500, 8765, 9000]
+    seen: set[int] = set()
+    for port in candidates:
+        if port in seen:
+            continue
+        seen.add(port)
+        if 1 <= port <= 65535 and is_port_available(port):
+            return port
+    return preferred
+
+
 @dataclass
 class SetupConfig:
     """Configuration gathered during setup."""
@@ -133,24 +182,36 @@ class SetupConfig:
     project_root: Path = field(default_factory=lambda: PROJECT_ROOT)
     unreal_engine_path: Path | None = None
     airsim_path: Path | None = None
+    ardupilot_path: Path | None = None
     python_path: Path | None = None
     uv_root: Path | None = None
+    server_port: int = field(default_factory=default_server_port)
     use_redis: bool = False
     use_gpu: bool = False
     create_shortcuts: bool = True
     install_frontend: bool = True
+    simulation_enabled: bool = True
+    airsim_enabled: bool = True
+    sitl_enabled: bool = True
+    build_airsim_overlay: bool = False  # Build AirSim from source with AegisAV Overlay plugin
 
     def to_dict(self) -> dict:
         return {
             "project_root": str(self.project_root),
             "unreal_engine_path": str(self.unreal_engine_path) if self.unreal_engine_path else None,
             "airsim_path": str(self.airsim_path) if self.airsim_path else None,
+            "ardupilot_path": str(self.ardupilot_path) if self.ardupilot_path else None,
             "python_path": str(self.python_path) if self.python_path else None,
             "uv_root": str(self.uv_root) if self.uv_root else None,
+            "server_port": self.server_port,
             "use_redis": self.use_redis,
             "use_gpu": self.use_gpu,
             "create_shortcuts": self.create_shortcuts,
             "install_frontend": self.install_frontend,
+            "simulation_enabled": self.simulation_enabled,
+            "airsim_enabled": self.airsim_enabled,
+            "sitl_enabled": self.sitl_enabled,
+            "build_airsim_overlay": self.build_airsim_overlay,
         }
 
     def save(self, path: Path) -> None:
@@ -372,6 +433,34 @@ def detect_airsimnh_path() -> Path | None:
     return None
 
 
+def detect_ardupilot_path() -> Path | None:
+    """Detect ArduPilot installation path."""
+    candidates: list[Path] = []
+    project_candidate = PROJECT_ROOT.parent / "ardupilot"
+    candidates.append(project_candidate)
+
+    if IS_WINDOWS:
+        user_profile = Path(os.environ.get("USERPROFILE", Path.home()))
+        candidates.append(user_profile / "ardupilot")
+        # If running from WSL UNC, check for sibling in same distro
+        project_str = str(PROJECT_ROOT)
+        if project_str.startswith("\\\\wsl.localhost\\") or project_str.startswith("\\\\wsl$\\"):
+            prefix = "\\\\wsl.localhost\\" if project_str.startswith("\\\\wsl.localhost\\") else "\\\\wsl$\\"
+            remainder = project_str[len(prefix):]
+            parts = remainder.split("\\", 1)
+            if len(parts) == 2:
+                distro = parts[0]
+                candidates.append(Path(f"{prefix}{distro}\\home\\devcontainers\\ardupilot"))
+
+    for candidate in candidates:
+        try:
+            if candidate.exists():
+                return candidate
+        except OSError:
+            continue
+    return None
+
+
 def wait_for_uv(timeout_seconds: int = 30) -> str | None:
     """Poll for uv to appear after installation."""
     deadline = time.time() + timeout_seconds
@@ -390,6 +479,95 @@ def check_command_exists(cmd: str) -> tuple[bool, str]:
     if success and stdout.strip():
         return True, stdout.strip().split("\n")[0]
     return False, ""
+
+
+def _yaml_format_value(value: object) -> str:
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, (int, float)):
+        return str(value)
+    if value is None:
+        return "null"
+    text = str(value).replace("\\", "\\\\").replace('"', '\\"')
+    return f"\"{text}\""
+
+
+def _update_yaml_section(text: str, section: str, updates: dict[str, object]) -> str:
+    lines = text.splitlines()
+    header = f"{section}:"
+    section_start = None
+    for idx, line in enumerate(lines):
+        if line.strip() == header and line.startswith(header):
+            section_start = idx
+            break
+
+    if section_start is None:
+        if lines and lines[-1].strip():
+            lines.append("")
+        lines.append(header)
+        for key, value in updates.items():
+            lines.append(f"  {key}: {_yaml_format_value(value)}")
+        return "\n".join(lines) + "\n"
+
+    section_end = len(lines)
+    for idx in range(section_start + 1, len(lines)):
+        line = lines[idx]
+        if line and not line.startswith(" ") and line.rstrip().endswith(":"):
+            section_end = idx
+            break
+
+    existing_keys: set[str] = set()
+    for idx in range(section_start + 1, section_end):
+        raw = lines[idx]
+        stripped = raw.lstrip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        if ":" not in stripped:
+            continue
+        key = stripped.split(":", 1)[0].strip()
+        if key in updates:
+            lines[idx] = f"  {key}: {_yaml_format_value(updates[key])}"
+            existing_keys.add(key)
+
+    insert_at = section_end
+    for key, value in updates.items():
+        if key not in existing_keys:
+            lines.insert(insert_at, f"  {key}: {_yaml_format_value(value)}")
+            insert_at += 1
+
+    return "\n".join(lines) + "\n"
+
+
+def find_npm_executable() -> str | None:
+    """Locate npm executable, including common install locations."""
+    exists, path = check_command_exists("npm")
+    if exists and path:
+        return path
+
+    if IS_WINDOWS:
+        local_appdata = Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData" / "Local"))
+        roaming_appdata = Path(os.environ.get("APPDATA", Path.home() / "AppData" / "Roaming"))
+        user_profile = Path(os.environ.get("USERPROFILE", Path.home()))
+        program_files = Path(os.environ.get("ProgramFiles", "C:/Program Files"))
+        program_files_x86 = Path(os.environ.get("ProgramFiles(x86)", "C:/Program Files (x86)"))
+        candidates = [
+            program_files / "nodejs" / "npm.cmd",
+            program_files_x86 / "nodejs" / "npm.cmd",
+            user_profile / "AppData" / "Roaming" / "npm" / "npm.cmd",
+            roaming_appdata / "npm" / "npm.cmd",
+            local_appdata / "Programs" / "nodejs" / "npm.cmd",
+        ]
+    else:
+        candidates = [
+            Path("/usr/local/bin/npm"),
+            Path("/usr/bin/npm"),
+            Path.home() / ".local" / "bin" / "npm",
+        ]
+
+    for candidate in candidates:
+        if candidate.exists():
+            return str(candidate)
+    return None
 
 
 def get_command_version(cmd: list[str]) -> str:
@@ -768,6 +946,26 @@ class DependencyStep(StepFrame):
             self.after(0, lambda: self._update_dep_ui(dep, labels, dep.found))
             return
 
+        if dep.name == "npm":
+            npm_path = find_npm_executable()
+            if npm_path:
+                npm_parent = Path(npm_path).parent
+                if npm_parent.is_absolute():
+                    os.environ["PATH"] = f"{npm_parent}{os.pathsep}{os.environ.get('PATH', '')}"
+                cmd = ["cmd", "/c", npm_path, "--version"] if IS_WINDOWS else [npm_path, "--version"]
+                success, stdout, stderr = run_command(cmd)
+                if success:
+                    dep.found = True
+                    dep.version = (stdout.strip() or stderr.strip())[:50]
+                else:
+                    dep.found = False
+                    dep.version = "Found but failed to run"
+            else:
+                dep.found = False
+                dep.version = "Not found"
+            self.after(0, lambda: self._update_dep_ui(dep, labels, dep.found))
+            return
+
         # Check if command exists
         success, stdout, stderr = run_command(dep.check_cmd)
 
@@ -1057,8 +1255,11 @@ class PythonSetupStep(StepFrame):
             height=15,
             font=("Courier", 9),
             state="disabled",
-            bg="#1e1e1e",
-            fg="#d4d4d4",
+            bg="#f8fafc",
+            fg="#0f172a",
+            insertbackground="#0f172a",
+            selectbackground="#dbeafe",
+            selectforeground="#0f172a",
         )
         self.console.pack(fill="both", expand=True)
 
@@ -1562,16 +1763,47 @@ class AirSimSetupStep(StepFrame):
         canvas.create_window((0, 0), window=content_frame, anchor="nw")
         canvas.configure(yscrollcommand=scrollbar.set)
 
-        # Step 1: Download AirSim
-        step1 = ttk.LabelFrame(content_frame, text="Step 1: Get AirSim", padding=10)
+        # Step 1: Choose AirSim Setup Method
+        step1 = ttk.LabelFrame(content_frame, text="Step 1: Choose AirSim Setup Method", padding=10)
         step1.pack(fill="x", padx=20, pady=10)
 
         step1_text = """AirSim is a simulator for drones built on Unreal Engine.
 
-Option A: Download pre-built binary (easier)
-Option B: Build from source (more flexible)"""
+Choose how to set up AirSim:"""
 
         ttk.Label(step1, text=step1_text, justify="left").pack(anchor="w")
+
+        # Radio buttons for setup method
+        self.airsim_method_var = tk.StringVar(value="prebuilt")
+
+        method_frame = ttk.Frame(step1)
+        method_frame.pack(fill="x", pady=10)
+
+        ttk.Radiobutton(
+            method_frame,
+            text="Use pre-built AirSim binary (faster, but no AegisAV overlay UI)",
+            variable=self.airsim_method_var,
+            value="prebuilt",
+            command=self._on_method_change,
+        ).pack(anchor="w", pady=2)
+
+        ttk.Radiobutton(
+            method_frame,
+            text="Build from source with AegisAV Overlay plugin (recommended for full UI)",
+            variable=self.airsim_method_var,
+            value="build_overlay",
+            command=self._on_method_change,
+        ).pack(anchor="w", pady=2)
+
+        # Info about the overlay
+        self.overlay_info = ttk.Label(
+            step1,
+            text="The AegisAV Overlay adds native Unreal widgets showing agent thinking,\n"
+                 "camera feeds, critic verdicts, telemetry, and battery status directly in AirSim.",
+            foreground="gray",
+            justify="left",
+        )
+        self.overlay_info.pack(anchor="w", pady=(5, 0))
 
         btn_frame1 = ttk.Frame(step1)
         btn_frame1.pack(pady=10)
@@ -1631,7 +1863,7 @@ We'll create an optimized configuration for AegisAV."""
 
         # AirSim path
         path_frame = ttk.LabelFrame(
-            content_frame, text="AirSim Installation Path (Optional)", padding=10
+            content_frame, text="AirSim Installation Path (Required when AirSim enabled)", padding=10
         )
         path_frame.pack(fill="x", padx=20, pady=10)
 
@@ -1720,51 +1952,48 @@ We'll create an optimized configuration for AegisAV."""
             except OSError as e:
                 append_log(f"AirSim RPC not reachable on 127.0.0.1:41451: {e}")
 
-            # Try to import airsim (optional dependency)
-            spec = importlib.util.find_spec("airsim")
+            try:
+                airsim = importlib.import_module("airsim")
+                client = airsim.MultirotorClient()
+                client.confirmConnection()
+                self.connection_status.config(
+                    text="✅ Connected to AirSim successfully!", foreground="green"
+                )
+                return
+            except Exception as exc:
+                append_log(f"AirSim import/connection failed in current interpreter: {exc}")
 
-            if spec is None:
-                append_log("AirSim package not found in current interpreter.")
-                uv_python = get_uv_python_path(self.config.uv_root)
-                if uv_python:
-                    append_log(f"Testing AirSim with uv Python: {uv_python}")
-                    cmd = [
-                        str(uv_python),
-                        "-c",
-                        "import airsim; c=airsim.MultirotorClient(); c.confirmConnection(); print('OK')",
-                    ]
-                    success, output, _ = run_command_stream(
-                        cmd,
-                        timeout=30,
-                        on_output=append_log,
-                    )
-                    if success and "OK" in output:
-                        self.connection_status.config(
-                            text="✅ Connected to AirSim successfully! (uv environment)",
-                            foreground="green"
-                        )
-                        return
-                    append_log(f"uv AirSim test failed: {output}")
+            uv_python = get_uv_python_path(self.config.uv_root)
+            if uv_python:
+                append_log(f"Testing AirSim with uv Python: {uv_python}")
+                cmd = [
+                    str(uv_python),
+                    "-c",
+                    "import airsim; c=airsim.MultirotorClient(); c.confirmConnection(); print('OK')",
+                ]
+                success, output, _ = run_command_stream(
+                    cmd,
+                    timeout=30,
+                    on_output=append_log,
+                )
+                if success and "OK" in output:
                     self.connection_status.config(
-                        text="❌ AirSim not available in uv environment.",
-                        foreground="red"
+                        text="✅ Connected to AirSim successfully! (uv environment)",
+                        foreground="green"
                     )
                     return
-
+                append_log(f"uv AirSim test failed: {output}")
                 self.connection_status.config(
-                    text="❌ airsim package not installed for this Python.",
+                    text="❌ AirSim not available in uv environment.",
                     foreground="red"
                 )
                 return
 
-            airsim = importlib.import_module("airsim")
-
-            client = airsim.MultirotorClient()
-            client.confirmConnection()
-
             self.connection_status.config(
-                text="✅ Connected to AirSim successfully!", foreground="green"
+                text="❌ airsim package not installed for this Python.",
+                foreground="red"
             )
+            return
 
         except Exception as e:
             self.connection_status.config(
@@ -1778,9 +2007,29 @@ We'll create an optimized configuration for AegisAV."""
             self.airsim_path_var.set(path)
             self.config.airsim_path = Path(path)
 
+    def _on_method_change(self) -> None:
+        """Handle AirSim setup method change."""
+        method = self.airsim_method_var.get()
+        self.config.build_airsim_overlay = (method == "build_overlay")
+
+        if method == "build_overlay":
+            self.overlay_info.config(
+                text="Will clone AirSim, copy AegisAVOverlay plugin, and build.\n"
+                     "Requires: UE5, Visual Studio 2022, Git. Build takes ~15-30 minutes.",
+                foreground="blue",
+            )
+        else:
+            self.overlay_info.config(
+                text="The AegisAV Overlay adds native Unreal widgets showing agent thinking,\n"
+                     "camera feeds, critic verdicts, telemetry, and battery status directly in AirSim.",
+                foreground="gray",
+            )
+
     def on_leave(self) -> bool:
         if self.airsim_path_var.get():
             self.config.airsim_path = Path(self.airsim_path_var.get())
+        # Save overlay build preference
+        self.config.build_airsim_overlay = (self.airsim_method_var.get() == "build_overlay")
         return True
 
     def get_title(self) -> str:
@@ -1868,16 +2117,100 @@ class ConfigurationStep(StepFrame):
         port_frame.pack(fill="x", pady=(10, 0))
 
         ttk.Label(port_frame, text="Server Port:").pack(side="left")
-        self.port_var = tk.StringVar(value="8080")
+        self.port_var = tk.StringVar(value=str(self.config.server_port))
         port_entry = ttk.Entry(port_frame, textvariable=self.port_var, width=10)
         port_entry.pack(side="left", padx=(10, 0))
+
+        # Simulation options
+        sim_frame = ttk.LabelFrame(self, text="Simulation (Optional)", padding=15)
+        sim_frame.pack(fill="x", padx=50, pady=10)
+
+        self.simulation_enabled_var = tk.BooleanVar(value=True)
+        sim_enabled_check = ttk.Checkbutton(
+            sim_frame,
+            text="Enable simulation features (Unreal + AirSim + SITL)",
+            variable=self.simulation_enabled_var,
+        )
+        sim_enabled_check.pack(anchor="w")
+
+        self.airsim_enabled_var = tk.BooleanVar(value=True)
+        airsim_enabled_check = ttk.Checkbutton(
+            sim_frame,
+            text="Auto-start AirSim bridge on server launch",
+            variable=self.airsim_enabled_var,
+        )
+        airsim_enabled_check.pack(anchor="w", pady=(5, 0))
+
+        self.sitl_enabled_var = tk.BooleanVar(value=True)
+        sitl_enabled_check = ttk.Checkbutton(
+            sim_frame,
+            text="Enable ArduPilot SITL integration",
+            variable=self.sitl_enabled_var,
+        )
+        sitl_enabled_check.pack(anchor="w", pady=(5, 0))
+
+        ttk.Label(
+            sim_frame,
+            text="ArduPilot SITL Path (for drone simulation)",
+            font=("Helvetica", 9),
+            foreground="gray",
+        ).pack(anchor="w")
+
+        ardupilot_entry_frame = ttk.Frame(sim_frame)
+        ardupilot_entry_frame.pack(fill="x", pady=(6, 0))
+
+        self.ardupilot_path_var = tk.StringVar()
+        detected_ardupilot = detect_ardupilot_path()
+        if detected_ardupilot:
+            self.ardupilot_path_var.set(str(detected_ardupilot))
+            self.config.ardupilot_path = detected_ardupilot
+
+        ardupilot_entry = ttk.Entry(
+            ardupilot_entry_frame,
+            textvariable=self.ardupilot_path_var,
+            width=50,
+        )
+        ardupilot_entry.pack(side="left", fill="x", expand=True)
+
+        ttk.Button(
+            ardupilot_entry_frame,
+            text="Browse...",
+            command=self._browse_ardupilot_path,
+        ).pack(side="left", padx=(10, 0))
+
+        ttk.Label(
+            sim_frame,
+            text="Example (WSL): \\\\wsl.localhost\\Ubuntu\\home\\devcontainers\\ardupilot",
+            font=("Helvetica", 9),
+            foreground="gray",
+        ).pack(anchor="w", pady=(6, 0))
 
     def on_leave(self) -> bool:
         self.config.use_redis = self.use_redis_var.get()
         self.config.use_gpu = self.use_gpu_var.get()
         self.config.install_frontend = self.install_frontend_var.get()
         self.config.create_shortcuts = self.create_shortcuts_var.get()
+        self.config.simulation_enabled = self.simulation_enabled_var.get()
+        self.config.airsim_enabled = (
+            self.airsim_enabled_var.get() and self.config.simulation_enabled
+        )
+        self.config.sitl_enabled = self.sitl_enabled_var.get() and self.config.simulation_enabled
+        if self.ardupilot_path_var.get():
+            self.config.ardupilot_path = Path(self.ardupilot_path_var.get())
+        try:
+            port = int(self.port_var.get().strip())
+            if 1 <= port <= 65535:
+                self.config.server_port = port
+        except ValueError:
+            pass
         return True
+
+    def _browse_ardupilot_path(self) -> None:
+        """Browse for ArduPilot installation."""
+        path = filedialog.askdirectory(title="Select ArduPilot Installation")
+        if path:
+            self.ardupilot_path_var.set(path)
+            self.config.ardupilot_path = Path(path)
 
     def get_title(self) -> str:
         return "Configuration"
@@ -1913,6 +2246,7 @@ class InstallStep(StepFrame):
 
         self.tasks = [
             ("Generate configuration files", self._generate_configs),
+            ("Build AirSim with Overlay (if enabled)", self._build_airsim_overlay),
             ("Build frontend (if enabled)", self._build_frontend),
             ("Create launch scripts", self._create_scripts),
             ("Verify installation", self._verify_install),
@@ -1940,8 +2274,11 @@ class InstallStep(StepFrame):
             height=10,
             font=("Courier", 9),
             state="disabled",
-            bg="#1e1e1e",
-            fg="#d4d4d4",
+            bg="#f8fafc",
+            fg="#0f172a",
+            insertbackground="#0f172a",
+            selectbackground="#dbeafe",
+            selectforeground="#0f172a",
         )
         self.console.pack(fill="both", expand=True)
 
@@ -2007,8 +2344,14 @@ class InstallStep(StepFrame):
 
             self.progress_var.set(i + 1)
 
-        self.install_complete = True
-        self.after(0, lambda: self._log("\n✅ Installation complete!"))
+        self.install_complete = not self.install_failed
+        if self.install_failed:
+            self.after(
+                0,
+                lambda: self._log("\n⚠️ Installation completed with issues. Fix and re-run."),
+            )
+        else:
+            self.after(0, lambda: self._log("\n✅ Installation complete!"))
         self.after(0, lambda: self.install_btn.config(text="Re-run", state="normal"))
         if self.install_failed:
             self.after(
@@ -2022,15 +2365,67 @@ class InstallStep(StepFrame):
 
     def _generate_configs(self) -> bool:
         """Generate configuration files."""
+        if self.config.airsim_enabled:
+            airsim_root, error = self._resolve_airsim_install()
+            if error:
+                self._log(f"  {error}")
+                return False
+            self.config.airsim_path = airsim_root
+
         # Save setup config
         config_path = PROJECT_ROOT / ".aegis_setup.json"
         self.config.save(config_path)
         self._log(f"  Saved config to {config_path}")
 
         # Update server config if needed
-        server_config = PROJECT_ROOT / "configs" / "server_config.yaml"
+        server_config = PROJECT_ROOT / "configs" / "aegis_config.yaml"
         if server_config.exists():
-            self._log(f"  Server config exists at {server_config}")
+            try:
+                try:
+                    import yaml
+                except Exception:
+                    yaml = None
+
+                ardupilot_path = self.config.ardupilot_path or detect_ardupilot_path()
+                simulation_updates = {
+                    "enabled": bool(self.config.simulation_enabled),
+                    "airsim_enabled": bool(self.config.airsim_enabled),
+                    "sitl_enabled": bool(self.config.sitl_enabled),
+                }
+                if ardupilot_path:
+                    simulation_updates["ardupilot_path"] = str(ardupilot_path)
+
+                if yaml:
+                    with open(server_config, encoding="utf-8") as file_handle:
+                        data = yaml.safe_load(file_handle) or {}
+                    if not isinstance(data, dict):
+                        data = {}
+                    server_block = data.get("server")
+                    if not isinstance(server_block, dict):
+                        server_block = {}
+                    server_block["port"] = int(self.config.server_port)
+                    data["server"] = server_block
+                    simulation_block = data.get("simulation")
+                    if not isinstance(simulation_block, dict):
+                        simulation_block = {}
+                    simulation_block.update(simulation_updates)
+                    data["simulation"] = simulation_block
+                    with open(server_config, "w", encoding="utf-8") as file_handle:
+                        yaml.dump(data, file_handle, sort_keys=False)
+                    self._log(f"  Updated server port in {server_config}")
+                else:
+                    content = server_config.read_text(encoding="utf-8")
+                    content = _update_yaml_section(
+                        content, "server", {"port": int(self.config.server_port)}
+                    )
+                    content = _update_yaml_section(content, "simulation", simulation_updates)
+                    server_config.write_text(content, encoding="utf-8")
+                    self._log(f"  Updated server config in {server_config}")
+
+                if ardupilot_path:
+                    self._log(f"  Updated ArduPilot path in {server_config}")
+            except Exception as exc:
+                self._log(f"  Failed to update server port in {server_config}: {exc}")
 
         return True
 
@@ -2046,32 +2441,273 @@ class InstallStep(StepFrame):
             return True
 
         # Check for npm
-        npm_exists, _ = check_command_exists("npm")
-        if not npm_exists:
-            self._log("  npm not found, skipping frontend build")
+        npm_path = find_npm_executable()
+        if not npm_path:
+            self._log("  npm not found. Install Node.js or add npm to PATH, then retry.")
             return False
+        if IS_WINDOWS and not npm_path.lower().endswith(".cmd"):
+            cmd_candidate = f"{npm_path}.cmd"
+            if Path(cmd_candidate).exists():
+                npm_path = cmd_candidate
+        npm_parent = Path(npm_path).parent
+        if npm_parent.is_absolute():
+            os.environ["PATH"] = f"{npm_parent}{os.pathsep}{os.environ.get('PATH', '')}"
+        npm_cmd = ["cmd", "/c", npm_path] if IS_WINDOWS else [npm_path]
+        self._log(f"  Using npm: {npm_path}")
+
+        staging_dir: Path | None = None
+        if IS_WINDOWS and str(frontend_dir).startswith("\\\\"):
+            self._log("  Detected UNC path; staging frontend build locally.")
+            local_root = Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData" / "Local"))
+            staging_dir = local_root / "AegisAV" / "frontend_build"
+            if staging_dir.exists():
+                shutil.rmtree(staging_dir, ignore_errors=True)
+            shutil.copytree(
+                frontend_dir,
+                staging_dir,
+                ignore=shutil.ignore_patterns("node_modules", "dist"),
+            )
+            self._log(f"  Staged frontend at: {staging_dir}")
+
+        def run_npm(args: list[str]) -> tuple[bool, str, int | None]:
+            target_dir = staging_dir or frontend_dir
+            npm_logs = Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData" / "Local")) / "npm-cache" / "_logs"
+
+            def log_line(line: str) -> None:
+                if line:
+                    self._log(f"  {line}")
+
+            if IS_WINDOWS and str(target_dir).startswith("\\\\"):
+                cmd_str = " ".join([f"\"{npm_path}\"", *args])
+                self._log("  Using cmd pushd to handle UNC path for npm.")
+                targets = [str(target_dir)]
+                if str(target_dir).lower().startswith("\\\\wsl.localhost\\"):
+                    mapped = "\\\\wsl$\\" + str(target_dir)[len("\\\\wsl.localhost\\"):]
+                    targets.insert(0, mapped)
+                last_output = ""
+                last_code: int | None = None
+                for target in targets:
+                    self._log(f"  npm working directory: {target}")
+                    success, output, exit_code = run_command_stream(
+                        ["cmd", "/c", f"pushd \"{target}\" && {cmd_str}"],
+                        timeout=300,
+                        on_output=log_line,
+                    )
+                    if success:
+                        return success, output, exit_code
+                    last_output = output
+                    last_code = exit_code
+                if not last_output.strip():
+                    self._log(f"  npm command failed with no output. Logs: {npm_logs}")
+                return False, last_output, last_code
+            success, output, exit_code = run_command_stream(
+                [*npm_cmd, *args],
+                cwd=target_dir,
+                timeout=300,
+                on_output=log_line,
+            )
+            if not success and not output.strip():
+                self._log(f"  npm command failed with no output. Logs: {npm_logs}")
+            return success, output, exit_code
 
         # Install dependencies
         self._log("  Installing npm dependencies...")
-        success, _stdout, stderr = run_command(["npm", "install"], cwd=frontend_dir, timeout=300)
+        success, _output, exit_code = run_npm(["install"])
+        if exit_code is not None:
+            self._log(f"  npm install exit code: {exit_code}")
         if not success:
-            self._log(f"  npm install failed: {stderr}")
+            self._log("  npm install failed.")
             return False
 
         # Build
         self._log("  Building frontend...")
-        success, _stdout, stderr = run_command(
-            ["npm", "run", "build"], cwd=frontend_dir, timeout=300
-        )
+        success, _output, exit_code = run_npm(["run", "build"])
+        if exit_code is not None:
+            self._log(f"  npm build exit code: {exit_code}")
         if not success:
-            self._log(f"  Build failed: {stderr}")
+            self._log("  Build failed.")
             return False
+
+        if staging_dir:
+            staged_dist = staging_dir / "dist"
+            if staged_dist.exists():
+                dist_dir = frontend_dir / "dist"
+                if dist_dir.exists():
+                    shutil.rmtree(dist_dir, ignore_errors=True)
+                shutil.copytree(staged_dist, dist_dir)
+                self._log(f"  Synced build output to {dist_dir}")
+            else:
+                self._log("  Build succeeded but no dist folder found in staged output.")
+                return False
 
         self._log("  Frontend built successfully")
         return True
 
+    def _build_airsim_overlay(self) -> bool:
+        """Build AirSim from source with AegisAVOverlay plugin."""
+        if not self.config.build_airsim_overlay:
+            self._log("  Skipped (not enabled)")
+            return True
+
+        if not IS_WINDOWS:
+            self._log("  AirSim overlay build is only supported on Windows")
+            return True
+
+        # Check for UE5
+        ue5_path = self.config.unreal_engine_path
+        if not ue5_path:
+            # Try to detect UE5
+            ue5_candidates = [
+                Path("C:/Program Files/Epic Games/UE_5.5"),
+                Path("C:/Program Files/Epic Games/UE_5.4"),
+                Path("C:/Program Files/Epic Games/UE_5.3"),
+                Path("C:/Program Files/Epic Games/UE_5.2"),
+                Path("C:/Program Files/Epic Games/UE_5.1"),
+            ]
+            for candidate in ue5_candidates:
+                if candidate.exists():
+                    ue5_path = candidate
+                    break
+
+        if not ue5_path or not ue5_path.exists():
+            self._log("  ERROR: Unreal Engine 5 not found.")
+            self._log("  Please install UE5 via Epic Games Launcher and set the path.")
+            return False
+
+        self._log(f"  Using UE5 at: {ue5_path}")
+
+        # Check for Git
+        git_path = shutil.which("git")
+        if not git_path:
+            self._log("  ERROR: Git not found. Please install Git and add to PATH.")
+            return False
+
+        airsim_dir = PROJECT_ROOT / "AirSim"
+        overlay_src = PROJECT_ROOT / "unreal" / "AegisAVOverlay"
+
+        # Check if overlay plugin source exists
+        if not overlay_src.exists():
+            self._log(f"  ERROR: AegisAVOverlay plugin not found at: {overlay_src}")
+            return False
+
+        # Step 1: Clone or update AirSim
+        if (airsim_dir / ".git").exists():
+            self._log("  AirSim already cloned, updating...")
+            success, output, _ = run_command_stream(
+                ["git", "pull", "origin", "main"],
+                cwd=airsim_dir,
+                timeout=120,
+                on_output=lambda line: self.after(0, lambda msg=line: self._log(f"    {msg}")) if line else None,
+            )
+            if not success:
+                self._log("  Warning: git pull failed, continuing with existing code")
+        else:
+            self._log("  Cloning AirSim repository (this may take a few minutes)...")
+            success, output, _ = run_command_stream(
+                ["git", "clone", "https://github.com/microsoft/AirSim.git", str(airsim_dir)],
+                cwd=PROJECT_ROOT,
+                timeout=300,
+                on_output=lambda line: self.after(0, lambda msg=line: self._log(f"    {msg}")) if line else None,
+            )
+            if not success:
+                self._log("  ERROR: Failed to clone AirSim")
+                self._log(f"  Output: {output}")
+                return False
+
+        # Step 2: Run AirSim build script
+        build_script = airsim_dir / "build.cmd"
+        if build_script.exists():
+            self._log("  Running AirSim build script...")
+            success, output, _ = run_command_stream(
+                ["cmd", "/c", str(build_script)],
+                cwd=airsim_dir,
+                timeout=600,
+                on_output=lambda line: self.after(0, lambda msg=line: self._log(f"    {msg}")) if line else None,
+            )
+            if not success:
+                self._log("  Warning: AirSim build script had errors, continuing...")
+        else:
+            self._log("  Warning: AirSim build.cmd not found, skipping native build")
+
+        # Step 3: Copy AegisAVOverlay plugin to AirSim
+        overlay_dst = airsim_dir / "Unreal" / "Plugins" / "AegisAVOverlay"
+        self._log(f"  Copying AegisAVOverlay plugin to {overlay_dst}...")
+
+        if overlay_dst.exists():
+            shutil.rmtree(overlay_dst, ignore_errors=True)
+
+        try:
+            shutil.copytree(overlay_src, overlay_dst)
+            self._log("  Plugin copied successfully")
+        except Exception as e:
+            self._log(f"  ERROR: Failed to copy plugin: {e}")
+            return False
+
+        # Step 4: Find and update project
+        blocks_project = airsim_dir / "Unreal" / "Environments" / "Blocks" / "Blocks.uproject"
+        if not blocks_project.exists():
+            self._log("  Warning: Blocks.uproject not found")
+            self._log("  You may need to generate project files manually")
+        else:
+            self._log("  Generating project files...")
+            ubt_path = ue5_path / "Engine" / "Binaries" / "Win64" / "UnrealBuildTool.exe"
+            if ubt_path.exists():
+                success, output, _ = run_command_stream(
+                    [str(ubt_path), "-projectfiles", f"-project={blocks_project}", "-game", "-engine"],
+                    cwd=blocks_project.parent,
+                    timeout=120,
+                    on_output=lambda line: self.after(0, lambda msg=line: self._log(f"    {msg}")) if line else None,
+                )
+                if success:
+                    self._log("  Project files generated")
+                else:
+                    self._log("  Warning: Project file generation may have issues")
+
+        # Update config with new AirSim path
+        self.config.airsim_path = airsim_dir / "Unreal" / "Environments" / "Blocks"
+
+        self._log("")
+        self._log("  ✅ AirSim with AegisAVOverlay setup complete!")
+        self._log(f"  Project location: {blocks_project.parent if blocks_project.exists() else airsim_dir}")
+        self._log("")
+        self._log("  Next steps:")
+        self._log("  1. Open Blocks.sln in Visual Studio 2022")
+        self._log("  2. Build the project (Development Editor | Win64)")
+        self._log("  3. Or open Blocks.uproject in Unreal Editor")
+        return True
+
+    def _resolve_airsim_install(self) -> tuple[Path | None, str | None]:
+        if not IS_WINDOWS:
+            return None, "AirSim launch is only supported on Windows."
+
+        path = self.config.airsim_path or detect_airsimnh_path()
+        if not path:
+            return None, "AirSim installation path not set. Browse to AirSimNH folder."
+
+        candidate = Path(path)
+        if candidate.is_file():
+            if candidate.name.lower() != "airsimnh.exe":
+                return None, f"Selected file is not AirSimNH.exe: {candidate}"
+            airsim_root = candidate.parent
+        else:
+            airsim_root = candidate
+
+        exe_path = airsim_root / "AirSimNH.exe"
+        if not exe_path.exists():
+            return None, f"AirSimNH.exe not found at: {exe_path}"
+
+        self.config.airsim_path = airsim_root
+        return airsim_root, None
+
     def _create_scripts(self) -> bool:
         """Create launch scripts."""
+        airsim_root: Path | None = None
+        if self.config.airsim_enabled:
+            airsim_root, error = self._resolve_airsim_install()
+            if error:
+                self._log(f"  {error}")
+                return False
+
         if not self.config.create_shortcuts:
             self._log("  Skipped (disabled)")
             return True
@@ -2079,33 +2715,109 @@ class InstallStep(StepFrame):
         scripts_dir = PROJECT_ROOT / "scripts"
         scripts_dir.mkdir(exist_ok=True)
 
+        uv_python = get_uv_python_path(self.config.uv_root)
+        python_exec = str(uv_python) if uv_python else sys.executable
+
         if IS_WINDOWS:
             # Windows batch scripts
-            python_cmd = f"\"{sys.executable}\""
+            python_cmd = f"\"{python_exec}\""
+            port = self.config.server_port
+            project_root_str = str(PROJECT_ROOT)
+            roots = [project_root_str]
+            if project_root_str.lower().startswith("\\\\wsl.localhost\\"):
+                roots.insert(0, "\\\\wsl$\\" + project_root_str[len("\\\\wsl.localhost\\"):])
+            root_a = roots[0]
+            root_b = roots[1] if len(roots) > 1 else roots[0]
             start_server = scripts_dir / "start_server.bat"
             start_server.write_text(f"""@echo off
-cd /d "{PROJECT_ROOT}"
+setlocal
+if "%AEGIS_PORT%"=="" call :select_port
+if "%AEGIS_HOST%"=="" set "AEGIS_HOST=0.0.0.0"
+if "%AEGIS_RELOAD%"=="" set "AEGIS_RELOAD=0"
+pushd "{root_a}" 2>nul
+if errorlevel 1 pushd "{root_b}" 2>nul
+if errorlevel 1 (
+  echo Failed to access project root.
+  pause
+  exit /b 1
+)
 {python_cmd} -m agent.server.main
+popd
 pause
+exit /b 0
+
+:select_port
+for %%P in ({port} 8000 8080 8090 8100 8181 8200 8500 8765 9000) do (
+  powershell -NoProfile -Command "try {{ $l=New-Object System.Net.Sockets.TcpListener([IPAddress]::Any, %%P); $l.Start(); $l.Stop(); exit 0 }} catch {{ exit 1 }}" >nul 2>&1
+  if not errorlevel 1 (
+    set "AEGIS_PORT=%%P"
+    echo Using port %%P
+    goto :eof
+  )
+)
+set "AEGIS_PORT=8090"
+echo Using port %AEGIS_PORT%
+goto :eof
 """)
 
             run_demo = scripts_dir / "run_demo.bat"
             run_demo.write_text(f"""@echo off
-cd /d "{PROJECT_ROOT}"
+setlocal
+if "%AEGIS_PORT%"=="" call :select_port
+if "%AEGIS_HOST%"=="" set "AEGIS_HOST=0.0.0.0"
+if "%AEGIS_RELOAD%"=="" set "AEGIS_RELOAD=0"
+pushd "{root_a}" 2>nul
+if errorlevel 1 pushd "{root_b}" 2>nul
+if errorlevel 1 (
+  echo Failed to access project root.
+  pause
+  exit /b 1
+)
 start "" {python_cmd} -m agent.server.main
 timeout /t 3
-start http://localhost:8080/overlay/
-start http://localhost:8080/api/docs
+start http://localhost:%AEGIS_PORT%/dashboard/
+start http://localhost:%AEGIS_PORT%/overlay/
+start http://localhost:%AEGIS_PORT%/api/docs
+popd
 pause
+exit /b 0
+
+:select_port
+for %%P in ({port} 8000 8080 8090 8100 8181 8200 8500 8765 9000) do (
+  powershell -NoProfile -Command "try {{ $l=New-Object System.Net.Sockets.TcpListener([IPAddress]::Any, %%P); $l.Start(); $l.Stop(); exit 0 }} catch {{ exit 1 }}" >nul 2>&1
+  if not errorlevel 1 (
+    set "AEGIS_PORT=%%P"
+    echo Using port %%P
+    goto :eof
+  )
+)
+set "AEGIS_PORT=8090"
+echo Using port %AEGIS_PORT%
+goto :eof
 """)
             self._log(f"  Created {start_server}")
             self._log(f"  Created {run_demo}")
+
+            if self.config.airsim_enabled and airsim_root:
+                airsim_script = PROJECT_ROOT / "start_airsim.bat"
+                airsim_script.write_text(f"""@echo off
+REM Start AirSim on Windows
+REM Run this from Windows Command Prompt, not WSL
+
+echo Starting AirSim...
+cd /d "{airsim_root}"
+start "" "AirSimNH.exe" -ResX=1920 -ResY=1080 -windowed
+""")
+                self._log(f"  Created {airsim_script}")
         else:
             # Linux/Mac shell scripts
-            python_cmd = f"\"{sys.executable}\""
+            python_cmd = f"\"{python_exec}\""
+            port = self.config.server_port
             start_server = scripts_dir / "start_server.sh"
             start_server.write_text(f"""#!/bin/bash
 cd "{PROJECT_ROOT}"
+export AEGIS_PORT={port}
+export AEGIS_HOST=0.0.0.0
 {python_cmd} -m agent.server.main
 """)
             start_server.chmod(0o755)
@@ -2113,11 +2825,14 @@ cd "{PROJECT_ROOT}"
             run_demo = scripts_dir / "run_demo.sh"
             run_demo.write_text(f"""#!/bin/bash
 cd "{PROJECT_ROOT}"
+export AEGIS_PORT={port}
+export AEGIS_HOST=0.0.0.0
 {python_cmd} -m agent.server.main &
 SERVER_PID=$!
 sleep 3
-xdg-open http://localhost:8080/overlay/ 2>/dev/null || open http://localhost:8080/overlay/
-xdg-open http://localhost:8080/api/docs 2>/dev/null || open http://localhost:8080/api/docs
+xdg-open http://localhost:{port}/dashboard/ 2>/dev/null || open http://localhost:{port}/dashboard/
+xdg-open http://localhost:{port}/overlay/ 2>/dev/null || open http://localhost:{port}/overlay/
+xdg-open http://localhost:{port}/api/docs 2>/dev/null || open http://localhost:{port}/api/docs
 echo "Press Enter to stop server..."
 read
 kill $SERVER_PID
@@ -2133,17 +2848,28 @@ kill $SERVER_PID
         """Verify the installation."""
         # Check imports
         self._log("  Checking Python imports...")
+        uv_python = get_uv_python_path(self.config.uv_root)
+        python_exec = str(uv_python) if uv_python else sys.executable
         success, stdout, stderr = run_command(
-            [sys.executable, "-c", "from agent.server.main import app; print('OK')"],
+            [python_exec, "-c", "from agent.server.main import app; print('OK')"],
             cwd=PROJECT_ROOT,
         )
 
         if success and "OK" in stdout:
             self._log("  ✓ Server imports working")
-            return True
         else:
             self._log(f"  Import check failed: {stderr}")
             return False
+
+        if self.config.install_frontend:
+            dashboard_index = PROJECT_ROOT / "frontend" / "dist" / "index.html"
+            if dashboard_index.exists():
+                self._log("  ✓ Dashboard build ready")
+            else:
+                self._log("  Dashboard build missing (frontend/dist/index.html)")
+                return False
+
+        return True
 
     def can_proceed(self) -> bool:
         return self.install_complete
@@ -2178,6 +2904,8 @@ class CompleteStep(StepFrame):
             "✅ Launch scripts created",
             "✅ OBS overlay ready at /overlay/",
         ]
+        if self.config.install_frontend:
+            items.insert(3, "✅ Dashboard ready at /dashboard/")
 
         for item in items:
             ttk.Label(summary_frame, text=item, font=("Helvetica", 11)).pack(anchor="w", pady=2)
@@ -2186,11 +2914,26 @@ class CompleteStep(StepFrame):
         next_frame = ttk.LabelFrame(self, text="Next Steps", padding=15)
         next_frame.pack(fill="x", padx=50, pady=10)
 
-        next_text = """1. Start the server:
+        port = self.config.server_port
+        if self.config.install_frontend:
+            next_text = f"""1. Start the server:
+   ./scripts/start_server.sh  (or .bat on Windows)
+
+2. Open the dashboard:
+   http://localhost:{port}/dashboard/
+
+3. Open the overlay in OBS:
+   Add Browser Source → http://localhost:{port}/overlay/
+
+4. Run a simulation or connect AirSim
+
+5. Watch agent decisions appear in the overlay!"""
+        else:
+            next_text = f"""1. Start the server:
    ./scripts/start_server.sh  (or .bat on Windows)
 
 2. Open the overlay in OBS:
-   Add Browser Source → http://localhost:8080/overlay/
+   Add Browser Source → http://localhost:{port}/overlay/
 
 3. Run a simulation or connect AirSim
 
@@ -2208,6 +2951,13 @@ class CompleteStep(StepFrame):
             command=self._launch_server,
         ).pack(side="left", padx=10)
 
+        if self.config.install_frontend:
+            ttk.Button(
+                btn_frame,
+                text="📊 Open Dashboard",
+                command=lambda: open_url(f"http://localhost:{port}/dashboard/"),
+            ).pack(side="left", padx=10)
+
         ttk.Button(
             btn_frame,
             text="📖 Open Documentation",
@@ -2217,33 +2967,92 @@ class CompleteStep(StepFrame):
         ttk.Button(
             btn_frame,
             text="🎥 Open Overlay",
-            command=lambda: open_url("http://localhost:8080/overlay/"),
+            command=lambda: open_url(f"http://localhost:{port}/overlay/"),
         ).pack(side="left", padx=10)
 
     def _launch_server(self) -> None:
         """Launch the server."""
+        uv_python = get_uv_python_path(self.config.uv_root)
+        python_exec = str(uv_python) if uv_python else sys.executable
+        port = pick_available_port(self.config.server_port)
+        self.config.server_port = port
+        env = os.environ.copy()
+        env["AEGIS_PORT"] = str(port)
+        env["AEGIS_HOST"] = env.get("AEGIS_HOST", "0.0.0.0")
+        env["AEGIS_RELOAD"] = env.get("AEGIS_RELOAD", "0")
         if IS_WINDOWS:
             script = PROJECT_ROOT / "scripts" / "start_server.bat"
             if script.exists():
-                subprocess.Popen(["cmd", "/c", str(script)], start_new_session=True)  # noqa: S603, S607
-            else:
                 subprocess.Popen(
-                    ["cmd", "/c", f"cd /d {PROJECT_ROOT} && \"{sys.executable}\" -m agent.server.main"],
+                    ["cmd", "/c", str(script)],
                     start_new_session=True,
+                    env=env,
+                )  # noqa: S603, S607
+            else:
+                project_root_str = str(PROJECT_ROOT)
+                root_a = project_root_str
+                root_b = project_root_str
+                if project_root_str.lower().startswith("\\\\wsl.localhost\\"):
+                    root_a = "\\\\wsl$\\" + project_root_str[len("\\\\wsl.localhost\\"):]
+                    root_b = project_root_str
+                subprocess.Popen(
+                    [
+                        "cmd",
+                        "/c",
+                        "set",
+                        f"AEGIS_PORT={port}",
+                        "&&",
+                        "set",
+                        "AEGIS_HOST=0.0.0.0",
+                        "&&",
+                        "set",
+                        "AEGIS_RELOAD=0",
+                        "&&",
+                        "pushd",
+                        f"\"{root_a}\"",
+                        "2>nul",
+                        "||",
+                        "pushd",
+                        f"\"{root_b}\"",
+                        "2>nul",
+                        "&&",
+                        f"\"{python_exec}\" -m agent.server.main",
+                    ],
+                    start_new_session=True,
+                    env=env,
                 )
         else:
             script = PROJECT_ROOT / "scripts" / "start_server.sh"
             if script.exists():
-                subprocess.Popen(["bash", str(script)], start_new_session=True)  # noqa: S603, S607
+                subprocess.Popen(
+                    ["bash", str(script)],
+                    start_new_session=True,
+                    env=env,
+                )  # noqa: S603, S607
             else:
                 subprocess.Popen(
-                    ["bash", "-c", f"cd {PROJECT_ROOT} && \"{sys.executable}\" -m agent.server.main"],
+                    [
+                        "bash",
+                        "-c",
+                        f"export AEGIS_PORT={port} "
+                        f"AEGIS_HOST=0.0.0.0; cd {PROJECT_ROOT} && \"{python_exec}\" -m agent.server.main",
+                    ],
                     start_new_session=True,
+                    env=env,
                 )
 
+        port = self.config.server_port
+        if self.config.install_frontend:
+            self.after(2500, lambda: open_url(f"http://localhost:{port}/dashboard/"))
+        self.after(3000, lambda: open_url(f"http://localhost:{port}/overlay/"))
+
+        if self.config.install_frontend:
+            notice = "Server is starting in a new terminal.\n\nDashboard and overlay will open shortly."
+        else:
+            notice = "Server is starting in a new terminal.\n\nOverlay will open shortly."
         messagebox.showinfo(
             "Server Starting",
-            "Server is starting in a new terminal.\n\nWait a few seconds, then open the overlay.",
+            notice,
         )
 
     def get_title(self) -> str:
@@ -2299,40 +3108,80 @@ class SetupWizard:
         else:
             style.theme_use("default")
 
-        # AegisAV Dark Mode Palette
-        bg_void = "#09090B"
-        bg_deep = "#18181B"
-        fg_text = "#FAFAFA"
-        accent_cyan = "#06b6d4"
+        # AegisAV Light Palette
+        bg_base = "#f7f6f3"
+        bg_surface = "#ffffff"
+        bg_muted = "#eef1f4"
+        fg_text = "#1f2933"
+        fg_muted = "#52606d"
+        accent = "#2563eb"
+        accent_soft = "#dbeafe"
+        border = "#d6d3d1"
 
         # Apply global settings
         style.configure(
             ".",
-            background=bg_void,
+            background=bg_base,
             foreground=fg_text,
-            troughcolor=bg_deep,
-            selectbackground=accent_cyan,
-            selectforeground=bg_void,
+            troughcolor=bg_muted,
+            selectbackground=accent_soft,
+            selectforeground=fg_text,
         )
 
-        style.configure("TFrame", background=bg_void)
-        style.configure("TLabel", background=bg_void, foreground=fg_text)
-        style.configure("TButton", background=bg_deep, foreground=fg_text, borderwidth=0, focuscolor=accent_cyan)
-        style.map("TButton", background=[("active", accent_cyan), ("pressed", accent_cyan)], foreground=[("active", bg_void), ("pressed", bg_void)])
+        self.root.configure(bg=bg_base)
 
-        style.configure("TLabelframe", background=bg_void, foreground=accent_cyan)
-        style.configure("TLabelframe.Label", background=bg_void, foreground=accent_cyan)
+        style.configure("TFrame", background=bg_base)
+        style.configure("TLabel", background=bg_base, foreground=fg_text)
+        style.configure(
+            "TButton",
+            background=bg_surface,
+            foreground=fg_text,
+            borderwidth=1,
+            relief="flat",
+            focuscolor=accent,
+            focusthickness=1,
+            bordercolor=border,
+            lightcolor=border,
+            darkcolor=border,
+        )
+        style.map(
+            "TButton",
+            background=[("active", accent_soft), ("pressed", accent)],
+            foreground=[("pressed", "#ffffff")],
+        )
 
-        style.configure("TEntry", fieldbackground=bg_deep, foreground=fg_text, insertcolor=fg_text)
-        style.configure("Horizontal.TProgressbar", background=accent_cyan, troughcolor=bg_deep, bordercolor=bg_void)
+        style.configure("TLabelframe", background=bg_base, foreground=fg_text, bordercolor=border)
+        style.configure("TLabelframe.Label", background=bg_base, foreground=fg_muted)
+
+        style.configure(
+            "TEntry",
+            fieldbackground=bg_surface,
+            foreground=fg_text,
+            insertcolor=fg_text,
+            bordercolor=border,
+            lightcolor=border,
+            darkcolor=border,
+        )
+        style.map(
+            "TEntry",
+            fieldbackground=[("readonly", bg_muted), ("disabled", bg_muted)],
+            foreground=[("disabled", "#9aa5b1")],
+        )
+        style.configure(
+            "Horizontal.TProgressbar",
+            background=accent,
+            troughcolor=bg_muted,
+            bordercolor=bg_base,
+        )
+        style.configure("TSeparator", background=border)
 
         strong_font = ("TkDefaultFont", 10, "bold")
 
-        style.configure("Nav.TButton", font=strong_font, padding=(12, 6))
+        style.configure("Nav.TButton", font=strong_font, padding=(12, 6), background=bg_surface)
         style.map(
             "Nav.TButton",
-            foreground=[("disabled", "#9ca3af")],
-            background=[("active", "#e5e7eb"), ("pressed", "#d1d5db")],
+            foreground=[("disabled", "#9aa5b1")],
+            background=[("active", accent_soft), ("pressed", "#bfdbfe")],
         )
 
         style.configure(
@@ -2340,7 +3189,8 @@ class SetupWizard:
             font=strong_font,
             padding=(12, 6),
             foreground="#ffffff",
-            background="#2563eb",
+            background=accent,
+            bordercolor=accent,
         )
         style.map(
             "PrimaryNav.TButton",

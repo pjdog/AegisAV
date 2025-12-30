@@ -25,29 +25,31 @@ function injectStyles() {
   const style = document.createElement('style');
   style.id = STYLE_ID;
   style.textContent = `
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
     /* ============================================
      * THOUGHT BUBBLE COMPONENT STYLES
      * ============================================ */
 
     .aegis-thought-bubble {
-      font-family: "Space Grotesk", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      background: linear-gradient(135deg, rgba(18, 18, 22, 0.95), rgba(26, 26, 32, 0.95));
+      font-family: "Inter", "SF Pro Display", "Segoe UI", sans-serif;
+      background: linear-gradient(135deg, rgba(24, 24, 27, 0.95), rgba(39, 39, 42, 0.92));
       backdrop-filter: blur(16px);
       -webkit-backdrop-filter: blur(16px);
-      border: 1px solid rgba(0, 242, 255, 0.25);
+      border: 1px solid rgba(6, 182, 212, 0.3);
       border-radius: 14px;
       padding: 16px 18px;
       min-width: 300px;
       max-width: 380px;
       box-shadow:
         0 8px 32px rgba(0, 0, 0, 0.5),
-        0 0 24px rgba(0, 242, 255, 0.08),
+        0 0 24px rgba(6, 182, 212, 0.2),
         inset 0 1px 0 rgba(255, 255, 255, 0.06);
       transform: translateY(10px);
       opacity: 0;
       transition: all 0.35s cubic-bezier(0.4, 0, 0.2, 1);
       pointer-events: none;
-      color: #f0f0f5;
+      color: #FAFAFA;
     }
 
     .aegis-thought-bubble.visible {
@@ -57,24 +59,24 @@ function injectStyles() {
     }
 
     .aegis-thought-bubble.thinking {
-      border-color: rgba(255, 184, 0, 0.4);
+      border-color: rgba(245, 158, 11, 0.4);
       box-shadow:
         0 8px 32px rgba(0, 0, 0, 0.5),
-        0 0 30px rgba(255, 184, 0, 0.12);
+        0 0 30px rgba(245, 158, 11, 0.18);
     }
 
     .aegis-thought-bubble.complete {
-      border-color: rgba(0, 255, 157, 0.4);
+      border-color: rgba(16, 185, 129, 0.4);
       box-shadow:
         0 8px 32px rgba(0, 0, 0, 0.5),
-        0 0 30px rgba(0, 255, 157, 0.12);
+        0 0 30px rgba(16, 185, 129, 0.2);
     }
 
     .aegis-thought-bubble.error {
-      border-color: rgba(255, 62, 62, 0.4);
+      border-color: rgba(239, 68, 68, 0.4);
       box-shadow:
         0 8px 32px rgba(0, 0, 0, 0.5),
-        0 0 30px rgba(255, 62, 62, 0.12);
+        0 0 30px rgba(239, 68, 68, 0.2);
     }
 
     /* Header */
@@ -98,10 +100,10 @@ function injectStyles() {
     }
 
     .aegis-tb-drone-name {
-      font-family: "IBM Plex Mono", "SF Mono", monospace;
+      font-family: "JetBrains Mono", "Roboto Mono", monospace;
       font-weight: 600;
       font-size: 12px;
-      color: #00f2ff;
+      color: #06b6d4;
       text-transform: uppercase;
       letter-spacing: 0.08em;
     }
@@ -109,7 +111,7 @@ function injectStyles() {
     .aegis-tb-cognitive-badge {
       padding: 4px 10px;
       border-radius: 10px;
-      font-family: "IBM Plex Mono", "SF Mono", monospace;
+      font-family: "JetBrains Mono", "Roboto Mono", monospace;
       font-size: 9px;
       font-weight: 600;
       text-transform: uppercase;
@@ -118,35 +120,35 @@ function injectStyles() {
     }
 
     .aegis-tb-cognitive-badge.reactive {
-      background: rgba(138, 138, 149, 0.2);
-      color: #8a8a95;
-      border: 1px solid rgba(138, 138, 149, 0.4);
+      background: rgba(59, 130, 246, 0.2);
+      color: #3b82f6;
+      border: 1px solid rgba(59, 130, 246, 0.4);
     }
 
     .aegis-tb-cognitive-badge.deliberative {
-      background: rgba(0, 242, 255, 0.15);
-      color: #00f2ff;
-      border: 1px solid rgba(0, 242, 255, 0.4);
+      background: rgba(245, 158, 11, 0.2);
+      color: #f59e0b;
+      border: 1px solid rgba(245, 158, 11, 0.4);
     }
 
     .aegis-tb-cognitive-badge.reflective {
-      background: rgba(168, 85, 247, 0.15);
-      color: #a855f7;
-      border: 1px solid rgba(168, 85, 247, 0.4);
+      background: rgba(139, 92, 246, 0.2);
+      color: #8b5cf6;
+      border: 1px solid rgba(139, 92, 246, 0.4);
     }
 
     .aegis-tb-cognitive-badge.predictive {
-      background: rgba(0, 255, 157, 0.15);
-      color: #00ff9d;
-      border: 1px solid rgba(0, 255, 157, 0.4);
+      background: rgba(6, 182, 212, 0.2);
+      color: #06b6d4;
+      border: 1px solid rgba(6, 182, 212, 0.4);
     }
 
     /* Situation section */
     .aegis-tb-situation {
       margin-bottom: 12px;
       padding: 10px 12px;
-      background: rgba(0, 0, 0, 0.25);
-      border-left: 3px solid #00f2ff;
+      background: rgba(9, 9, 11, 0.4);
+      border-left: 3px solid #06b6d4;
       border-radius: 0 8px 8px 0;
     }
 
@@ -161,14 +163,14 @@ function injectStyles() {
     .aegis-tb-situation-text {
       font-size: 13px;
       font-weight: 500;
-      color: #f0f0f5;
+      color: #FAFAFA;
       line-height: 1.35;
     }
 
     .aegis-tb-situation-target {
-      font-family: "IBM Plex Mono", "SF Mono", monospace;
+      font-family: "JetBrains Mono", "Roboto Mono", monospace;
       font-size: 11px;
-      color: #00f2ff;
+      color: #06b6d4;
       margin-top: 4px;
     }
 
@@ -192,15 +194,15 @@ function injectStyles() {
     }
 
     .aegis-tb-risk-value {
-      font-family: "IBM Plex Mono", "SF Mono", monospace;
+      font-family: "JetBrains Mono", "Roboto Mono", monospace;
       font-size: 11px;
       font-weight: 600;
     }
 
-    .aegis-tb-risk-value.low { color: #00ff9d; }
-    .aegis-tb-risk-value.moderate { color: #ffb800; }
-    .aegis-tb-risk-value.high { color: #ff8c00; }
-    .aegis-tb-risk-value.critical { color: #ff3e3e; }
+    .aegis-tb-risk-value.low { color: #10b981; }
+    .aegis-tb-risk-value.moderate { color: #f59e0b; }
+    .aegis-tb-risk-value.high { color: #ef4444; }
+    .aegis-tb-risk-value.critical { color: #ef4444; }
 
     .aegis-tb-risk-bar {
       height: 5px;
@@ -216,19 +218,19 @@ function injectStyles() {
     }
 
     .aegis-tb-risk-fill.low {
-      background: linear-gradient(90deg, #00ff9d, #00d4aa);
+      background: linear-gradient(90deg, #10b981, #059669);
     }
 
     .aegis-tb-risk-fill.moderate {
-      background: linear-gradient(90deg, #ffb800, #ff9500);
+      background: linear-gradient(90deg, #f59e0b, #d97706);
     }
 
     .aegis-tb-risk-fill.high {
-      background: linear-gradient(90deg, #ff8c00, #ff5500);
+      background: linear-gradient(90deg, #ef4444, #dc2626);
     }
 
     .aegis-tb-risk-fill.critical {
-      background: linear-gradient(90deg, #ff3e3e, #ff0000);
+      background: linear-gradient(90deg, #ef4444, #b91c1c);
       animation: aegis-pulse-critical 1s infinite;
     }
 
@@ -263,13 +265,13 @@ function injectStyles() {
     }
 
     .aegis-tb-critic.approve {
-      background: rgba(0, 255, 157, 0.1);
-      border-color: rgba(0, 255, 157, 0.35);
+      background: rgba(16, 185, 129, 0.12);
+      border-color: rgba(16, 185, 129, 0.35);
     }
 
     .aegis-tb-critic.reject {
-      background: rgba(255, 62, 62, 0.1);
-      border-color: rgba(255, 62, 62, 0.35);
+      background: rgba(239, 68, 68, 0.12);
+      border-color: rgba(239, 68, 68, 0.35);
     }
 
     .aegis-tb-critic-icon {
@@ -318,7 +320,7 @@ function injectStyles() {
 
     .aegis-tb-consideration::before {
       content: '>';
-      color: #00f2ff;
+      color: #06b6d4;
       font-weight: 600;
       flex-shrink: 0;
     }
@@ -334,8 +336,8 @@ function injectStyles() {
     .aegis-tb-decision {
       display: none;
       padding: 12px;
-      background: linear-gradient(135deg, rgba(0, 255, 157, 0.12), rgba(0, 200, 157, 0.08));
-      border: 1px solid rgba(0, 255, 157, 0.3);
+      background: linear-gradient(135deg, rgba(16, 185, 129, 0.12), rgba(5, 150, 105, 0.12));
+      border: 1px solid rgba(16, 185, 129, 0.35);
       border-radius: 10px;
       margin-top: 10px;
     }
@@ -371,20 +373,20 @@ function injectStyles() {
     }
 
     .aegis-tb-decision-action {
-      font-family: "IBM Plex Mono", "SF Mono", monospace;
+      font-family: "JetBrains Mono", "Roboto Mono", monospace;
       font-size: 14px;
       font-weight: 700;
-      color: #00ff9d;
+      color: #10b981;
       text-transform: uppercase;
       letter-spacing: 0.05em;
     }
 
     .aegis-tb-decision-confidence {
       margin-left: auto;
-      font-family: "IBM Plex Mono", "SF Mono", monospace;
+      font-family: "JetBrains Mono", "Roboto Mono", monospace;
       font-size: 13px;
       font-weight: 600;
-      color: #00ff9d;
+      color: #10b981;
     }
 
     .aegis-tb-decision-reasoning {

@@ -81,3 +81,30 @@ inspection:
   # Photo capture
   capture_interval_s: 2
   capture_on_anomaly: true
+
+# Flight parameters for autonomous operation
+flight:
+  cruise_velocity_ms: 5.0
+  inspection_velocity_ms: 2.0
+  return_altitude_agl: 30.0
+
+# Battery constraints
+battery:
+  reserve_percent: 20.0
+  consumption_rate_percent_per_m: 0.01
+
+# Obstacles to avoid during flight
+obstacles:
+  - id: "building-1"
+    name: "Control Building"
+    latitude: 47.397850
+    longitude: 8.545900
+    radius_m: 15
+    height_m: 12
+
+  - id: "tower-1"
+    name: "Communication Tower"
+    latitude: 47.397600
+    longitude: 8.545200
+    radius_m: 8
+    height_m: 45

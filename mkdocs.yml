@@ -1,0 +1,45 @@
+site_name: AegisAV Docs
+site_description: Documentation for AegisAV deployment, tuning, and simulation.
+site_url: https://example.com/aegisav
+repo_url: https://github.com/aegisav/aegisav
+
+theme:
+  name: material
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.top
+    - search.suggest
+    - search.highlight
+
+markdown_extensions:
+  - admonition
+  - codehilite
+  - toc:
+      permalink: true
+
+nav:
+  - Home: index.md
+  - Getting Started: guide/getting-started.md
+  - Agent:
+      - Overview: guide/agent-overview.md
+      - Decision Pipeline: guide/decision-pipeline.md
+  - Scenarios: guide/scenarios.md
+  - Configuration:
+      - Overview: reference/configuration.md
+      - Server: reference/config/server.md
+      - Simulation: reference/config/simulation.md
+      - Vision: reference/config/vision.md
+      - Agent: reference/config/agent.md
+      - Redis: reference/config/redis.md
+      - Auth: reference/config/auth.md
+      - Dashboard: reference/config/dashboard.md
+      - Edge Compute: reference/edge-compute.md
+  - API: reference/api.md
+  - AirSim Sync: AIRSIM_SCENARIO_SYNC.md
+  - Overlay: OVERLAY_TROUBLESHOOTING.md
+  - Architecture: ARCHITECTURE.md
+  - Integration Status: INTEGRATION_STATUS.md
+  - Operations:
+      - Docs Hosting: operations/docs-hosting.md
+      - Runbook: operations/runbook.md

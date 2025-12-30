@@ -182,6 +182,7 @@ cd ardupilot/ArduCopter
 # Or use pre-built AirSim binaries
 ./AirSimNH.sh -ResX=1920 -ResY=1080 -windowed
 ```
+On Windows (with the installer), run `start_airsim.bat` from the project root.
 
 ### Terminal 3: Start AegisAV
 ```bash
@@ -193,6 +194,8 @@ python3 run_simulation.py --airsim --sitl
 ```
 http://localhost:8000/dashboard
 ```
+
+For AirSim/Scenario environment synchronization details, see `docs/AIRSIM_SCENARIO_SYNC.md`.
 
 ## Environment Assets
 

@@ -78,6 +78,7 @@ sim = [
     "jupyter>=1.0.0",
     "airsim>=1.8.1",
     "msgpack-rpc-python>=0.4.1",
+    "backports.ssl_match_hostname",
 ]
 
 docs = [

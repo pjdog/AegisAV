@@ -53,6 +53,7 @@ class AirSimImageType(Enum):
 class AirSimCameraConfig:
     """Configuration for AirSim camera capture."""
 
+    host: str = "127.0.0.1"
     camera_name: str = "front_center"
     image_type: AirSimImageType = AirSimImageType.SCENE
     resolution: tuple[int, int] = (1920, 1080)
@@ -107,7 +108,7 @@ class AirSimBridge:
             logger.info("Connecting to AirSim...")
 
             # Create client and confirm connection
-            self.client = airsim.MultirotorClient()
+            self.client = airsim.MultirotorClient(ip=self.config.host)
             self.client.confirmConnection()
 
             # Enable API control

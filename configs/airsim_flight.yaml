@@ -1,0 +1,25 @@
+# AirSim Flight Control Configuration
+
+flight:
+  default_altitude_agl: 30.0    # meters above ground
+  default_velocity: 5.0          # m/s
+  max_velocity: 15.0             # m/s
+  takeoff_velocity: 2.0          # m/s (slower for safety)
+  landing_velocity: 1.5          # m/s
+
+inspection:
+  default_orbit_radius: 20.0     # meters
+  default_dwell_time: 30.0       # seconds
+  anomaly_dwell_multiplier: 2.0  # longer inspection for anomalies
+
+safety:
+  max_altitude_agl: 120.0        # meters (regulatory limit)
+  min_altitude_agl: 5.0          # meters (obstacle clearance)
+  geofence_radius: 500.0         # meters from home
+  emergency_land_on_disconnect: true
+
+reference:
+  # Default reference point (can be overridden by scenario)
+  latitude: 47.641468
+  longitude: -122.140165
+  altitude_msl: 0.0

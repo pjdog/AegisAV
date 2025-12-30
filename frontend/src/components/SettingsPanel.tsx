@@ -65,6 +65,11 @@ type SimulationConfig = {
 type AgentConfig = {
   use_llm: boolean;
   llm_model: string;
+  llm_provider: string;
+  llm_api_key_env: string | null;
+  llm_api_key: string | null;
+  llm_base_url_env: string | null;
+  llm_base_url: string | null;
   battery_warning_percent: number;
   battery_critical_percent: number;
   wind_warning_ms: number;
@@ -85,6 +90,11 @@ type DashboardConfig = {
 type ValidationResult = {
   valid: boolean;
   errors: string[];
+};
+
+type LlmTestResult = {
+  status: "success" | "error";
+  message: string;
 };
 
 const SECTION_TITLES: Record<keyof ConfigSection, string> = {
@@ -201,10 +211,16 @@ const SectionForm = ({
   section,
   data,
   onChange,
+  onTestLlm,
+  llmTest,
+  llmTesting = false,
 }: {
   section: keyof ConfigSection;
   data: Record<string, unknown>;
   onChange: (key: string, value: unknown) => void;
+  onTestLlm?: () => void;
+  llmTest?: LlmTestResult | null;
+  llmTesting?: boolean;
 }) => {
   switch (section) {
     case "server":
@@ -431,17 +447,67 @@ const SectionForm = ({
             onChange={(v) => onChange("use_llm", v)}
           />
           <SelectField
+            label="LLM Provider"
+            value={(data.llm_provider as string) || "openai"}
+            onChange={(v) => onChange("llm_provider", v)}
+            options={[
+              { value: "openai", label: "OpenAI" },
+              { value: "openrouter", label: "OpenRouter" },
+              { value: "custom", label: "Custom (OpenAI Compatible)" },
+              { value: "anthropic", label: "Anthropic" },
+              { value: "groq", label: "Groq" },
+              { value: "mistral", label: "Mistral" },
+              { value: "cohere", label: "Cohere" },
+              { value: "google", label: "Google" },
+              { value: "azure", label: "Azure OpenAI" },
+            ]}
+          />
+          <TextField
             label="LLM Model"
             value={data.llm_model as string}
             onChange={(v) => onChange("llm_model", v)}
-            options={[
-              { value: "gpt-4o-mini", label: "GPT-4o Mini" },
-              { value: "gpt-4o", label: "GPT-4o" },
-              { value: "gpt-4-turbo", label: "GPT-4 Turbo" },
-              { value: "claude-3-haiku-20240307", label: "Claude 3 Haiku" },
-              { value: "claude-3-sonnet-20240229", label: "Claude 3 Sonnet" },
-            ]}
+            placeholder="gpt-4o-mini or anthropic/claude-3.5-sonnet-latest"
           />
+          <TextField
+            label="API Key (optional)"
+            value={(data.llm_api_key as string) || ""}
+            type="password"
+            onChange={(v) => onChange("llm_api_key", v)}
+            placeholder="Use env vars for production"
+          />
+          <TextField
+            label="API Key Env"
+            value={(data.llm_api_key_env as string) || ""}
+            onChange={(v) => onChange("llm_api_key_env", v)}
+            placeholder="OPENROUTER_API_KEY"
+          />
+          <TextField
+            label="Base URL (optional)"
+            value={(data.llm_base_url as string) || ""}
+            onChange={(v) => onChange("llm_base_url", v)}
+            placeholder="https://openrouter.ai/api/v1"
+          />
+          <TextField
+            label="Base URL Env"
+            value={(data.llm_base_url_env as string) || ""}
+            onChange={(v) => onChange("llm_base_url_env", v)}
+            placeholder="OPENROUTER_BASE_URL"
+          />
+          <div className="llm-test-row">
+            <button
+              className="btn secondary"
+              type="button"
+              onClick={onTestLlm}
+              disabled={llmTesting || !onTestLlm}
+            >
+              {llmTesting ? "Testing..." : "Test Connection"}
+            </button>
+            {llmTest && (
+              <span className={`llm-test-status ${llmTest.status}`}>
+                {llmTest.message}
+              </span>
+            )}
+          </div>
           <SliderField
             label="Battery Warning"
             value={data.battery_warning_percent as number}
@@ -547,6 +613,8 @@ const SettingsPanel = ({ onClose }: { onClose: () => void }) => {
   const [saving, setSaving] = useState(false);
   const [validation, setValidation] = useState<ValidationResult | null>(null);
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const [llmTest, setLlmTest] = useState<LlmTestResult | null>(null);
+  const [llmTesting, setLlmTesting] = useState(false);
 
   const loadConfig = useCallback(async () => {
     try {
@@ -583,6 +651,10 @@ const SettingsPanel = ({ onClose }: { onClose: () => void }) => {
 
   const handleSectionChange = (key: string, value: unknown) => {
     if (!config) return;
+
+    if (activeSection === "agent") {
+      setLlmTest(null);
+    }
 
     setConfig({
       ...config,
@@ -669,6 +741,32 @@ const SettingsPanel = ({ onClose }: { onClose: () => void }) => {
     }
   };
 
+  const testLlmConnection = async () => {
+    if (!config) return;
+    try {
+      setLlmTesting(true);
+      setLlmTest(null);
+      const resp = await fetch("/api/llm/test", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(config.agent),
+      });
+      const data = await resp.json();
+      if (resp.ok) {
+        setLlmTest({ status: "success", message: data.message || "Connection OK" });
+      } else {
+        setLlmTest({
+          status: "error",
+          message: data.detail || data.message || "LLM test failed",
+        });
+      }
+    } catch {
+      setLlmTest({ status: "error", message: "LLM test failed" });
+    } finally {
+      setLlmTesting(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className="settings-overlay">
@@ -721,6 +819,9 @@ const SettingsPanel = ({ onClose }: { onClose: () => void }) => {
                 section={activeSection}
                 data={config[activeSection] as unknown as Record<string, unknown>}
                 onChange={handleSectionChange}
+                onTestLlm={activeSection === "agent" ? testLlmConnection : undefined}
+                llmTest={activeSection === "agent" ? llmTest : null}
+                llmTesting={activeSection === "agent" ? llmTesting : false}
               />
             )}
           </div>

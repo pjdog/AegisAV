@@ -636,6 +636,23 @@ class ScenarioRunner:
             "sensors_healthy": drone.sensors_healthy,
         }
 
+        # Include target asset info for flight execution
+        if goal.target_asset:
+            asset = goal.target_asset
+            # Extract lat/lon from asset.position (Asset class has position: Position)
+            position = getattr(asset, "position", None)
+            lat = getattr(position, "latitude", None) if position else None
+            lon = getattr(position, "longitude", None) if position else None
+            decision_record["target_asset"] = {
+                "asset_id": getattr(asset, "asset_id", None) or getattr(asset, "name", "unknown"),
+                "name": getattr(asset, "name", "unknown"),
+                "latitude": lat,
+                "longitude": lon,
+                "inspection_altitude_agl": getattr(asset, "inspection_altitude_agl", 30.0),
+                "orbit_radius_m": getattr(asset, "orbit_radius_m", 20.0),
+                "dwell_time_s": getattr(asset, "dwell_time_s", 30.0),
+            }
+
         self._log_entry(decision_record)
 
         logger.info(

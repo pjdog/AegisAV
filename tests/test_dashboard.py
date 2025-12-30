@@ -257,6 +257,13 @@ class TestDashboardRoutes:
         assert len(data["battery_series"]) == 2
         assert len(data["recent"]) == 2
 
+    @pytest.mark.asyncio
+    async def test_favicon_routes(self, client):
+        """Favicon endpoints should serve an icon when available."""
+        for path in ("/dashboard/aegis_logo.svg", "/aegis_logo.svg", "/favicon.ico"):
+            response = await client.get(path)
+            assert response.status_code == 200
+
 
 class TestScenarioRoutes:
     """Test scenario API routes."""

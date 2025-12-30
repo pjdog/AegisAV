@@ -15,7 +15,7 @@ The **Aegis Onyx Interface** is the primary command and control dashboard for th
 
 The dashboard follows the **[AegisAV Style Guide](../docs/STYLE_GUIDE.md)**, utilizing the "Dark Mode IO" aesthetic:
 - **Palette**: Void Black (`#09090B`) & Aegis Cyan (`#06b6d4`).
-- **Typography**: Space Grotesk (Headers) & IBM Plex Mono (Data).
+- **Typography**: Inter (Headers) & JetBrains Mono (Data).
 
 ## Development
 

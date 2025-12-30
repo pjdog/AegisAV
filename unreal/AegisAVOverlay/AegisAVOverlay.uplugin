@@ -1,0 +1,31 @@
+{
+    "FileVersion": 3,
+    "Version": 1,
+    "VersionName": "1.0.0",
+    "FriendlyName": "AegisAV Overlay",
+    "Description": "Native UMG overlay widgets for AegisAV drone simulation - displays agent thinking, camera feeds, telemetry, and critic evaluations",
+    "Category": "Simulation",
+    "CreatedBy": "AegisAV Team",
+    "CreatedByURL": "",
+    "DocsURL": "",
+    "MarketplaceURL": "",
+    "SupportURL": "",
+    "CanContainContent": true,
+    "IsBetaVersion": false,
+    "IsExperimentalVersion": false,
+    "Installed": false,
+    "EnabledByDefault": true,
+    "Modules": [
+        {
+            "Name": "AegisAVOverlay",
+            "Type": "Runtime",
+            "LoadingPhase": "Default"
+        }
+    ],
+    "Plugins": [
+        {
+            "Name": "WebSockets",
+            "Enabled": true
+        }
+    ]
+}

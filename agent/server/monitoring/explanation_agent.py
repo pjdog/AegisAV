@@ -8,8 +8,10 @@ import logging
 import time
 from datetime import datetime
 
-from pydantic_ai import Agent
-from pydantic_ai.models.openai import OpenAIModel
+try:
+    from pydantic_ai import Agent
+except ImportError:  # pragma: no cover - optional dependency
+    Agent = None
 
 from agent.server.decision import Decision
 from agent.server.models.audit_models import (
@@ -20,6 +22,7 @@ from agent.server.models.audit_models import (
 )
 from agent.server.models.critic_models import EscalationDecision
 from agent.server.monitoring.cost_tracker import CallDetails, estimate_tokens, get_cost_tracker
+from agent.server.llm_config import get_default_llm_model
 from agent.server.risk_evaluator import RiskAssessment
 from agent.server.world_model import WorldSnapshot
 
@@ -36,13 +39,13 @@ class ExplanationAgent:
     - Provide natural language explanations
     """
 
-    def __init__(self, llm_model: str = "gpt-4o-mini") -> None:
+    def __init__(self, llm_model: str | None = None) -> None:
         """Initialize explanation agent.
 
         Args:
             llm_model: LLM model to use for explanations
         """
-        self.llm_model = llm_model
+        self.llm_model = llm_model or get_default_llm_model()
         self.logger = logger
 
     async def generate_audit_trail(
@@ -261,9 +264,12 @@ class ExplanationAgent:
         Returns:
             Natural language explanation string
         """
-        model = OpenAIModel(self.llm_model)
+        if Agent is None:
+            self.logger.warning("pydantic_ai unavailable, returning fallback reasoning")
+            return decision.reasoning
+
         agent = Agent(
-            model,
+            self.llm_model,
             system_prompt="""You are an explainability AI for autonomous drone operations.
 
 Your role is to provide clear, concise explanations of decisions made by the drone agent.

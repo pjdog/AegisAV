@@ -1,13 +1,15 @@
-@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
 
 :root {
   color-scheme: dark;
+  --font-sans: "Inter", "SF Pro Display", "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", "Roboto Mono", monospace;
   --bg-deep: #09090B;
   --bg-onyx: #18181B;
-  --card-glass: rgba(24, 24, 27, 0.7);
-  --border-glass: rgba(255, 255, 255, 0.1);
+  --card-glass: rgba(39, 39, 42, 0.65);
+  --border-glass: rgba(39, 39, 42, 0.9);
   --text-primary: #FAFAFA;
-  --text-muted: #A1A1AA;
+  --text-muted: #52525B;
 
   /* Accents */
   --accent-cyber: #06b6d4;
@@ -15,7 +17,7 @@
   --accent-alert: #ef4444;
   --accent-warning: #f59e0b;
 
-  --shadow-glow: 0 0 20px rgba(0, 242, 255, 0.1);
+  --shadow-glow: 0 0 10px rgba(6, 182, 212, 0.5);
   --glass-blur: blur(12px);
 }
 
@@ -27,12 +29,12 @@
 
 body {
   margin: 0;
-  font-family: "Space Grotesk", sans-serif;
+  font-family: var(--font-sans);
   color: var(--text-primary);
   background-color: var(--bg-deep);
   background-image:
-    radial-gradient(circle at 0% 0%, rgba(0, 242, 255, 0.03) 0%, transparent 50%),
-    radial-gradient(circle at 100% 100%, rgba(0, 255, 157, 0.03) 0%, transparent 50%);
+    radial-gradient(circle at 0% 0%, rgba(6, 182, 212, 0.03) 0%, transparent 50%),
+    radial-gradient(circle at 100% 100%, rgba(16, 185, 129, 0.03) 0%, transparent 50%);
   min-height: 100vh;
   -webkit-font-smoothing: antialiased;
 }
@@ -89,9 +91,30 @@ h1 {
   max-width: 600px;
 }
 
-.hero-meta {
+.hero-controls {
   display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 320px;
+}
+
+.hero-meta {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
   gap: 12px;
+}
+
+.hero-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  justify-content: flex-end;
+  min-width: 220px;
+}
+
+.hero-link {
+  text-decoration: none;
 }
 
 .hero-card {
@@ -113,14 +136,14 @@ h1 {
 }
 
 .meta-value {
-  font-family: "IBM Plex Mono", monospace;
+  font-family: var(--font-mono);
   font-weight: 600;
   font-size: 0.9rem;
   color: var(--accent-cyber);
 }
 
 .meta-select {
-  font-family: "IBM Plex Mono", monospace;
+  font-family: var(--font-mono);
   font-weight: 600;
   font-size: 0.85rem;
   color: var(--text-primary);
@@ -136,7 +159,7 @@ h1 {
 }
 
 .meta-sub {
-  font-family: "IBM Plex Mono", monospace;
+  font-family: var(--font-mono);
   font-size: 0.75rem;
   color: var(--text-muted);
 }
@@ -169,12 +192,12 @@ h1 {
 }
 
 .card:hover {
-  border-color: rgba(0, 242, 255, 0.2);
+  border-color: rgba(6, 182, 212, 0.2);
 }
 
 .card.primary {
-  background: linear-gradient(145deg, rgba(0, 242, 255, 0.05), var(--card-glass));
-  border-color: rgba(0, 242, 255, 0.15);
+  background: linear-gradient(145deg, rgba(6, 182, 212, 0.05), var(--card-glass));
+  border-color: rgba(6, 182, 212, 0.15);
 }
 
 .fleet-section {
@@ -217,7 +240,7 @@ h1 {
 }
 
 .fleet-battery {
-  font-family: "IBM Plex Mono", monospace;
+  font-family: var(--font-mono);
   font-weight: 600;
   font-size: 0.95rem;
 }
@@ -258,7 +281,7 @@ h1 {
 }
 
 .fleet-value {
-  font-family: "IBM Plex Mono", monospace;
+  font-family: var(--font-mono);
   font-size: 0.8rem;
 }
 
@@ -285,7 +308,7 @@ h2 {
 }
 
 .pill {
-  background: rgba(0, 242, 255, 0.1);
+  background: rgba(6, 182, 212, 0.1);
   color: var(--accent-cyber);
   font-size: 10px;
   padding: 4px 10px;
@@ -293,7 +316,7 @@ h2 {
   text-transform: uppercase;
   letter-spacing: 0.1em;
   font-weight: 600;
-  border: 1px solid rgba(0, 242, 255, 0.2);
+  border: 1px solid rgba(6, 182, 212, 0.2);
 }
 
 .stat {
@@ -306,7 +329,7 @@ h2 {
 
 .stat.small {
   font-size: 1.2rem;
-  font-family: "IBM Plex Mono", monospace;
+  font-family: var(--font-mono);
   color: var(--accent-cyber);
 }
 
@@ -334,7 +357,7 @@ h2 {
 
 .chart-tag {
   font-size: 10px;
-  font-family: "IBM Plex Mono", monospace;
+  font-family: var(--font-mono);
   color: var(--text-muted);
   background: rgba(255, 255, 255, 0.05);
   padding: 2px 6px;
@@ -366,7 +389,7 @@ h2 {
 }
 
 .feed-time {
-  font-family: "IBM Plex Mono", monospace;
+  font-family: var(--font-mono);
   font-size: 0.75rem;
   color: var(--text-muted);
 }
@@ -422,7 +445,7 @@ h2 {
   background: #000;
   border-radius: 8px;
   padding: 16px;
-  font-family: "IBM Plex Mono", monospace;
+  font-family: var(--font-mono);
   font-size: 11px;
   height: 200px;
   overflow-y: auto;
@@ -475,7 +498,7 @@ h2 {
 .bar-label {
   font-size: 0.8rem;
   color: var(--text-muted);
-  font-family: "IBM Plex Mono", monospace;
+  font-family: var(--font-mono);
 }
 
 .bar-track {
@@ -488,7 +511,7 @@ h2 {
 .bar-fill {
   height: 100%;
   background: var(--accent-cyber);
-  box-shadow: 0 0 10px rgba(0, 242, 255, 0.3);
+  box-shadow: 0 0 10px rgba(6, 182, 212, 0.3);
 }
 
 @media (max-width: 1024px) {
@@ -529,7 +552,7 @@ h2 {
   max-height: 90vh;
   display: flex;
   flex-direction: column;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5), 0 0 40px rgba(0, 242, 255, 0.05);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5), 0 0 40px rgba(6, 182, 212, 0.05);
 }
 
 .settings-header {
@@ -591,8 +614,8 @@ h2 {
 }
 
 .nav-item.active {
-  background: rgba(0, 242, 255, 0.1);
-  border-color: rgba(0, 242, 255, 0.3);
+  background: rgba(6, 182, 212, 0.1);
+  border-color: rgba(6, 182, 212, 0.3);
   color: var(--accent-cyber);
 }
 
@@ -616,14 +639,14 @@ h2 {
 }
 
 .message.success {
-  background: rgba(0, 255, 157, 0.1);
-  border: 1px solid rgba(0, 255, 157, 0.3);
+  background: rgba(16, 185, 129, 0.1);
+  border: 1px solid rgba(16, 185, 129, 0.3);
   color: var(--accent-security);
 }
 
 .message.error {
-  background: rgba(255, 62, 62, 0.1);
-  border: 1px solid rgba(255, 62, 62, 0.3);
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.3);
   color: var(--accent-alert);
 }
 
@@ -632,7 +655,7 @@ h2 {
 }
 
 .validation-errors .error {
-  background: rgba(255, 62, 62, 0.05);
+  background: rgba(239, 68, 68, 0.05);
   padding: 8px 12px;
   border-radius: 6px;
   color: var(--accent-alert);
@@ -669,7 +692,7 @@ h2 {
   border-radius: 8px;
   padding: 10px 14px;
   color: var(--text-primary);
-  font-family: "IBM Plex Mono", monospace;
+  font-family: var(--font-mono);
   font-size: 0.85rem;
   width: 220px;
   transition: border-color 0.2s;
@@ -685,11 +708,36 @@ h2 {
   cursor: pointer;
 }
 
+.llm-test-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 0 4px;
+}
+
+.llm-test-row .btn {
+  padding: 8px 18px;
+  font-size: 0.8rem;
+}
+
+.llm-test-status {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+.llm-test-status.success {
+  color: var(--accent-security);
+}
+
+.llm-test-status.error {
+  color: var(--accent-alert);
+}
+
 .field-row.readonly code {
   background: rgba(255, 255, 255, 0.05);
   padding: 8px 12px;
   border-radius: 6px;
-  font-family: "IBM Plex Mono", monospace;
+  font-family: var(--font-mono);
   font-size: 0.85rem;
   color: var(--text-muted);
 }
@@ -724,11 +772,11 @@ h2 {
   background: var(--accent-cyber);
   border-radius: 50%;
   cursor: pointer;
-  box-shadow: 0 0 10px rgba(0, 242, 255, 0.5);
+  box-shadow: 0 0 10px rgba(6, 182, 212, 0.5);
 }
 
 .slider-value {
-  font-family: "IBM Plex Mono", monospace;
+  font-family: var(--font-mono);
   font-size: 0.85rem;
   color: var(--accent-cyber);
   min-width: 60px;
@@ -759,7 +807,7 @@ h2 {
 }
 
 .toggle.on {
-  background: rgba(0, 242, 255, 0.3);
+  background: rgba(6, 182, 212, 0.3);
 }
 
 .toggle-thumb {
@@ -773,7 +821,7 @@ h2 {
 .toggle.on .toggle-thumb {
   transform: translateX(24px);
   background: var(--accent-cyber);
-  box-shadow: 0 0 10px rgba(0, 242, 255, 0.5);
+  box-shadow: 0 0 10px rgba(6, 182, 212, 0.5);
 }
 
 .settings-footer {
@@ -793,13 +841,21 @@ h2 {
 }
 
 .btn {
-  padding: 12px 24px;
-  border-radius: 10px;
-  font-size: 0.9rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 10px 16px;
+  border-radius: 12px;
+  font-size: 0.85rem;
   font-family: inherit;
   font-weight: 500;
   cursor: pointer;
-  transition: all 0.2s;
+  border: 1px solid var(--border-glass);
+  background: rgba(6, 182, 212, 0.08);
+  color: var(--text-primary);
+  letter-spacing: 0.02em;
+  transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
 }
 
 .btn.primary {
@@ -810,7 +866,7 @@ h2 {
 
 .btn.primary:hover {
   transform: translateY(-2px);
-  box-shadow: 0 4px 20px rgba(0, 242, 255, 0.3);
+  box-shadow: 0 4px 20px rgba(6, 182, 212, 0.3);
 }
 
 .btn.primary:disabled {
@@ -820,35 +876,30 @@ h2 {
 }
 
 .btn.secondary {
-  background: transparent;
-  border: 1px solid var(--border-glass);
+  background: rgba(6, 182, 212, 0.08);
+  border-color: rgba(6, 182, 212, 0.35);
   color: var(--text-primary);
 }
 
 .btn.secondary:hover {
-  background: rgba(255, 255, 255, 0.05);
-  border-color: var(--accent-cyber);
+  transform: translateY(-1px);
+  box-shadow: 0 8px 18px rgba(6, 182, 212, 0.25);
+  border-color: rgba(6, 182, 212, 0.6);
+}
+
+.btn.icon {
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  font-size: 1.2rem;
 }
 
 /* Settings gear button */
 .settings-btn {
-  background: var(--card-glass);
-  border: 1px solid var(--border-glass);
   color: var(--text-muted);
-  width: 44px;
-  height: 44px;
-  border-radius: 12px;
-  cursor: pointer;
-  font-size: 1.3rem;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: all 0.2s;
 }
 
 .settings-btn:hover {
-  background: rgba(0, 242, 255, 0.1);
-  border-color: rgba(0, 242, 255, 0.3);
   color: var(--accent-cyber);
 }
 
@@ -922,16 +973,16 @@ h2 {
 
 .budget-fill.compute {
   background: linear-gradient(90deg, var(--accent-security), var(--accent-cyber));
-  box-shadow: 0 0 8px rgba(0, 242, 255, 0.4);
+  box-shadow: 0 0 8px rgba(6, 182, 212, 0.4);
 }
 
 .budget-fill.bandwidth {
   background: linear-gradient(90deg, var(--accent-warning), var(--accent-alert));
-  box-shadow: 0 0 8px rgba(255, 184, 0, 0.4);
+  box-shadow: 0 0 8px rgba(245, 158, 11, 0.4);
 }
 
 .budget-value {
-  font-family: "IBM Plex Mono", monospace;
+  font-family: var(--font-mono);
   font-size: 0.75rem;
   color: var(--accent-cyber);
   min-width: 40px;
@@ -965,7 +1016,7 @@ h2 {
   color: var(--accent-cyber);
   margin: 0 0 16px;
   padding-bottom: 8px;
-  border-bottom: 1px solid rgba(0, 242, 255, 0.15);
+  border-bottom: 1px solid rgba(6, 182, 212, 0.15);
 }
 
 .override-row {
@@ -998,7 +1049,7 @@ h2 {
   background: var(--accent-cyber);
   border-radius: 50%;
   cursor: pointer;
-  box-shadow: 0 0 8px rgba(0, 242, 255, 0.5);
+  box-shadow: 0 0 8px rgba(6, 182, 212, 0.5);
   transition: transform 0.1s;
 }
 
@@ -1013,11 +1064,11 @@ h2 {
   border-radius: 50%;
   cursor: pointer;
   border: none;
-  box-shadow: 0 0 8px rgba(0, 242, 255, 0.5);
+  box-shadow: 0 0 8px rgba(6, 182, 212, 0.5);
 }
 
 .override-value {
-  font-family: "IBM Plex Mono", monospace;
+  font-family: var(--font-mono);
   font-size: 0.75rem;
   color: var(--accent-cyber);
   text-align: right;
@@ -1061,4 +1112,308 @@ h2 {
   .override-row>span:first-child {
     font-size: 0.75rem;
   }
+}
+
+/* =============================================================================
+   Drone Camera Panel Styles
+   ============================================================================= */
+
+.drone-camera-panel {
+  background: var(--card-glass);
+  border: 1px solid var(--border-glass);
+  border-radius: 12px;
+  padding: 16px;
+  backdrop-filter: var(--glass-blur);
+}
+
+.camera-panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.camera-panel-header h2 {
+  font-size: 1rem;
+  font-weight: 600;
+  margin: 0;
+  color: var(--text-primary);
+}
+
+.camera-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent-alert);
+}
+
+.status-dot.connected {
+  background: var(--accent-security);
+  box-shadow: 0 0 8px var(--accent-security);
+}
+
+.stream-count {
+  background: var(--accent-cyber);
+  color: var(--bg-deep);
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-weight: 600;
+  font-size: 0.65rem;
+  text-transform: uppercase;
+}
+
+.camera-error {
+  background: rgba(239, 68, 68, 0.15);
+  border: 1px solid var(--accent-alert);
+  color: var(--accent-alert);
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-size: 0.8rem;
+  margin-bottom: 12px;
+}
+
+/* Main Camera View */
+.main-camera-view {
+  position: relative;
+  background: var(--bg-deep);
+  border-radius: 8px;
+  overflow: hidden;
+  aspect-ratio: 16 / 9;
+  margin-bottom: 12px;
+}
+
+.camera-image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.camera-image.main {
+  border-radius: 8px;
+}
+
+.camera-placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  gap: 12px;
+}
+
+.camera-placeholder.main {
+  min-height: 200px;
+}
+
+.camera-placeholder.thumbnail {
+  font-size: 0.7rem;
+}
+
+.camera-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  justify-content: space-between;
+  padding: 12px;
+  background: linear-gradient(to bottom, rgba(0, 0, 0, 0.7), transparent);
+  z-index: 10;
+}
+
+.camera-overlay .drone-name {
+  font-weight: 600;
+  font-size: 0.9rem;
+  color: var(--text-primary);
+}
+
+.camera-overlay .drone-state {
+  font-size: 0.75rem;
+  color: var(--accent-cyber);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.camera-overlay .drone-battery {
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  color: var(--accent-security);
+}
+
+.btn.stream-btn {
+  background: var(--accent-cyber);
+  color: var(--bg-deep);
+  border: none;
+  padding: 8px 16px;
+  border-radius: 6px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.btn.stream-btn:hover {
+  background: var(--text-primary);
+  box-shadow: var(--shadow-glow);
+}
+
+.btn.stop-btn {
+  position: absolute;
+  bottom: 12px;
+  right: 12px;
+  background: rgba(239, 68, 68, 0.8);
+  color: white;
+  border: none;
+  padding: 6px 12px;
+  border-radius: 4px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  cursor: pointer;
+  text-transform: uppercase;
+  z-index: 10;
+}
+
+.btn.stop-btn:hover {
+  background: var(--accent-alert);
+}
+
+/* Thumbnail Strip */
+.camera-thumbnails {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 8px;
+}
+
+.camera-thumbnail {
+  position: relative;
+  background: var(--bg-deep);
+  border: 2px solid var(--border-glass);
+  border-radius: 6px;
+  overflow: hidden;
+  aspect-ratio: 16 / 9;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.camera-thumbnail:hover {
+  border-color: var(--accent-cyber);
+  box-shadow: 0 0 12px rgba(6, 182, 212, 0.3);
+}
+
+.camera-thumbnail.streaming {
+  border-color: var(--accent-security);
+}
+
+.camera-thumbnail.streaming::after {
+  content: "LIVE";
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  background: var(--accent-alert);
+  color: white;
+  font-size: 0.55rem;
+  font-weight: 700;
+  padding: 2px 4px;
+  border-radius: 3px;
+  z-index: 10;
+}
+
+.thumbnail-overlay {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  padding: 4px 6px;
+  background: linear-gradient(to top, rgba(0, 0, 0, 0.8), transparent);
+  z-index: 5;
+}
+
+.thumbnail-overlay .drone-name {
+  font-size: 0.65rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.camera-image.thumbnail {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* Drone List (for many drones) */
+.drone-list {
+  margin-top: 16px;
+  border-top: 1px solid var(--border-glass);
+  padding-top: 12px;
+}
+
+.drone-list h3 {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  margin: 0 0 8px 0;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.drone-list-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+
+.drone-list-item:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.drone-list-item.selected {
+  background: rgba(6, 182, 212, 0.15);
+  border-left: 3px solid var(--accent-cyber);
+}
+
+.drone-list-item .drone-name {
+  flex: 1;
+  font-weight: 500;
+  font-size: 0.85rem;
+}
+
+.drone-list-item .drone-state {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+}
+
+.drone-list-item .drone-battery {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--accent-security);
+}
+
+.drone-list-item .streaming-indicator {
+  background: var(--accent-alert);
+  color: white;
+  font-size: 0.6rem;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 3px;
+  animation: pulse-live 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse-live {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
 }

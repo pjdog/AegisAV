@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -227,12 +227,44 @@ def add_dashboard_routes(app: FastAPI, log_dir: Path, store: Any = None) -> None
     repo_root = Path(__file__).resolve().parents[2]
     dist_dir = repo_root / "frontend" / "dist"
     assets_dir = dist_dir / "assets"
+    public_favicon = repo_root / "frontend" / "public" / "aegis_logo.svg"
     if assets_dir.exists():
         app.mount("/dashboard/assets", StaticFiles(directory=assets_dir), name="dashboard-assets")
 
-    @app.get("/dashboard", response_class=HTMLResponse)
-    async def dashboard() -> HTMLResponse:
-        """Serve the dashboard HTML page."""
+    def _resolve_favicon() -> Path | None:
+        favicon = dist_dir / "aegis_logo.svg"
+        if favicon.exists():
+            return favicon
+        if public_favicon.exists():
+            return public_favicon
+        return None
+
+    @app.get("/dashboard/aegis_logo.svg")
+    async def dashboard_favicon() -> FileResponse:
+        """Serve dashboard favicon."""
+        favicon = _resolve_favicon()
+        if favicon:
+            return FileResponse(favicon, media_type="image/svg+xml")
+        raise HTTPException(status_code=404, detail="Favicon not found")
+
+    @app.get("/aegis_logo.svg")
+    async def root_favicon() -> FileResponse:
+        """Serve root favicon for non-dashboard pages."""
+        favicon = _resolve_favicon()
+        if favicon:
+            return FileResponse(favicon, media_type="image/svg+xml")
+        raise HTTPException(status_code=404, detail="Favicon not found")
+
+    @app.get("/favicon.ico")
+    async def legacy_favicon() -> FileResponse:
+        """Serve a legacy favicon path (serves SVG, browsers handle it)."""
+        favicon = _resolve_favicon()
+        if favicon:
+            return FileResponse(favicon, media_type="image/svg+xml")
+        raise HTTPException(status_code=404, detail="Favicon not found")
+
+    def _serve_dashboard_html() -> HTMLResponse:
+        """Serve the dashboard index.html."""
         dist_index = dist_dir / "index.html"
         if dist_index.exists():
             return HTMLResponse(dist_index.read_text(encoding="utf-8"))
@@ -240,6 +272,16 @@ def add_dashboard_routes(app: FastAPI, log_dir: Path, store: Any = None) -> None
             "<html><body><h1>Dashboard build missing.</h1>"
             "<p>Run the frontend build to generate /frontend/dist.</p></body></html>"
         )
+
+    @app.get("/dashboard", response_class=HTMLResponse)
+    async def dashboard() -> HTMLResponse:
+        """Serve the dashboard HTML page."""
+        return _serve_dashboard_html()
+
+    @app.get("/dashboard/", response_class=HTMLResponse)
+    async def dashboard_trailing() -> HTMLResponse:
+        """Serve the dashboard HTML page (with trailing slash)."""
+        return _serve_dashboard_html()
 
     @app.get("/api/dashboard/runs", response_class=JSONResponse)
     async def list_runs() -> JSONResponse:

@@ -4,79 +4,50 @@ FastAPI-based HTTP server providing the decision-making API.
 The agent client sends vehicle state and receives decisions.
 """
 
+from __future__ import annotations
+
 import asyncio
 import logging
-from collections.abc import AsyncGenerator
-from contextlib import asynccontextmanager
-from datetime import datetime
+import os
+import platform
 from pathlib import Path
 
 import structlog
 import uvicorn
-import yaml
-from pydantic import ValidationError
+from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 try:
     import logfire
 except ImportError:  # pragma: no cover - optional dependency
     logfire = None
-from fastapi import Depends, FastAPI, HTTPException, Response, WebSocket, WebSocketDisconnect
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
 
-from agent.api_models import ActionType, DecisionResponse, HealthResponse, VehicleStateRequest
-from agent.edge_config import (
-    EdgeComputeProfile,
-    apply_edge_compute_update,
-    available_edge_profiles,
-    default_edge_compute_config,
+from agent.server.api_airsim import register_airsim_routes
+from agent.server.api_config import register_config_routes
+from agent.server.api_decision import register_decision_routes
+from agent.server.api_scenarios import register_scenario_routes
+from agent.server.api_telemetry import register_telemetry_routes
+from agent.server.api_vision import register_vision_routes
+from agent.server.airsim_support import (
+    _airsim_bridge_connected,
+    _airsim_launch_supported,
+    _apply_airsim_environment,
+    _env_changed,
+    _launch_airsim_process,
+    _map_scenario_environment,
+    _schedule_airsim_connect,
+    _sync_airsim_scene as _sync_airsim_scene_impl,
+    broadcast_dock_state,
+    broadcast_scenario_scene,
 )
-from agent.server.auth import APIKeyAuth, get_auth_config
 from agent.server.config_manager import get_config_manager
-from agent.server.critics import AuthorityModel, CriticOrchestrator
 from agent.server.dashboard import add_dashboard_routes
-from agent.server.decision import Decision
-from agent.server.events import Event, EventSeverity, EventType
-from agent.server.feedback_store import (
-    get_feedback_for_decision,
-    get_outcome_for_decision,
-    get_recent_feedback,
-    get_recent_outcomes,
-    persist_feedback,
-)
-from agent.server.goal_selector import GoalSelector
-from agent.server.goals import Goal, GoalType
-from agent.server.models import DecisionFeedback
-from agent.server.monitoring import OutcomeTracker
-from agent.server.persistence import RedisConfig, create_store
-from agent.server.risk_evaluator import RiskAssessment, RiskEvaluator, RiskThresholds
-from agent.server.scenarios import (
-    Scenario,
-    ScenarioCategory,
-    get_all_scenarios,
-    get_scenario,
-    get_scenarios_by_category,
-    get_scenarios_by_difficulty,
-)
-from agent.server.unreal_stream import (
-    CognitiveLevel as UnrealCognitiveLevel,
-)
-from agent.server.unreal_stream import (
-    CriticVerdict,
-    add_unreal_routes,
-    thinking_tracker,
-    unreal_manager,
-)
-from agent.server.vision.vision_service import VisionService, VisionServiceConfig
-from agent.server.world_model import DockStatus, WorldModel, WorldSnapshot
-from autonomy.vehicle_state import (
-    Position,
-)
-from metrics.logger import DecisionLogContext, DecisionLogger
-from metrics.telemetry_logger import TelemetryLogger
-from vision.data_models import DetectionResult
+from agent.server.lifecycle import lifespan
+from agent.server.scenarios import get_scenario
+from agent.server.state import scenario_run_state, server_state
+from agent.server.unreal_stream import add_unreal_routes, unreal_manager
 
-# Configure structured logging
 structlog.configure(
     processors=[
         structlog.stdlib.filter_by_level,
@@ -98,307 +69,51 @@ structlog.configure(
 logger = structlog.get_logger(__name__)
 
 
-class DecisionQueueManager:
-    """Async decision queues keyed by vehicle ID."""
-
-    def __init__(self, maxsize: int = 100) -> None:
-        """Initialize the queue manager."""
-        self._queues: dict[str, asyncio.Queue[DecisionResponse]] = {}
-        self._maxsize = maxsize
-
-    def _get_queue(self, vehicle_id: str) -> asyncio.Queue[DecisionResponse]:
-        if vehicle_id not in self._queues:
-            self._queues[vehicle_id] = asyncio.Queue(maxsize=self._maxsize)
-        return self._queues[vehicle_id]
-
-    async def put(self, vehicle_id: str, decision: DecisionResponse) -> None:
-        """Enqueue a decision for a vehicle, dropping oldest if full."""
-        queue = self._get_queue(vehicle_id)
-        if queue.full():
-            try:
-                queue.get_nowait()
-            except asyncio.QueueEmpty:
-                pass
-        await queue.put(decision)
-
-    async def get(self, vehicle_id: str, timeout_s: float) -> DecisionResponse | None:
-        """Await next decision for a vehicle."""
-        queue = self._get_queue(vehicle_id)
-        try:
-            return await asyncio.wait_for(queue.get(), timeout=timeout_s)
-        except asyncio.TimeoutError:
-            return None
-
-
-# Global state
-class ServerState:
-    """Container for server-wide state and shared services."""
-
-    # pylint: disable=too-many-instance-attributes
-    def __init__(self) -> None:
-        """Initialize the ServerState."""
-        self.world_model = WorldModel()
-        self.goal_selector = GoalSelector()
-        self.risk_evaluator = RiskEvaluator()
-        self.start_time = datetime.now()
-        self.decisions_made = 0
-        self.last_decision: Decision | None = None
-        self.config: dict = {}
-        self.log_dir = Path(__file__).resolve().parents[2] / "logs"
-        self.decision_logger = DecisionLogger(self.log_dir)
-        self.telemetry_logger = TelemetryLogger(self.log_dir)
-        self.current_run_id: str | None = None
-
-        # Phase 2: Multi-agent critics
-        self.critic_orchestrator = CriticOrchestrator(authority_model=AuthorityModel.ESCALATION)
-        self.outcome_tracker = OutcomeTracker(log_dir=self.log_dir / "outcomes")
-
-        # Phase 3: Vision system
-        self.vision_service = None  # Initialized in lifespan if enabled
-        self.vision_enabled = False
-
-        # Edge compute simulation profile (client reads this config)
-        self.edge_config = default_edge_compute_config(EdgeComputeProfile.SBC_CPU)
-
-        # Phase 4: Persistence (Redis)
-        self.store = None  # Initialized in lifespan
-        self.persistence_enabled = False
-
-        # Async decision queue for long-polling clients
-        self.decision_queue = DecisionQueueManager()
-
-        # Telemetry cache for dashboard access
-        self.known_vehicles: set[str] = set()
-        self.latest_telemetry: dict[str, dict] = {}
-
-    def load_config(self, config_path: Path) -> None:
-        """Load configuration from YAML file.
-
-        Args:
-            config_path: Path to the YAML configuration file.
-        """
-        if config_path.exists():
-            with open(config_path, encoding="utf-8") as f:
-                self.config = yaml.safe_load(f)
-            logger.info("config_loaded", path=str(config_path))
-
-    def load_mission(self, mission_path: Path) -> None:
-        """Load mission configuration.
-
-        Args:
-            mission_path: Path to the mission configuration file.
-        """
-        if mission_path.exists():
-            with open(mission_path, encoding="utf-8") as f:
-                mission_config = yaml.safe_load(f)
-
-            # Load assets
-            self.world_model.load_assets_from_config(mission_config)
-
-            # Set dock position
-            dock_config = mission_config.get("dock", {})
-            pos = dock_config.get("position", {})
-            if pos:
-                self.world_model.set_dock(
-                    position=Position(
-                        latitude=pos.get("latitude", 0),
-                        longitude=pos.get("longitude", 0),
-                        altitude_msl=pos.get("altitude_m", 0),
-                    ),
-                    status=DockStatus.AVAILABLE,
-                )
-
-            logger.info("mission_loaded", path=str(mission_path))
-
-
-server_state = ServerState()
-
-
-# WebSocket connection manager for real-time event broadcasting
-class ConnectionManager:
-    """Manages WebSocket connections for real-time dashboard updates."""
-
-    def __init__(self) -> None:
-        """Initialize the ConnectionManager."""
-        self.active_connections: set[WebSocket] = set()
-
-    async def connect(self, websocket: WebSocket) -> None:
-        """Accept and track a new WebSocket connection.
-
-        Args:
-            websocket: WebSocket connection to accept.
-        """
-        await websocket.accept()
-        self.active_connections.add(websocket)
-        logger.info("websocket_connected", total_connections=len(self.active_connections))
-
-    def disconnect(self, websocket: WebSocket) -> None:
-        """Remove a WebSocket connection.
-
-        Args:
-            websocket: WebSocket connection to remove.
-        """
-        self.active_connections.discard(websocket)
-        logger.info("websocket_disconnected", total_connections=len(self.active_connections))
-
-    async def broadcast(self, event: Event) -> None:
-        """Broadcast event to all connected clients.
-
-        Args:
-            event: Event to broadcast to all connections.
-        """
-        message = event.model_dump(mode="json")
-        disconnected = set()
-
-        for connection in self.active_connections:
-            try:
-                await connection.send_json(message)
-            except Exception as e:
-                logger.warning("websocket_send_failed", error=str(e))
-                disconnected.add(connection)
-
-        # Clean up failed connections
-        for conn in disconnected:
-            self.disconnect(conn)
-
-
-connection_manager = ConnectionManager()
-
-
-@asynccontextmanager
-async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
-    """Application lifespan handler.
-
-    Args:
-        _app: FastAPI application instance.
-
-    Yields:
-        None after startup, resumes for shutdown.
-    """
-    await asyncio.sleep(0)
-    # Startup
-    config_dir = Path(__file__).parent.parent.parent.parent / "configs"
-
-    server_state.load_config(config_dir / "agent_config.yaml")
-    server_state.load_mission(config_dir / "mission_config.yaml")
-
-    # Load risk thresholds
-    risk_path = config_dir / "risk_thresholds.yaml"
-    if risk_path.exists():
-        with open(risk_path, encoding="utf-8") as f:
-            risk_config = yaml.safe_load(f)
-
-        thresholds = RiskThresholds(
-            battery_warning_percent=risk_config.get("battery", {}).get("warning_percent", 30),
-            battery_critical_percent=risk_config.get("battery", {}).get("abort_percent", 15),
-            wind_warning_ms=risk_config.get("wind", {}).get("warning_ms", 8),
-            wind_abort_ms=risk_config.get("wind", {}).get("abort_ms", 12),
-        )
-        server_state.risk_evaluator = RiskEvaluator(thresholds)
-
-    # Initialize vision service if enabled
-    vision_config_path = config_dir / "vision_config.yaml"
-    if vision_config_path.exists():
-        with open(vision_config_path, encoding="utf-8") as f:
-            vision_config = yaml.safe_load(f)
-
-        vision_enabled = vision_config.get("vision", {}).get("enabled", False)
-        if vision_enabled:
-            # Vision is explicitly enabled - fail loudly if it doesn't work
-            try:
-                vision_service_config = VisionServiceConfig(
-                    confidence_threshold=vision_config.get("vision", {})
-                    .get("server", {})
-                    .get("detection", {})
-                    .get("confidence_threshold", 0.7),
-                    severity_threshold=vision_config.get("vision", {})
-                    .get("server", {})
-                    .get("detection", {})
-                    .get("severity_threshold", 0.4),
-                )
-                server_state.vision_service = VisionService(
-                    world_model=server_state.world_model,
-                    config=vision_service_config,
-                )
-
-                # Initialize vision service
-                await server_state.vision_service.initialize()
-                server_state.vision_enabled = True
-                logger.info("vision_service_initialized")
-
-            except Exception as e:
-                raise RuntimeError(
-                    f"Vision system initialization failed: {e}. "
-                    "Set vision.enabled=false in config to disable vision."
-                ) from e
-        else:
-            logger.info("vision_config_disabled", message="Vision system disabled in config")
-    else:
-        logger.info(
-            "vision_config_not_found", message="Vision config file not found, vision disabled"
-        )
-
-    # Initialize persistence based on config
+async def get_airsim_status() -> dict:
     config = get_config_manager().config
-    if config.redis.enabled:
-        # Redis is explicitly enabled - fail loudly if it doesn't work
-        try:
-            telemetry_ttl = max(0, int(config.redis.telemetry_ttl_hours) * 3600)
-            detection_ttl = max(0, int(config.redis.detection_ttl_days) * 86400)
-            anomaly_ttl = max(0, int(config.redis.anomaly_ttl_days) * 86400)
-            mission_ttl = max(0, int(config.redis.mission_ttl_days) * 86400)
-            redis_config = RedisConfig(
-                host=config.redis.host,
-                port=config.redis.port,
-                db=config.redis.db,
-                password=config.redis.password,
-                telemetry_ttl=telemetry_ttl,
-                detection_ttl=detection_ttl,
-                anomaly_ttl=anomaly_ttl,
-                mission_ttl=mission_ttl,
-            )
-            server_state.store = create_store(redis_config)
-            connected = await server_state.store.connect()
-            if connected:
-                server_state.persistence_enabled = True
-                logger.info("persistence_initialized", type="redis", host=config.redis.host)
-            else:
-                raise RuntimeError(
-                    f"Redis connection failed to {config.redis.host}:{config.redis.port}. "
-                    "Set redis.enabled=false in config to use in-memory storage."
-                )
-        except Exception as e:
-            raise RuntimeError(
-                f"Redis persistence failed: {e}. "
-                "Set redis.enabled=false in config to use in-memory storage."
-            ) from e
-    else:
-        # Redis disabled - use in-memory (this is expected, not a fallback)
-        from agent.server.persistence import InMemoryStore  # noqa: PLC0415
+    connect_task = server_state.airsim_connect_task
+    bridge = server_state.airsim_bridge
+    return {
+        "enabled": config.simulation.airsim_enabled,
+        "host": config.simulation.airsim_host,
+        "vehicle_name": config.simulation.airsim_vehicle_name,
+        "bridge_connected": _airsim_bridge_connected(),
+        "connecting": bool(connect_task and not connect_task.done()),
+        "launch_supported": _airsim_launch_supported(),
+        "last_error": server_state.airsim_last_error,
+        "vehicles": getattr(bridge, "vehicle_names", []),
+    }
 
-        server_state.store = InMemoryStore()
-        await server_state.store.connect()
-        server_state.persistence_enabled = False
-        logger.info("persistence_initialized", type="in_memory", reason="redis_disabled")
 
-    server_state.current_run_id = server_state.decision_logger.start_run()
-    server_state.telemetry_logger.start_run(server_state.current_run_id)
-    logger.info("server_started")
+async def start_airsim() -> dict:
+    config = get_config_manager().config
+    if not config.simulation.airsim_enabled:
+        raise HTTPException(
+            status_code=409,
+            detail="AirSim integration is disabled. Enable it in Settings -> Simulation.",
+        )
 
-    yield
+    launch_supported, launch_started, launch_message = _launch_airsim_process()
+    if not launch_started:
+        server_state.airsim_last_error = launch_message
+    _schedule_airsim_connect()
 
-    # Shutdown
-    if server_state.vision_service:
-        await server_state.vision_service.shutdown()
-        logger.info("vision_service_shutdown")
+    return {
+        "launch_supported": launch_supported,
+        "launch_started": launch_started,
+        "launch_message": launch_message,
+        "bridge_connected": _airsim_bridge_connected(),
+        "connecting": True,
+    }
 
-    if server_state.store:
-        await server_state.store.disconnect()
-        logger.info("persistence_shutdown")
 
-    server_state.decision_logger.end_run()
-    server_state.telemetry_logger.end_run()
-    logger.info("server_stopped")
+async def _sync_airsim_scene(scenario, wait_for_connect: bool = False) -> dict:
+    config = get_config_manager().config
+    return await _sync_airsim_scene_impl(
+        scenario,
+        wait_for_connect=wait_for_connect,
+        config_override=config,
+    )
 
 
 app = FastAPI(
@@ -408,213 +123,18 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# Dashboard routes
-add_dashboard_routes(app, server_state.log_dir)
+# Dashboard routes - use scenarios subdirectory where scenario decision logs are saved
+add_dashboard_routes(app, server_state.log_dir / "scenarios")
 
 # Unreal real-time streaming routes
 add_unreal_routes(app)
 
-# Serve overlay static files for OBS Browser Source
-overlay_dir = Path(__file__).resolve().parents[2] / "overlay"
-if overlay_dir.exists():
-    app.mount("/overlay", StaticFiles(directory=str(overlay_dir), html=True), name="overlay")
-    logger.info("overlay_mounted", path=str(overlay_dir))
-
-# API Authentication
-auth_handler = APIKeyAuth(config_provider=get_auth_config)
-
-
-@app.websocket("/ws")
-async def websocket_endpoint(websocket: WebSocket) -> None:
-    """WebSocket endpoint for real-time event broadcasting to dashboard.
-
-    Args:
-        websocket: WebSocket connection from client.
-    """
-    await connection_manager.connect(websocket)
-    try:
-        # Keep connection alive and receive ping/pong messages
-        while True:
-            await websocket.receive_text()
-    except WebSocketDisconnect:
-        connection_manager.disconnect(websocket)
-    except Exception as e:
-        logger.error("websocket_error", error=str(e))
-        connection_manager.disconnect(websocket)
-
-
-@app.get("/api/config/agent")
-async def get_agent_config() -> dict:
-    """Return the current agent orchestration configuration.
-
-    Returns:
-        Dictionary with advanced engine state.
-    """
-    return {
-        "use_advanced_engine": server_state.goal_selector.use_advanced_engine,
-        "is_initialized": server_state.goal_selector.advanced_engine is not None,
-    }
-
-
-@app.post("/api/config/agent")
-async def update_agent_config(config: dict) -> dict:
-    """Update agent orchestration configuration.
-
-    Args:
-        config: Configuration dictionary with use_advanced_engine flag.
-
-    Returns:
-        Status dictionary with updated configuration.
-    """
-    enabled = config.get("use_advanced_engine", True)
-    await server_state.goal_selector.orchestrate(enabled)
-    return {"status": "success", "use_advanced_engine": enabled}
-
-
-@app.get("/api/config/edge")
-async def get_edge_config() -> dict:
-    """Return the current edge compute simulation configuration.
-
-    Returns:
-        Dictionary with edge configuration and available profiles.
-    """
-    return {
-        "edge_config": server_state.edge_config.model_dump(mode="json"),
-        "profiles": available_edge_profiles(),
-    }
-
-
-@app.post("/api/config/edge")
-async def update_edge_config(config: dict) -> dict:
-    """Update edge compute simulation configuration (supports partial updates).
-
-    Args:
-        config: Partial or full edge configuration dictionary.
-
-    Returns:
-        Status dictionary with updated edge configuration.
-    """
-    try:
-        server_state.edge_config = apply_edge_compute_update(server_state.edge_config, config)
-    except ValidationError as e:
-        raise HTTPException(status_code=422, detail=e.errors()) from e
-    except (TypeError, ValueError) as e:
-        raise HTTPException(status_code=400, detail=str(e)) from e
-
-    return {"status": "success", "edge_config": server_state.edge_config.model_dump(mode="json")}
-
-
-if logfire:
-    try:
-        logfire.configure(send_to_logfire=False)  # Local only for now
-        logfire.instrument_fastapi(app)
-    except (ImportError, RuntimeError) as e:
-        # Missing optional opentelemetry-instrumentation-fastapi
-        logging.getLogger(__name__).warning(f"Logfire instrumentation disabled: {e}")
-
-
-# In-memory log buffer for frontend access
-class LogBufferHandler(logging.Handler):
-    """Ring buffer log handler for dashboard access."""
-
-    def __init__(self, capacity: int = 50) -> None:
-        """Initialize the LogBufferHandler.
-
-        Args:
-            capacity: Maximum number of log entries to retain.
-        """
-        super().__init__()
-        self.capacity = capacity
-        self.buffer: list[dict] = []
-
-    def emit(self, record: logging.LogRecord) -> None:
-        """Store formatted log records in a bounded in-memory buffer.
-
-        Args:
-            record: Log record to store.
-        """
-        try:
-            log_entry = {
-                "timestamp": datetime.fromtimestamp(record.created).isoformat(),
-                "level": record.levelname,
-                "name": record.name,
-                "message": self.format(record),
-            }
-            self.buffer.append(log_entry)
-            if len(self.buffer) > self.capacity:
-                self.buffer.pop(0)
-        except Exception:
-            self.handleError(record)
-
-
-log_buffer = LogBufferHandler()
-logging.getLogger().addHandler(log_buffer)
-
-
-@app.get("/api/logs")
-async def get_logs() -> dict:
-    """Return the recent log buffer for the dashboard.
-
-    Returns:
-        Dictionary containing list of recent log entries.
-    """
-    return {"logs": log_buffer.buffer}
-
-
-@app.get("/api/telemetry/latest")
-async def get_latest_telemetry(vehicle_id: str | None = None) -> dict:
-    """Get the latest telemetry for a vehicle or all known vehicles."""
-    if vehicle_id:
-        payload = server_state.latest_telemetry.get(vehicle_id)
-        if payload is None and server_state.store:
-            payload = await server_state.store.get_latest_telemetry(vehicle_id)
-        if payload is None:
-            raise HTTPException(status_code=404, detail="Telemetry not found")
-        return {"vehicle_id": vehicle_id, "telemetry": payload}
-
-    vehicle_ids = sorted(server_state.known_vehicles)
-    items: list[dict] = []
-    for vid in vehicle_ids:
-        payload = server_state.latest_telemetry.get(vid)
-        if payload is None and server_state.store:
-            payload = await server_state.store.get_latest_telemetry(vid)
-        if payload is not None:
-            items.append({"vehicle_id": vid, "telemetry": payload})
-
-    return {"vehicles": items, "count": len(items)}
-
-
-@app.get("/api/dashboard/feedback")
-async def get_dashboard_feedback(limit: int = 50) -> dict:
-    """Get the most recent decision feedback entries."""
-    feedback = await get_recent_feedback(server_state.store, limit=limit)
-    return {"feedback": feedback, "count": len(feedback)}
-
-
-@app.get("/api/dashboard/feedback/{decision_id}")
-async def get_dashboard_feedback_for_decision(decision_id: str) -> dict:
-    """Get the latest feedback for a decision."""
-    feedback = await get_feedback_for_decision(server_state.store, decision_id)
-    if feedback is None:
-        raise HTTPException(status_code=404, detail="Feedback not found")
-    return {"feedback": feedback}
-
-
-@app.get("/api/dashboard/outcomes")
-async def get_dashboard_outcomes(limit: int = 50) -> dict:
-    """Get the most recent decision outcomes."""
-    outcomes = await get_recent_outcomes(server_state.store, limit=limit)
-    return {"outcomes": outcomes, "count": len(outcomes)}
-
-
-@app.get("/api/dashboard/outcomes/{decision_id}")
-async def get_dashboard_outcome_for_decision(decision_id: str) -> dict:
-    """Get the latest outcome for a decision."""
-    outcome = await get_outcome_for_decision(server_state.store, decision_id)
-    if outcome is None:
-        raise HTTPException(status_code=404, detail="Outcome not found")
-    return {"outcome": outcome}
-
+register_airsim_routes(app)
+register_config_routes(app)
+register_decision_routes(app)
+register_scenario_routes(app)
+register_telemetry_routes(app)
+register_vision_routes(app)
 
 # CORS middleware
 app.add_middleware(
@@ -625,1152 +145,44 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-
-@app.get("/health", response_model=HealthResponse)
-async def health_check() -> HealthResponse:
-    """Check server health status.
-
-    Returns:
-        HealthResponse with uptime and decision count.
-    """
-    uptime = (datetime.now() - server_state.start_time).total_seconds()
-
-    last_update = None
-    update_time = server_state.world_model.time_since_update()
-    if update_time:
-        last_update = (datetime.now() - update_time).isoformat()
-
-    return HealthResponse(
-        status="healthy",
-        uptime_seconds=uptime,
-        last_state_update=last_update,
-        decisions_made=server_state.decisions_made,
-    )
-
-
-@app.get("/api/storage/stats")
-async def get_storage_stats(_auth: dict = Depends(auth_handler)) -> dict:
-    """Get storage statistics (requires API key).
-
-    Returns:
-        Dictionary with storage connection and count statistics.
-    """
-    if server_state.store:
-        stats = await server_state.store.get_stats()
-        stats["persistence_enabled"] = server_state.persistence_enabled
-        return stats
-    return {"connected": False, "persistence_enabled": False}
-
-
-@app.get("/api/storage/anomalies")
-async def get_stored_anomalies(limit: int = 50, _auth: dict = Depends(auth_handler)) -> dict:
-    """Get recent anomalies from storage.
-
-    Args:
-        limit: Maximum number of anomalies to return.
-
-    Returns:
-        Dictionary with anomalies list and count.
-    """
-    if server_state.store:
-        anomalies = await server_state.store.get_recent_anomalies(limit=limit)
-        return {"anomalies": anomalies, "count": len(anomalies)}
-    return {"anomalies": [], "count": 0}
-
-
-@app.get("/api/storage/missions")
-async def get_stored_missions(limit: int = 20, _auth: dict = Depends(auth_handler)) -> dict:
-    """Get recent missions from storage.
-
-    Args:
-        limit: Maximum number of missions to return.
-
-    Returns:
-        Dictionary with missions list and count.
-    """
-    if server_state.store:
-        missions = await server_state.store.get_recent_missions(limit=limit)
-        return {"missions": missions, "count": len(missions)}
-    return {"missions": [], "count": 0}
-
-
-# Configuration API Endpoints
-@app.get("/api/config")
-async def get_all_config(_auth: dict = Depends(auth_handler)) -> dict:
-    """Get complete configuration.
-
-    Returns:
-        Dictionary with full configuration and metadata.
-    """
-    config_manager = get_config_manager()
-    return {
-        "config": config_manager.get_all(),
-        "config_file": str(config_manager.config_file),
-        "loaded": config_manager._loaded,
-    }
-
-
-@app.get("/api/config/{section}")
-async def get_config_section(section: str, _auth: dict = Depends(auth_handler)) -> dict:
-    """Get a specific configuration section.
-
-    Args:
-        section: Configuration section name.
-
-    Returns:
-        Dictionary with section name and configuration data.
-    """
-    config_manager = get_config_manager()
-    section_data = config_manager.get_section(section)
-
-    if section_data is None:
-        raise HTTPException(
-            status_code=404,
-            detail=f"Unknown configuration section: {section}. "
-            f"Valid sections: server, redis, auth, vision, simulation, agent, dashboard",
-        )
-
-    return {"section": section, "config": section_data}
-
-
-@app.put("/api/config/{section}")
-async def update_config_section(
-    section: str, values: dict, _auth: dict = Depends(auth_handler)
-) -> dict:
-    """Update a configuration section.
-
-    Args:
-        section: Configuration section name.
-        values: New values for the section.
-
-    Returns:
-        Dictionary with update status and new configuration.
-    """
-    config_manager = get_config_manager()
-
-    # Validate section exists
-    if not hasattr(config_manager.config, section):
-        raise HTTPException(
-            status_code=404,
-            detail=f"Unknown configuration section: {section}",
-        )
-
-    # Update section
-    success = config_manager.update_section(section, values)
-    if not success:
-        raise HTTPException(status_code=400, detail="Failed to update configuration")
-
-    # Validate new config
-    errors = config_manager.validate()
-    if errors:
-        # Roll back by reloading
-        config_manager.load()
-        raise HTTPException(
-            status_code=400,
-            detail=f"Configuration validation failed: {', '.join(errors)}",
-        )
-
-    return {
-        "status": "updated",
-        "section": section,
-        "config": config_manager.get_section(section),
-    }
-
-
-@app.post("/api/config/save")
-async def save_config(_auth: dict = Depends(auth_handler)) -> dict:
-    """Save current configuration to file.
-
-    Returns:
-        Dictionary with save status and file path.
-    """
-    config_manager = get_config_manager()
-
-    # Validate before saving
-    errors = config_manager.validate()
-    if errors:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Configuration validation failed: {', '.join(errors)}",
-        )
-
-    success = config_manager.save()
-    if not success:
-        raise HTTPException(status_code=500, detail="Failed to save configuration")
-
-    return {"status": "saved", "path": str(config_manager.config_file)}
-
-
-@app.post("/api/config/reload")
-async def reload_config(_auth: dict = Depends(auth_handler)) -> dict:
-    """Reload configuration from file.
-
-    Returns:
-        Dictionary with reload status and configuration.
-    """
-    config_manager = get_config_manager()
-    config_manager.load()
-    return {"status": "reloaded", "config": config_manager.get_all()}
-
-
-@app.post("/api/config/reset/{section}")
-async def reset_config_section(section: str, _auth: dict = Depends(auth_handler)) -> dict:
-    """Reset a configuration section to defaults.
-
-    Args:
-        section: Configuration section name to reset.
-
-    Returns:
-        Dictionary with reset status and new configuration.
-    """
-    config_manager = get_config_manager()
-
-    success = config_manager.reset_section(section)
-    if not success:
-        raise HTTPException(
-            status_code=404,
-            detail=f"Unknown configuration section: {section}",
-        )
-
-    return {
-        "status": "reset",
-        "section": section,
-        "config": config_manager.get_section(section),
-    }
-
-
-@app.post("/api/config/reset")
-async def reset_all_config(_auth: dict = Depends(auth_handler)) -> dict:
-    """Reset all configuration to defaults.
-
-    Returns:
-        Dictionary with reset status and new configuration.
-    """
-    config_manager = get_config_manager()
-    config_manager.reset_all()
-    return {"status": "reset", "config": config_manager.get_all()}
-
-
-@app.get("/api/config/validate")
-async def validate_config(_auth: dict = Depends(auth_handler)) -> dict:
-    """Validate current configuration.
-
-    Returns:
-        Dictionary with validation status and any errors.
-    """
-    config_manager = get_config_manager()
-    errors = config_manager.validate()
-    return {"valid": len(errors) == 0, "errors": errors}
-
-
-@app.post("/api/config/generate-api-key")
-async def generate_api_key(_auth: dict = Depends(auth_handler)) -> dict:
-    """Generate a new API key.
-
-    Returns:
-        Dictionary with generated API key and instructions.
-    """
-    config_manager = get_config_manager()
-    new_key, saved = config_manager.generate_api_key()
-    return {
-        "status": "generated",
-        "api_key": new_key,
-        "saved": saved,
-        "note": "Saved to config file." if saved else "Use /api/config/save to persist.",
-    }
-
-
-@app.get("/api/config/env-template")
-async def get_env_template() -> dict:
-    """Get environment variable template.
-
-    Returns:
-        Dictionary with environment variable template string.
-    """
-    config_manager = get_config_manager()
-    return {"template": config_manager.export_env_template()}
-
-
-@app.post("/api/execution_event")
-async def receive_execution_event(event_data: dict) -> dict:
-    """Receive execution event from client for WebSocket broadcast.
-
-    Args:
-        event_data: Execution event data from client
-
-    Returns:
-        Confirmation of receipt
-    """
-    # Broadcast client execution event
-    await connection_manager.broadcast(
-        Event(
-            event_type=EventType.CLIENT_EXECUTION,
-            timestamp=datetime.now(),
-            data=event_data,
-            severity=EventSeverity.INFO,
-        )
-    )
-
-    return {"status": "received"}
-
-
-@app.post("/feedback")
-async def receive_feedback(feedback: DecisionFeedback) -> dict:
-    """Receive feedback from client about decision execution outcomes.
-
-    This endpoint allows the client to report back on how decisions played out,
-    enabling the outcome tracker to close the feedback loop for learning.
-
-    Args:
-        feedback: Decision execution feedback from client
-
-    Returns:
-        Confirmation of feedback receipt
-    """
-    logger.info(
-        "feedback_received",
-        decision_id=feedback.decision_id,
-        status=feedback.status.value,
-        battery_consumed=feedback.battery_consumed,
-    )
-
-    # Update outcome tracker with execution results
-    outcome = await server_state.outcome_tracker.process_feedback(feedback)
-    await persist_feedback(server_state.store, feedback, outcome)
-
-    # Process vision data if available and vision service is enabled
-    vision_observation = None
-    if feedback.anomaly_detected and server_state.vision_enabled and server_state.vision_service:
-        try:
-            client_detection: DetectionResult | None = None
-            image_path: Path | None = None
-            vehicle_state: dict | None = None
-            asset_id = feedback.asset_inspected or "unknown"
-
-            inspection_data = feedback.inspection_data or {}
-            if isinstance(inspection_data, dict):
-                asset_id_from_payload = inspection_data.get("asset_id")
-                if isinstance(asset_id_from_payload, str) and asset_id_from_payload:
-                    asset_id = asset_id_from_payload
-
-                vehicle_state = inspection_data.get("vehicle_state")
-                if vehicle_state is not None and not isinstance(vehicle_state, dict):
-                    vehicle_state = None
-
-                vision_payload = inspection_data.get("vision", {})
-                if isinstance(vision_payload, dict):
-                    vehicle_state = vehicle_state or vision_payload.get("vehicle_state")
-                    if vehicle_state is not None and not isinstance(vehicle_state, dict):
-                        vehicle_state = None
-
-                    image_path_str = (
-                        vision_payload.get("best_image_path")
-                        or vision_payload.get("best_detection_image")
-                        or vision_payload.get("image_path")
-                    )
-                    if isinstance(image_path_str, str) and image_path_str:
-                        image_path = Path(image_path_str)
-
-                    detection_payload = (
-                        vision_payload.get("best_detection")
-                        or vision_payload.get("client_detection")
-                        or vision_payload.get("detection_result")
-                    )
-                    if isinstance(detection_payload, dict):
-                        try:
-                            client_detection = DetectionResult.model_validate(detection_payload)
-                        except Exception as e:
-                            logger.warning(
-                                "feedback_client_detection_parse_failed",
-                                error=str(e),
-                            )
-
-            # Process inspection result
-            vision_observation = await server_state.vision_service.process_inspection_result(
-                asset_id=asset_id,
-                client_detection=client_detection,
-                image_path=image_path,
-                vehicle_state=vehicle_state,
-            )
-
-            # Broadcast vision detection event
-            await connection_manager.broadcast(
-                Event(
-                    event_type=EventType.VISION_DETECTION,
-                    timestamp=datetime.now(),
-                    data={
-                        "observation_id": vision_observation.observation_id,
-                        "asset_id": vision_observation.asset_id,
-                        "defect_detected": vision_observation.defect_detected,
-                        "max_confidence": vision_observation.max_confidence,
-                        "max_severity": vision_observation.max_severity,
-                    },
-                    severity=(
-                        EventSeverity.WARNING
-                        if vision_observation.defect_detected
-                        else EventSeverity.INFO
-                    ),
-                )
-            )
-
-            if vision_observation.anomaly_created:
-                logger.info(
-                    "vision_anomaly_created",
-                    asset_id=vision_observation.asset_id,
-                    anomaly_id=vision_observation.anomaly_id,
-                    severity=vision_observation.max_severity,
-                    confidence=vision_observation.max_confidence,
-                )
-
-                # Broadcast anomaly created event
-                await connection_manager.broadcast(
-                    Event(
-                        event_type=EventType.ANOMALY_CREATED,
-                        timestamp=datetime.now(),
-                        data={
-                            "anomaly_id": vision_observation.anomaly_id or "",
-                            "asset_id": vision_observation.asset_id,
-                            "severity": vision_observation.max_severity,
-                            "confidence": vision_observation.max_confidence,
-                            "description": f"Vision anomaly detected on {vision_observation.asset_id}",
-                        },
-                        severity=EventSeverity.CRITICAL,
-                    )
-                )
-
-        except Exception as e:
-            logger.error("vision_processing_failed", error=str(e))
-
-    if outcome:
-        response = {
-            "status": "feedback_received",
-            "decision_id": feedback.decision_id,
-            "outcome_status": outcome.execution_status.value,
-        }
-
-        if vision_observation:
-            response["vision"] = {
-                "observation_id": vision_observation.observation_id,
-                "defect_detected": vision_observation.defect_detected,
-                "anomaly_created": vision_observation.anomaly_created,
-                "max_confidence": vision_observation.max_confidence,
-                "max_severity": vision_observation.max_severity,
-            }
-
-        return response
-
-    logger.warning("feedback_for_unknown_decision", decision_id=feedback.decision_id)
-    return {
-        "status": "feedback_received_but_unknown_decision",
-        "decision_id": feedback.decision_id,
-    }
-
-
-async def _record_telemetry(
-    state: VehicleStateRequest,
-    vehicle_id: str,
-    source: str,
-) -> None:
-    payload = state.model_dump(mode="json")
-    payload["vehicle_id"] = vehicle_id
-    payload["source"] = source
-    server_state.known_vehicles.add(vehicle_id)
-    server_state.latest_telemetry[vehicle_id] = payload
-
+if logfire:
     try:
-        server_state.telemetry_logger.log_telemetry(vehicle_id, payload, source=source)
-    except Exception as e:
-        logger.warning("telemetry_log_failed", error=str(e), vehicle_id=vehicle_id)
-
-    if server_state.store:
-        stored = await server_state.store.add_telemetry(vehicle_id, payload)
-        if not stored:
-            logger.warning("telemetry_store_failed", vehicle_id=vehicle_id)
+        logfire.configure(send_to_logfire=False)
+        logfire.instrument_fastapi(app)
+    except (ImportError, RuntimeError) as exc:
+        logging.getLogger(__name__).warning(f"Logfire instrumentation disabled: {exc}")
 
 
-async def _process_state(state: VehicleStateRequest, *, source: str) -> DecisionResponse:
-    logger.debug("state_received", armed=state.armed, mode=state.mode)
+async def _on_unreal_connect(connection_id: str) -> None:
+    """Called when a new Unreal client connects.
 
-    vehicle_id = state.vehicle_id or "drone_001"
-    await _record_telemetry(state, vehicle_id, source)
-
-    # Convert to internal VehicleState using the helper method
-    vehicle_state = (
-        state.to_dataclass()
-    )  # Note: despite the name, it returns a Pydantic-based VehicleState
-
-    # Update world model
-    server_state.world_model.update_vehicle(vehicle_state)
-
-    # Get world snapshot
-    snapshot = server_state.world_model.get_snapshot()
-    if snapshot is None:
-        raise HTTPException(status_code=500, detail="World model not initialized")
-
-    # Emit thinking start event for Unreal visualization
-    drone_id = vehicle_id
-    if unreal_manager.active_connections > 0:
-        await thinking_tracker.start_thinking(
-            drone_id=drone_id,
-            cognitive_level=UnrealCognitiveLevel.DELIBERATIVE,
-        )
-
-    # Evaluate risk
-    risk = server_state.risk_evaluator.evaluate(snapshot)
-
-    # Broadcast risk update event
-    await connection_manager.broadcast(
-        Event(
-            event_type=EventType.RISK_UPDATE,
-            timestamp=datetime.now(),
-            data={
-                "risk_level": risk.overall_level.value,
-                "risk_score": risk.overall_score,
-                "factors": {name: f.value for name, f in risk.factors.items()},
-                "abort_recommended": risk.abort_recommended,
-                "warnings": risk.warnings,
-            },
-            severity=EventSeverity.WARNING if risk.abort_recommended else EventSeverity.INFO,
-        )
-    )
-
-    # Log warnings
-    for warning in risk.warnings:
-        logger.warning("risk_warning", warning=warning)
-
-    # Update thinking state with risk assessment for Unreal
-    if unreal_manager.active_connections > 0:
-        await thinking_tracker.update_thinking(
-            drone_id=drone_id,
-            situation=f"Evaluating situation. Battery: {snapshot.vehicle.battery.remaining_percent:.0f}%",
-            considerations=[
-                f"Risk level: {risk.overall_level.value}",
-                f"Battery remaining: {snapshot.vehicle.battery.remaining_percent:.0f}%",
-                *risk.warnings[:3],  # First 3 warnings
-            ],
-            risk_score=risk.overall_score,
-            risk_level=risk.overall_level.value,
-            risk_factors={name: f.value for name, f in risk.factors.items()},
-        )
-
-    # Make decision
-    decision, goal = await _make_decision(snapshot, risk)
-
-    # Broadcast goal selection event if goal was selected
-    if goal:
-        await connection_manager.broadcast(
-            Event(
-                event_type=EventType.GOAL_SELECTED,
-                timestamp=datetime.now(),
-                data={
-                    "goal_type": goal.goal_type.value,
-                    "priority": goal.priority,
-                    "target": goal.target_asset.asset_id if goal.target_asset else None,
-                    "confidence": goal.confidence,
-                    "reasoning": goal.reason,
-                },
-                severity=EventSeverity.INFO,
-            )
-        )
-
-    # Phase 2: Validate decision with multi-agent critics
-    approved, escalation = await server_state.critic_orchestrator.validate_decision(
-        decision, snapshot, risk
-    )
-
-    # Broadcast critic validation event
-    await connection_manager.broadcast(
-        Event(
-            event_type=EventType.CRITIC_VALIDATION,
-            timestamp=datetime.now(),
-            data={
-                "approved": approved,
-                "decision_id": decision.decision_id,
-                "action": decision.action.value,
-                "escalation": (
-                    {
-                        "reason": escalation.reason,
-                        "severity": escalation.severity.value,
-                    }
-                    if escalation
-                    else None
-                ),
-            },
-            severity=EventSeverity.WARNING if not approved else EventSeverity.INFO,
-        )
-    )
-
-    # Emit critic results to Unreal for thought bubble visualization
-    if unreal_manager.active_connections > 0:
-        # Report each critic's verdict (simplified - actual critic details from orchestrator)
-        verdict = CriticVerdict.APPROVE if approved else CriticVerdict.REJECT
-        concerns = [escalation.reason] if escalation else []
-        for critic_name in ["safety", "efficiency", "goal_alignment"]:
-            await thinking_tracker.report_critic(
-                drone_id=drone_id,
-                critic_name=critic_name,
-                verdict=verdict,
-                confidence=0.9 if approved else 0.7,
-                concerns=concerns if critic_name == "safety" else [],
-            )
-
-    # If decision was blocked, override with abort
-    if not approved:
-        logger.warning(
-            "decision_blocked_by_critics",
-            decision_id=decision.decision_id,
-            original_action=decision.action.value,
-            reason=escalation.reason if escalation else "Unknown",
-        )
-        reason = (
-            f"Decision blocked by critics: {escalation.reason if escalation else 'Safety concerns'}"
-        )
-        decision = Decision.abort(reason=reason)
-
-    # Create outcome tracking for this decision
-    server_state.outcome_tracker.create_outcome(decision)
-
-    # Track decision
-    server_state.last_decision = decision
-    server_state.decisions_made += 1
-
-    server_state.decision_logger.log_decision(
-        DecisionLogContext(
-            decision=decision,
-            risk=risk,
-            world=snapshot,
-            goal=goal,
-            escalation=escalation,
-        )
-    )
-
-    # Log decision
-    logger.info(
-        "decision_made",
-        decision_id=decision.decision_id,
-        action=decision.action.value,
-        confidence=decision.confidence,
-        reasoning=decision.reasoning,
-        risk_level=risk.overall_level.value,
-    )
-
-    # Broadcast server decision event
-    await connection_manager.broadcast(
-        Event(
-            event_type=EventType.SERVER_DECISION,
-            timestamp=datetime.now(),
-            data={
-                "decision_id": decision.decision_id,
-                "action": decision.action.value,
-                "parameters": decision.parameters,
-                "confidence": decision.confidence,
-                "reasoning": decision.reasoning,
-            },
-            severity=EventSeverity.INFO,
-        )
-    )
-
-    # Complete thinking state for Unreal visualization
-    if unreal_manager.active_connections > 0:
-        await thinking_tracker.complete_thinking(
-            drone_id=drone_id,
-            action=decision.action.value,
-            confidence=decision.confidence,
-            reasoning=decision.reasoning,
-            parameters=decision.parameters,
-        )
-
-    # Map RiskLevel to numerical or string value expected by response
-    # The new DecisionResponse uses risk_assessment: Dict[str, float]
-    # Older one used risk_level: str
-
-    return DecisionResponse(
-        decision_id=decision.decision_id,
-        action=decision.action.value,
-        parameters=decision.parameters,
-        confidence=decision.confidence,
-        reasoning=decision.reasoning,
-        risk_assessment={name: f.value for name, f in risk.factors.items()},
-        timestamp=decision.timestamp,
-    )
-
-
-@app.post("/state", response_model=DecisionResponse)
-async def receive_state(state: VehicleStateRequest) -> DecisionResponse:
-    """Receive vehicle state and return decision.
-
-    This is the main endpoint called by the agent client.
+    Sends the current scene state if a scenario is running.
     """
-    return await _process_state(state, source="http")
+    if not scenario_run_state.running or not scenario_run_state.scenario_id:
+        logger.debug("unreal_connect_no_scenario", connection_id=connection_id)
+        return
 
-
-@app.post("/state/async")
-async def receive_state_async(state: VehicleStateRequest) -> dict:
-    """Receive vehicle state and enqueue decision for async retrieval."""
-    decision = await _process_state(state, source="async")
-    vehicle_id = state.vehicle_id or "drone_001"
-    await server_state.decision_queue.put(vehicle_id, decision)
-    return {
-        "status": "queued",
-        "vehicle_id": vehicle_id,
-        "decision_id": decision.decision_id,
-    }
-
-
-@app.get("/decisions/next", response_model=DecisionResponse)
-async def get_next_decision(
-    vehicle_id: str, timeout_s: float = 10.0
-) -> DecisionResponse | Response:
-    """Long-poll for the next decision for a vehicle."""
-    timeout_s = max(0.1, min(timeout_s, 30.0))
-    decision = await server_state.decision_queue.get(vehicle_id, timeout_s)
-    if decision is None:
-        return Response(status_code=204)
-    return decision
-
-
-async def _make_decision(
-    snapshot: WorldSnapshot, risk: RiskAssessment
-) -> tuple[Decision, Goal | None]:
-    # pylint: disable=too-many-return-statements
-    """Core decision-making logic.
-
-    Combines goal selection with risk assessment to produce a decision.
-    """
-    # Check if abort recommended
-    if server_state.risk_evaluator.should_abort(risk):
-        return Decision.abort(
-            reason=risk.abort_reason or "Risk threshold exceeded",
-            risk_factors={name: f.value for name, f in risk.factors.items()},
-        ), None
-
-    # Select goal
-    goal: Goal = await server_state.goal_selector.select_goal(snapshot)
-
-    # Convert goal to decision
-    if goal.goal_type == GoalType.ABORT:
-        return Decision.abort(goal.reason), goal
-
-    if goal.goal_type in (
-        GoalType.RETURN_LOW_BATTERY,
-        GoalType.RETURN_MISSION_COMPLETE,
-        GoalType.RETURN_WEATHER,
-    ):
-        return Decision.return_to_dock(
-            reason=goal.reason,
-            confidence=goal.confidence,
-        ), goal
-
-    if goal.goal_type == GoalType.INSPECT_ASSET and goal.target_asset:
-        return Decision.inspect(
-            asset_id=goal.target_asset.asset_id,
-            position=Position(
-                latitude=goal.target_asset.position.latitude,
-                longitude=goal.target_asset.position.longitude,
-                altitude_msl=goal.target_asset.position.altitude_msl
-                + goal.target_asset.inspection_altitude_agl,
-            ),
-            reason=goal.reason,
-            inspection={
-                "orbit_radius_m": goal.target_asset.orbit_radius_m,
-                "dwell_time_s": goal.target_asset.dwell_time_s,
-            },
-        ), goal
-
-    if goal.goal_type == GoalType.INSPECT_ANOMALY and goal.target_asset:
-        return Decision.inspect(
-            asset_id=goal.target_asset.asset_id,
-            position=Position(
-                latitude=goal.target_asset.position.latitude,
-                longitude=goal.target_asset.position.longitude,
-                altitude_msl=goal.target_asset.position.altitude_msl
-                + goal.target_asset.inspection_altitude_agl,
-            ),
-            reason=goal.reason,
-            inspection={
-                "orbit_radius_m": goal.target_asset.orbit_radius_m * 0.75,
-                "dwell_time_s": goal.target_asset.dwell_time_s * 2,
-            },
-        ), goal
-
-    if goal.goal_type == GoalType.WAIT:
-        return Decision.wait(goal.reason), goal
-
-    return Decision(
-        action=ActionType.NONE,
-        reasoning="No actionable goal",
-    ), None
-
-
-# Vision API Endpoints
-@app.get("/api/vision/statistics")
-async def get_vision_statistics() -> dict:
-    """Get vision system statistics.
-
-    Returns:
-        Dictionary with vision system enabled status and statistics.
-    """
-    if not server_state.vision_enabled or not server_state.vision_service:
-        raise HTTPException(status_code=503, detail="Vision service not available")
-
-    stats = server_state.vision_service.get_statistics()
-    return {
-        "enabled": True,
-        "statistics": stats,
-    }
-
-
-@app.get("/api/vision/observations")
-async def get_vision_observations(limit: int = 100) -> dict:
-    """Get recent vision observations.
-
-    Args:
-        limit: Maximum number of observations to return.
-
-    Returns:
-        Dictionary with observations list and total count.
-    """
-    if not server_state.vision_enabled or not server_state.vision_service:
-        raise HTTPException(status_code=503, detail="Vision service not available")
-
-    observations = server_state.vision_service.get_recent_observations(limit=limit)
-    return {
-        "observations": [
-            {
-                "observation_id": obs.observation_id,
-                "asset_id": obs.asset_id,
-                "timestamp": obs.timestamp.isoformat(),
-                "defect_detected": obs.defect_detected,
-                "max_confidence": obs.max_confidence,
-                "max_severity": obs.max_severity,
-                "anomaly_created": obs.anomaly_created,
-                "anomaly_id": obs.anomaly_id,
-            }
-            for obs in observations
-        ],
-        "total": len(observations),
-    }
-
-
-@app.get("/api/vision/observations/{asset_id}")
-async def get_asset_observations(asset_id: str) -> dict:
-    """Get vision observations for a specific asset.
-
-    Args:
-        asset_id: Asset identifier to get observations for.
-
-    Returns:
-        Dictionary with asset ID, observations list, and total count.
-    """
-    if not server_state.vision_enabled or not server_state.vision_service:
-        raise HTTPException(status_code=503, detail="Vision service not available")
-
-    observations = server_state.vision_service.get_observations_for_asset(asset_id)
-    return {
-        "asset_id": asset_id,
-        "observations": [
-            {
-                "observation_id": obs.observation_id,
-                "timestamp": obs.timestamp.isoformat(),
-                "defect_detected": obs.defect_detected,
-                "max_confidence": obs.max_confidence,
-                "max_severity": obs.max_severity,
-                "anomaly_created": obs.anomaly_created,
-            }
-            for obs in observations
-        ],
-        "total": len(observations),
-    }
-
-
-# =========================================================================
-# Scenario API Endpoints
-# =========================================================================
-
-
-@app.get("/api/scenarios")
-async def list_scenarios(
-    category: str | None = None,
-    difficulty: str | None = None,
-) -> dict:
-    """List all available scenarios with optional filtering.
-
-    Args:
-        category: Optional category filter (normal_operations, battery_critical, etc.)
-        difficulty: Optional difficulty filter (easy, normal, hard, extreme)
-
-    Returns:
-        Dictionary with scenarios list and count.
-    """
-    scenarios: list[Scenario]
-
-    if category:
-        try:
-            cat_enum = ScenarioCategory(category)
-            scenarios = get_scenarios_by_category(cat_enum)
-        except ValueError:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Invalid category: {category}. Valid: {[c.value for c in ScenarioCategory]}",
-            ) from None
-    elif difficulty:
-        scenarios = get_scenarios_by_difficulty(difficulty)
-    else:
-        scenarios = get_all_scenarios()
-
-    return {
-        "scenarios": [s.to_dict() for s in scenarios],
-        "count": len(scenarios),
-        "categories": [c.value for c in ScenarioCategory],
-    }
-
-
-@app.get("/api/scenarios/{scenario_id}")
-async def get_scenario_detail(scenario_id: str) -> dict:
-    """Get detailed information about a specific scenario.
-
-    Args:
-        scenario_id: The scenario identifier.
-
-    Returns:
-        Full scenario details including drones, assets, and events.
-    """
-    scenario = get_scenario(scenario_id)
+    scenario = get_scenario(scenario_run_state.scenario_id)
     if not scenario:
-        raise HTTPException(
-            status_code=404,
-            detail=f"Scenario not found: {scenario_id}",
-        )
-
-    return {
-        "scenario": scenario.to_dict(),
-        "drones": [
-            {
-                "drone_id": d.drone_id,
-                "name": d.name,
-                "battery_percent": d.battery_percent,
-                "state": d.state.value,
-                "position": {
-                    "latitude": d.latitude,
-                    "longitude": d.longitude,
-                    "altitude_agl": d.altitude_agl,
-                },
-            }
-            for d in scenario.drones
-        ],
-        "assets": [
-            {
-                "asset_id": a.asset_id,
-                "name": a.name,
-                "asset_type": a.asset_type,
-                "priority": a.priority,
-                "has_anomaly": a.has_anomaly,
-                "anomaly_severity": a.anomaly_severity,
-                "position": {
-                    "latitude": a.latitude,
-                    "longitude": a.longitude,
-                },
-            }
-            for a in scenario.assets
-        ],
-        "environment": {
-            "wind_speed_ms": scenario.environment.wind_speed_ms,
-            "wind_direction_deg": scenario.environment.wind_direction_deg,
-            "visibility_m": scenario.environment.visibility_m,
-            "temperature_c": scenario.environment.temperature_c,
-            "precipitation": scenario.environment.precipitation,
-            "is_daylight": scenario.environment.is_daylight,
-        },
-        "events": [
-            {
-                "timestamp_offset_s": e.timestamp_offset_s,
-                "event_type": e.event_type,
-                "description": e.description,
-                "data": e.data,
-            }
-            for e in scenario.events
-        ],
-    }
-
-
-class ScenarioRunState:
-    """Track running scenario state."""
-
-    def __init__(self) -> None:
-        self.running: bool = False
-        self.scenario_id: str | None = None
-        self.mode: str = "live"  # 'live' or 'demo'
-        self.edge_profile: str = "SBC_CPU"
-        self.time_scale: float = 1.0
-        self.start_time: datetime | None = None
-
-
-scenario_run_state = ScenarioRunState()
-
-
-@app.post("/api/scenarios/{scenario_id}/start")
-async def start_scenario(
-    scenario_id: str,
-    mode: str = "live",
-    edge_profile: str = "SBC_CPU",
-    time_scale: float = 1.0,
-) -> dict:
-    """Start a scenario execution.
-
-    Args:
-        scenario_id: The scenario to start.
-        mode: Execution mode - 'live' for real agent, 'demo' for playback.
-        edge_profile: Edge compute profile (FC_ONLY, MCU_HEURISTIC, etc.).
-        time_scale: Simulation speed factor (0.5 to 5.0).
-
-    Returns:
-        Status and run information.
-    """
-    scenario = get_scenario(scenario_id)
-    if not scenario:
-        raise HTTPException(
-            status_code=404,
-            detail=f"Scenario not found: {scenario_id}",
-        )
-
-    if scenario_run_state.running:
-        raise HTTPException(
-            status_code=409,
-            detail=f"Scenario already running: {scenario_run_state.scenario_id}. Stop it first.",
-        )
-
-    # Validate parameters
-    if mode not in ("live", "demo"):
-        raise HTTPException(status_code=400, detail="Mode must be 'live' or 'demo'")
-
-    valid_profiles = ["FC_ONLY", "MCU_HEURISTIC", "MCU_TINY_CNN", "SBC_CPU", "SBC_ACCEL", "JETSON_FULL"]
-    if edge_profile not in valid_profiles:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Invalid edge profile: {edge_profile}. Valid: {valid_profiles}",
-        )
-
-    time_scale = max(0.5, min(5.0, time_scale))
-
-    # Update run state
-    scenario_run_state.running = True
-    scenario_run_state.scenario_id = scenario_id
-    scenario_run_state.mode = mode
-    scenario_run_state.edge_profile = edge_profile
-    scenario_run_state.time_scale = time_scale
-    scenario_run_state.start_time = datetime.now()
-
-    # Apply edge profile
-    try:
-        profile = EdgeComputeProfile[edge_profile]
-        server_state.edge_config = default_edge_compute_config(profile)
-    except KeyError:
-        pass  # Use current config
+        return
 
     logger.info(
-        "scenario_started",
-        scenario_id=scenario_id,
-        mode=mode,
-        edge_profile=edge_profile,
-        time_scale=time_scale,
+        "unreal_connect_syncing_scene",
+        connection_id=connection_id,
+        scenario_id=scenario.scenario_id,
     )
 
-    # Broadcast scenario start event
-    await connection_manager.broadcast(
-        Event(
-            event_type=EventType.CLIENT_EXECUTION,
-            timestamp=datetime.now(),
-            data={
-                "event": "scenario_started",
-                "scenario_id": scenario_id,
-                "scenario_name": scenario.name,
-                "mode": mode,
-                "edge_profile": edge_profile,
-                "time_scale": time_scale,
-                "drone_count": len(scenario.drones),
-                "asset_count": len(scenario.assets),
-            },
-            severity=EventSeverity.INFO,
-        )
-    )
-
-    return {
-        "status": "started",
-        "scenario_id": scenario_id,
-        "scenario_name": scenario.name,
-        "mode": mode,
-        "edge_profile": edge_profile,
-        "time_scale": time_scale,
-        "start_time": scenario_run_state.start_time.isoformat(),
-    }
+    await asyncio.sleep(0.1)
+    await broadcast_scenario_scene(scenario, include_defects=True)
 
 
-@app.post("/api/scenarios/stop")
-async def stop_scenario() -> dict:
-    """Stop the currently running scenario.
+unreal_manager.set_on_connect(_on_unreal_connect)
 
-    Returns:
-        Status and summary information.
-    """
-    if not scenario_run_state.running:
-        return {"status": "not_running"}
-
-    scenario_id = scenario_run_state.scenario_id
-    duration = None
-    if scenario_run_state.start_time:
-        duration = (datetime.now() - scenario_run_state.start_time).total_seconds()
-
-    # Reset state
-    scenario_run_state.running = False
-    scenario_run_state.scenario_id = None
-    scenario_run_state.start_time = None
-
-    logger.info("scenario_stopped", scenario_id=scenario_id, duration_s=duration)
-
-    # Broadcast scenario stop event
-    await connection_manager.broadcast(
-        Event(
-            event_type=EventType.CLIENT_EXECUTION,
-            timestamp=datetime.now(),
-            data={
-                "event": "scenario_stopped",
-                "scenario_id": scenario_id,
-                "duration_s": duration,
-            },
-            severity=EventSeverity.INFO,
-        )
-    )
-
-    return {
-        "status": "stopped",
-        "scenario_id": scenario_id,
-        "duration_s": duration,
-    }
-
-
-@app.get("/api/scenarios/status")
-async def get_scenario_status() -> dict:
-    """Get the status of the currently running scenario.
-
-    Returns:
-        Current scenario run state.
-    """
-    if not scenario_run_state.running:
-        return {"running": False}
-
-    elapsed = None
-    if scenario_run_state.start_time:
-        elapsed = (datetime.now() - scenario_run_state.start_time).total_seconds()
-
-    return {
-        "running": True,
-        "scenario_id": scenario_run_state.scenario_id,
-        "mode": scenario_run_state.mode,
-        "edge_profile": scenario_run_state.edge_profile,
-        "time_scale": scenario_run_state.time_scale,
-        "elapsed_s": elapsed,
-        "start_time": scenario_run_state.start_time.isoformat() if scenario_run_state.start_time else None,
-    }
+# Serve overlay static files for OBS Browser Source
+overlay_dir = Path(__file__).resolve().parents[2] / "overlay"
+if overlay_dir.exists():
+    app.mount("/overlay", StaticFiles(directory=str(overlay_dir), html=True), name="overlay")
+    logger.info("overlay_mounted", path=str(overlay_dir))
 
 
 def main() -> None:
@@ -1779,12 +191,20 @@ def main() -> None:
     Starts the uvicorn server with hot-reload enabled.
     """
     logging.basicConfig(level=logging.INFO)
+    config = get_config_manager().load()
+    host = os.environ.get("AEGIS_HOST", config.server.host)
+    port = int(os.environ.get("AEGIS_PORT", config.server.port))
+    reload_env = os.environ.get("AEGIS_RELOAD")
+    if reload_env is None:
+        reload_enabled = platform.system() != "Windows"
+    else:
+        reload_enabled = reload_env.strip().lower() in {"1", "true", "yes", "on"}
 
     uvicorn.run(
         "agent.server.main:app",
-        host="0.0.0.0",  # noqa: S104
-        port=8080,
-        reload=True,
+        host=host,  # noqa: S104
+        port=port,
+        reload=reload_enabled,
     )
 
 

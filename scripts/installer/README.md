@@ -68,7 +68,8 @@ Reinstall Python from python.org and check "tcl/tk and IDLE" option.
 4. **AirSim Configuration**
    - Creates optimized settings.json
    - Tests connection to AirSim
-   - Guides through installation
+   - Requires a valid AirSimNH.exe path when AirSim is enabled
+   - Generates `start_airsim.bat` pointing at the selected AirSim folder (Windows)
 
 5. **AegisAV Configuration**
    - Server options (Redis, GPU)
@@ -105,6 +106,7 @@ After installation, the wizard creates:
 - `.aegis_setup.json` - Setup configuration
 - `scripts/start_server.sh` (or `.bat`) - Server launcher
 - `scripts/run_demo.sh` (or `.bat`) - Demo launcher
+- `start_airsim.bat` - AirSim launcher (Windows only)
 
 ## Troubleshooting
 
@@ -126,6 +128,10 @@ chmod +x scripts/installer/setup_gui.py
 1. Make sure AirSim is running first
 2. Check that `airsim` Python package is installed: `pip install airsim`
 3. Verify settings.json exists in `~/Documents/AirSim/`
+
+### "AirSimNH.exe not found"
+- Use the AirSim path picker to select the folder that contains `AirSimNH.exe`.
+- The installer will fail if the executable is missing when AirSim is enabled.
 
 ## Support
 

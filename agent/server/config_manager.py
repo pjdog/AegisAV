@@ -91,6 +91,23 @@ class AgentSettings(BaseModel):
 
     use_llm: bool = Field(default=True, description="Enable LLM-based goal selection")
     llm_model: str = Field(default="gpt-4o-mini", description="LLM model to use")
+    llm_provider: str = Field(default="openai", description="LLM provider prefix")
+    llm_api_key_env: str | None = Field(
+        default=None,
+        description="Environment variable name containing provider API key",
+    )
+    llm_api_key: str | None = Field(
+        default=None,
+        description="Provider API key (stored in config; prefer env variables)",
+    )
+    llm_base_url_env: str | None = Field(
+        default=None,
+        description="Environment variable name for provider base URL",
+    )
+    llm_base_url: str | None = Field(
+        default=None,
+        description="Provider base URL override (stored in config; optional)",
+    )
 
     # Battery thresholds
     battery_warning_percent: float = Field(default=30.0)
@@ -369,6 +386,7 @@ class ConfigManager:
             # Simulation
             "AEGIS_SIM_ENABLED": ("simulation", "enabled", self._parse_bool),
             "AEGIS_AIRSIM_ENABLED": ("simulation", "airsim_enabled", self._parse_bool),
+            "AEGIS_AIRSIM_HOST": ("simulation", "airsim_host"),
             "AEGIS_SITL_ENABLED": ("simulation", "sitl_enabled", self._parse_bool),
             "AEGIS_ARDUPILOT_PATH": ("simulation", "ardupilot_path"),
             # Server
@@ -378,6 +396,11 @@ class ConfigManager:
             # Agent
             "AEGIS_USE_LLM": ("agent", "use_llm", self._parse_bool),
             "AEGIS_LLM_MODEL": ("agent", "llm_model"),
+            "AEGIS_LLM_PROVIDER": ("agent", "llm_provider"),
+            "AEGIS_LLM_API_KEY_ENV": ("agent", "llm_api_key_env"),
+            "AEGIS_LLM_API_KEY": ("agent", "llm_api_key"),
+            "AEGIS_LLM_BASE_URL_ENV": ("agent", "llm_base_url_env"),
+            "AEGIS_LLM_BASE_URL": ("agent", "llm_base_url"),
             "OPENAI_API_KEY": None,  # Special handling - just check if set
         }
 
@@ -459,13 +482,23 @@ AEGIS_VISION_DEVICE=auto
 # Simulation
 AEGIS_SIM_ENABLED=false
 AEGIS_AIRSIM_ENABLED=false
+AEGIS_AIRSIM_HOST=127.0.0.1
 AEGIS_SITL_ENABLED=false
 AEGIS_ARDUPILOT_PATH=~/ardupilot
 
 # LLM
 AEGIS_USE_LLM=true
+AEGIS_LLM_PROVIDER=openai
 AEGIS_LLM_MODEL=gpt-4o-mini
+# AEGIS_LLM_API_KEY=your-api-key-here
+# AEGIS_LLM_API_KEY_ENV=OPENAI_API_KEY
+# AEGIS_LLM_BASE_URL=
+# AEGIS_LLM_BASE_URL_ENV=OPENAI_BASE_URL
 # OPENAI_API_KEY=your-openai-key
+# ANTHROPIC_API_KEY=your-claude-key
+# OPENROUTER_API_KEY=your-openrouter-key
+# GROQ_API_KEY=your-groq-key
+# MISTRAL_API_KEY=your-mistral-key
 """
         return template
 

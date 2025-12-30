@@ -1,5 +1,7 @@
+import { useCallback, useEffect, useMemo, useState } from "react";
 import SettingsPanel from "./SettingsPanel";
 import SpatialView from "./SpatialView";
+import DroneCameraPanel from "./DroneCameraPanel";
 import logo from "../assets/aegis_logo.svg";
 
 type RunSummary = {
@@ -68,6 +70,16 @@ type TelemetryPayload = {
 type TelemetryEntry = {
   vehicle_id: string;
   telemetry: TelemetryPayload;
+};
+
+type AirSimStatus = {
+  enabled: boolean;
+  host: string;
+  vehicle_name: string;
+  bridge_connected: boolean;
+  connecting: boolean;
+  launch_supported: boolean;
+  last_error: string | null;
 };
 
 type RunData = {
@@ -575,6 +587,15 @@ const Dashboard = () => {
   const [edgeProfiles, setEdgeProfiles] = useState<string[]>([]);
   const [showAdvanced, setShowAdvanced] = useState<boolean>(false);
   const [fleetTelemetry, setFleetTelemetry] = useState<TelemetryEntry[]>([]);
+  const [airsimStatus, setAirsimStatus] = useState<AirSimStatus | null>(null);
+  const [airsimLaunching, setAirsimLaunching] = useState<boolean>(false);
+  const [scenarioDrones, setScenarioDrones] = useState<Array<{
+    drone_id: string;
+    name: string;
+    battery_percent: number;
+    state: string;
+    is_streaming: boolean;
+  }>>([]);
 
   const loadRun = useCallback(async () => {
     try {
@@ -613,12 +634,81 @@ const Dashboard = () => {
         setFleetTelemetry(telemetryData.vehicles || []);
       }
 
+      const airsimResp = await fetch("/api/airsim/status");
+      if (airsimResp.ok) {
+        const airsimData = await airsimResp.json();
+        setAirsimStatus(airsimData);
+      }
+
+      // Load scenario drones for camera panel
+      const scenarioResp = await fetch("/api/scenarios/status");
+      if (scenarioResp.ok) {
+        const scenarioData = await scenarioResp.json();
+        if (scenarioData.running && scenarioData.scenario_id) {
+          // Fetch scenario details to get drone list
+          const detailResp = await fetch(`/api/scenarios/${scenarioData.scenario_id}`);
+          if (detailResp.ok) {
+            const detailData = await detailResp.json();
+            const drones = (detailData.drones || []).map((d: {
+              drone_id: string;
+              name: string;
+              battery_percent: number;
+              state: string;
+            }) => ({
+              drone_id: d.drone_id,
+              name: d.name,
+              battery_percent: d.battery_percent,
+              state: d.state,
+              is_streaming: false,
+            }));
+            setScenarioDrones(drones);
+          }
+        } else {
+          // No scenario running - use telemetry vehicles as fallback
+          const dronesFromTelemetry = fleetTelemetry.map((v) => ({
+            drone_id: v.vehicle_id,
+            name: v.vehicle_id,
+            battery_percent: v.telemetry?.battery?.remaining_percent ?? 0,
+            state: v.telemetry?.mode ?? "unknown",
+            is_streaming: false,
+          }));
+          setScenarioDrones(dronesFromTelemetry);
+        }
+      }
+
       setLastUpdated(new Date().toLocaleTimeString());
     } catch (error) {
       console.error("Failed to load dashboard data", error);
       setStatus("Offline");
     }
   }, []);
+
+  const launchAirSim = async () => {
+    if (airsimLaunching) return;
+    if (airsimStatus?.bridge_connected) {
+      window.open("/overlay", "_blank", "noopener,noreferrer");
+      return;
+    }
+    if (airsimStatus && !airsimStatus.enabled) {
+      setShowSettings(true);
+      return;
+    }
+
+    window.open("/overlay", "_blank", "noopener,noreferrer");
+    try {
+      setAirsimLaunching(true);
+      const resp = await fetch("/api/airsim/start", { method: "POST" });
+      if (!resp.ok) {
+        const data = await resp.json();
+        console.error("Failed to launch AirSim", data);
+      }
+    } catch (error) {
+      console.error("Failed to launch AirSim", error);
+    } finally {
+      setAirsimLaunching(false);
+      loadRun();
+    }
+  };
 
   const toggleLLM = async () => {
     try {
@@ -662,8 +752,6 @@ const Dashboard = () => {
     }
   };
 
-  import logo from "../assets/aegis_logo.svg";
-
   useEffect(() => {
     loadRun();
     const timer = window.setInterval(loadRun, 5000);
@@ -683,10 +771,47 @@ const Dashboard = () => {
             Observing high-fidelity mission decisions and situational awareness in a realistic SITL environment.
           </p>
         </div>
-        <div className="hero-meta">
+        <div className="hero-controls">
+          <div className="hero-meta">
           <div className="hero-card action" onClick={toggleLLM} style={{ cursor: 'pointer', borderColor: useAdvancedEngine ? 'var(--accent-cyber)' : 'var(--text-muted)' }}>
             <span className="meta-label">Orchestration</span>
             <span className="meta-value">{useAdvancedEngine ? "LLM ACTIVE" : "RULES ONLY"}</span>
+          </div>
+          <div
+            className="hero-card action"
+            onClick={launchAirSim}
+            style={{
+              cursor: "pointer",
+              borderColor: airsimStatus?.bridge_connected
+                ? "var(--accent-security)"
+                : airsimStatus?.connecting || airsimLaunching
+                  ? "var(--accent-cyber)"
+                  : "var(--accent-alert)",
+            }}
+          >
+            <span className="meta-label">AirSim</span>
+            <span className="meta-value">
+              {!airsimStatus
+                ? "UNKNOWN"
+                : !airsimStatus.enabled
+                  ? "DISABLED"
+                  : airsimStatus.bridge_connected
+                    ? "CONNECTED"
+                    : airsimStatus.connecting || airsimLaunching
+                      ? "STARTING"
+                      : "OFFLINE"}
+            </span>
+            <span className="meta-sub">
+              {airsimStatus?.last_error
+                ? airsimStatus.last_error
+                : !airsimStatus
+                  ? "Click to launch + open overlay"
+                  : !airsimStatus.enabled
+                    ? "Enable AirSim in Settings"
+                    : !airsimStatus.launch_supported
+                      ? "Launch unsupported on this host"
+                      : "Click to launch + open overlay"}
+            </span>
           </div>
           <div className="hero-card">
             <span className="meta-label">Edge Compute</span>
@@ -696,7 +821,7 @@ const Dashboard = () => {
               onChange={(e) => updateEdgeProfile(e.target.value)}
               disabled={!edgeProfiles.length}
             >
-              {(edgeProfiles.length ? edgeProfiles : [edgeConfig?.profile ?? ""]).map((p) => (
+              {(edgeProfiles.length ? edgeProfiles : [edgeConfig?.profile ?? ""]).map((p: string) => (
                 <option key={p} value={p}>
                   {p}
                 </option>
@@ -722,9 +847,29 @@ const Dashboard = () => {
             <span className="meta-label">Last Sync</span>
             <span className="meta-value">{lastUpdated}</span>
           </div>
-          <button className="settings-btn" onClick={() => setShowSettings(true)} title="Settings">
+          </div>
+          <div className="hero-links">
+          <a className="btn secondary hero-link" href="/overlay" target="_blank" rel="noreferrer">
+            Overlay
+          </a>
+          <a className="btn secondary hero-link" href="/api/scenarios" target="_blank" rel="noreferrer">
+            Scenarios
+          </a>
+          <a className="btn secondary hero-link" href="/api/dashboard/scenarios" target="_blank" rel="noreferrer">
+            Scenario Details
+          </a>
+          <a className="btn secondary hero-link" href="/docs" target="_blank" rel="noreferrer">
+            API Docs
+          </a>
+          <button
+            className="btn secondary icon settings-btn"
+            onClick={() => setShowSettings(true)}
+            title="Settings"
+            type="button"
+          >
             ⚙
           </button>
+        </div>
         </div>
       </header>
 
@@ -764,16 +909,23 @@ const Dashboard = () => {
 
       <FleetTelemetry telemetry={fleetTelemetry} />
 
+      {/* Drone Camera Panel - only show when AirSim connected and drones available */}
+      {airsimStatus?.bridge_connected && scenarioDrones.length > 0 && (
+        <section className="grid" style={{ gridTemplateColumns: '1fr' }}>
+          <DroneCameraPanel drones={scenarioDrones} />
+        </section>
+      )}
+
       <section className="split">
         <LineChart
           title="Risk Vector"
           series={runData?.risk_series ?? []}
-          accent="#00f2ff"
+          accent="#06b6d4"
         />
         <LineChart
           title="Energy Decay"
           series={runData?.battery_series ?? []}
-          accent="#00ff9d"
+          accent="#10b981"
         />
       </section>
 
@@ -787,7 +939,7 @@ const Dashboard = () => {
             <span className="pill">Live Timeline</span>
           </div>
           <div className="feed">
-            {(runData?.recent ?? []).slice(0, 6).map((entry, i) => (
+            {(runData?.recent ?? []).slice(0, 6).map((entry: RecentEntry, i: number) => (
               <div key={i} className="feed-item" style={{ borderColor: i === 0 ? 'var(--accent-cyber)' : 'rgba(255,255,255,0.1)' }}>
                 <span className="feed-time">{formatTime(entry.timestamp)}</span>
                 <div className="feed-content">

@@ -28,6 +28,7 @@ class ScenarioCategory(str, Enum):
 class DroneState(str, Enum):
     """Operational state of a simulated drone."""
 
+    DOCKED = "docked"  # On dock, ready for mission
     IDLE = "idle"
     TAKEOFF = "takeoff"
     INSPECTING = "inspecting"
@@ -38,6 +39,16 @@ class DroneState(str, Enum):
     OFFLINE = "offline"
 
 
+# =============================================================================
+# Standard Dock Position (all scenarios use this as home base)
+# =============================================================================
+
+# Default dock location - San Francisco area
+DOCK_LATITUDE = 37.7749
+DOCK_LONGITUDE = -122.4194
+DOCK_ALTITUDE = 0.0
+
+
 @dataclass
 class SimulatedDrone:
     """Configuration for a simulated drone with edge cases."""
@@ -45,10 +56,10 @@ class SimulatedDrone:
     drone_id: str
     name: str
 
-    # Initial position
-    latitude: float = 37.7749
-    longitude: float = -122.4194
-    altitude_agl: float = 0.0
+    # Initial position (defaults to dock)
+    latitude: float = DOCK_LATITUDE
+    longitude: float = DOCK_LONGITUDE
+    altitude_agl: float = DOCK_ALTITUDE
 
     # Battery configuration
     battery_percent: float = 100.0
@@ -66,8 +77,8 @@ class SimulatedDrone:
     motors_healthy: bool = True
     ekf_healthy: bool = True
 
-    # Current state
-    state: DroneState = DroneState.IDLE
+    # Current state (default: docked and ready)
+    state: DroneState = DroneState.DOCKED
     armed: bool = False
     in_air: bool = False
 
@@ -131,6 +142,43 @@ class SimulatedAsset:
 
 
 @dataclass
+class AssetDefect:
+    """A defect on an asset that can be visualized in Unreal Engine.
+
+    Defects are spawned as decals/materials on the asset meshes in the 3D
+    scene. The drone's camera can "detect" these during inspection.
+    """
+
+    defect_id: str
+    asset_id: str  # Which asset this defect is on
+    defect_type: str  # crack, corrosion, hotspot, broken_cell, debris, bird_damage
+    severity: float  # 0.0-1.0
+    confidence: float = 0.85  # Detection confidence when found
+
+    # UV position on asset mesh (0.0-1.0, normalized)
+    uv_x: float = 0.5
+    uv_y: float = 0.5
+
+    # Defect size (normalized, 0.0-1.0 of asset)
+    size: float = 0.1
+
+    # Description for anomaly creation
+    description: str = ""
+
+    def to_spawn_message(self) -> dict[str, Any]:
+        """Convert to message format for Unreal spawning."""
+        return {
+            "defect_id": self.defect_id,
+            "asset_id": self.asset_id,
+            "defect_type": self.defect_type,
+            "severity": self.severity,
+            "uv_x": self.uv_x,
+            "uv_y": self.uv_y,
+            "size": self.size,
+        }
+
+
+@dataclass
 class EnvironmentConditions:
     """Environmental conditions for scenario."""
 
@@ -140,6 +188,7 @@ class EnvironmentConditions:
     temperature_c: float = 20.0
     precipitation: str = "none"
     is_daylight: bool = True
+    hour: int = 12  # 0-23 hour for AirSim time of day
 
     # Edge case triggers
     wind_increase_at: datetime | None = None
@@ -171,6 +220,7 @@ class Scenario:
     # Scenario components
     drones: list[SimulatedDrone] = field(default_factory=list)
     assets: list[SimulatedAsset] = field(default_factory=list)
+    defects: list[AssetDefect] = field(default_factory=list)  # Defects to spawn in Unreal
     environment: EnvironmentConditions = field(default_factory=EnvironmentConditions)
 
     # Pre-scripted events (for replay)
@@ -193,6 +243,7 @@ class Scenario:
             "tags": self.tags,
             "drone_count": len(self.drones),
             "asset_count": len(self.assets),
+            "defect_count": len(self.defects),
             "event_count": len(self.events),
             "created_at": self.created_at.isoformat(),
         }
@@ -215,23 +266,20 @@ def create_normal_operations_scenario() -> Scenario:
             SimulatedDrone(
                 drone_id="alpha",
                 name="Alpha-1",
-                latitude=37.7749,
-                longitude=-122.4194,
                 battery_percent=95.0,
+                # Starts at dock (default position)
             ),
             SimulatedDrone(
                 drone_id="bravo",
                 name="Bravo-2",
-                latitude=37.7759,
-                longitude=-122.4184,
                 battery_percent=88.0,
+                # Starts at dock (default position)
             ),
             SimulatedDrone(
                 drone_id="charlie",
                 name="Charlie-3",
-                latitude=37.7739,
-                longitude=-122.4204,
                 battery_percent=92.0,
+                # Starts at dock (default position)
             ),
         ],
         assets=[
@@ -260,6 +308,26 @@ def create_normal_operations_scenario() -> Scenario:
                 priority=1,
             ),
         ],
+        defects=[
+            # Minor debris on solar panel - good for training detection
+            AssetDefect(
+                defect_id="defect_norm_001",
+                asset_id="solar_farm_b",
+                defect_type="debris",
+                severity=0.3,
+                confidence=0.92,
+                uv_x=0.65,
+                uv_y=0.40,
+                size=0.08,
+                description="Minor leaf debris on panel surface",
+            ),
+        ],
+        environment=EnvironmentConditions(
+            hour=7,  # Golden hour morning light
+            precipitation="mist",
+            visibility_m=6000.0,
+            wind_speed_ms=2.0,  # Calm morning
+        ),
         events=[
             ScenarioEvent(0.0, "mission_start", "Fleet begins inspection mission"),
             ScenarioEvent(30.0, "decision", "Alpha-1 assigned to Solar Farm Alpha"),
@@ -284,12 +352,14 @@ def create_battery_cascade_scenario() -> Scenario:
         duration_minutes=15.0,
         difficulty="hard",
         tags=["emergency", "battery", "prioritization", "multi-drone"],
+        # NOTE: This scenario starts MID-MISSION with drones already in the air
+        # Drones departed from dock and are now at various inspection positions
         drones=[
             SimulatedDrone(
                 drone_id="critical_bat",
                 name="Critical Battery Drone",
-                latitude=37.7780,  # Far from dock
-                longitude=-122.4150,
+                latitude=DOCK_LATITUDE + 0.0031,  # ~350m north of dock
+                longitude=DOCK_LONGITUDE + 0.0044,  # ~370m east of dock
                 battery_percent=18.0,
                 battery_drain_rate=1.5,  # Fast drain
                 battery_critical_threshold=15.0,
@@ -300,8 +370,8 @@ def create_battery_cascade_scenario() -> Scenario:
             SimulatedDrone(
                 drone_id="low_bat",
                 name="Low Battery Drone",
-                latitude=37.7765,
-                longitude=-122.4175,
+                latitude=DOCK_LATITUDE + 0.0016,  # ~180m north of dock
+                longitude=DOCK_LONGITUDE + 0.0019,  # ~160m east of dock
                 battery_percent=28.0,
                 battery_drain_rate=0.8,
                 state=DroneState.INSPECTING,
@@ -311,8 +381,8 @@ def create_battery_cascade_scenario() -> Scenario:
             SimulatedDrone(
                 drone_id="healthy_bat",
                 name="Healthy Battery Drone",
-                latitude=37.7755,
-                longitude=-122.4185,
+                latitude=DOCK_LATITUDE + 0.0006,  # ~65m north of dock
+                longitude=DOCK_LONGITUDE + 0.0009,  # ~75m east of dock
                 battery_percent=72.0,
                 battery_drain_rate=0.4,
                 state=DroneState.INSPECTING,
@@ -332,8 +402,37 @@ def create_battery_cascade_scenario() -> Scenario:
                 anomaly_severity=0.75,
             ),
         ],
+        defects=[
+            # Critical hotspot that needs urgent attention
+            AssetDefect(
+                defect_id="defect_bat_001",
+                asset_id="incomplete_solar",
+                defect_type="hotspot",
+                severity=0.75,
+                confidence=0.88,
+                uv_x=0.35,
+                uv_y=0.55,
+                size=0.15,
+                description="Thermal hotspot indicating cell failure",
+            ),
+            # Secondary crack near the hotspot
+            AssetDefect(
+                defect_id="defect_bat_002",
+                asset_id="incomplete_solar",
+                defect_type="crack",
+                severity=0.60,
+                confidence=0.82,
+                uv_x=0.40,
+                uv_y=0.52,
+                size=0.12,
+                description="Micro-crack in panel glass",
+            ),
+        ],
         environment=EnvironmentConditions(
-            wind_speed_ms=8.0,  # Moderate wind increases battery drain
+            hour=14,  # Overcast afternoon
+            precipitation="overcast",
+            wind_speed_ms=10.0,  # Strong wind increases battery drain
+            visibility_m=7000.0,
         ),
         events=[
             ScenarioEvent(0.0, "alert", "Battery cascade scenario initiated"),
@@ -359,12 +458,13 @@ def create_gps_degradation_scenario() -> Scenario:
         duration_minutes=25.0,
         difficulty="hard",
         tags=["gps", "navigation", "degradation", "safety"],
+        # NOTE: This scenario starts MID-MISSION with drones already in the air
         drones=[
             SimulatedDrone(
                 drone_id="gps_fail",
                 name="GPS Failure Drone",
-                latitude=37.7770,
-                longitude=-122.4160,
+                latitude=DOCK_LATITUDE + 0.0021,  # ~230m north of dock
+                longitude=DOCK_LONGITUDE + 0.0034,  # ~285m east of dock
                 battery_percent=75.0,
                 gps_fix_type=3,
                 gps_hdop=0.9,
@@ -378,8 +478,8 @@ def create_gps_degradation_scenario() -> Scenario:
             SimulatedDrone(
                 drone_id="gps_weak",
                 name="Weak GPS Drone",
-                latitude=37.7755,
-                longitude=-122.4180,
+                latitude=DOCK_LATITUDE + 0.0006,  # ~65m north of dock
+                longitude=DOCK_LONGITUDE + 0.0014,  # ~120m east of dock
                 battery_percent=82.0,
                 gps_fix_type=2,  # Already degraded
                 gps_hdop=2.5,  # High error
@@ -391,8 +491,8 @@ def create_gps_degradation_scenario() -> Scenario:
             SimulatedDrone(
                 drone_id="gps_good",
                 name="Strong GPS Drone",
-                latitude=37.7745,
-                longitude=-122.4190,
+                latitude=DOCK_LATITUDE - 0.0004,  # ~45m south of dock
+                longitude=DOCK_LONGITUDE + 0.0004,  # ~35m east of dock
                 battery_percent=68.0,
                 gps_fix_type=3,
                 gps_hdop=0.6,
@@ -412,6 +512,26 @@ def create_gps_degradation_scenario() -> Scenario:
                 priority=1,
             ),
         ],
+        defects=[
+            # Corrosion on substation - requires precise GPS for documentation
+            AssetDefect(
+                defect_id="defect_gps_001",
+                asset_id="urban_asset",
+                defect_type="corrosion",
+                severity=0.55,
+                confidence=0.78,
+                uv_x=0.25,
+                uv_y=0.70,
+                size=0.18,
+                description="Surface corrosion on transformer housing",
+            ),
+        ],
+        environment=EnvironmentConditions(
+            hour=18,  # Dusk - warm sunset colors
+            precipitation="haze",
+            visibility_m=4000.0,  # Reduced visibility adds to GPS challenge theme
+            wind_speed_ms=4.0,
+        ),
         events=[
             ScenarioEvent(0.0, "mission_start", "GPS degradation scenario begins"),
             ScenarioEvent(120.0, "alert", "Weak GPS Drone: HDOP exceeding threshold"),
@@ -436,12 +556,13 @@ def create_weather_emergency_scenario() -> Scenario:
         duration_minutes=20.0,
         difficulty="normal",
         tags=["weather", "emergency", "coordination", "recall"],
+        # NOTE: This scenario starts MID-MISSION with drones already in the air
         drones=[
             SimulatedDrone(
                 drone_id="far_drone",
                 name="Far Field Drone",
-                latitude=37.7800,  # Furthest from dock
-                longitude=-122.4120,
+                latitude=DOCK_LATITUDE + 0.0051,  # ~570m north (furthest from dock)
+                longitude=DOCK_LONGITUDE + 0.0074,  # ~620m east
                 battery_percent=65.0,
                 state=DroneState.INSPECTING,
                 armed=True,
@@ -450,8 +571,8 @@ def create_weather_emergency_scenario() -> Scenario:
             SimulatedDrone(
                 drone_id="mid_drone",
                 name="Mid Field Drone",
-                latitude=37.7775,
-                longitude=-122.4165,
+                latitude=DOCK_LATITUDE + 0.0026,  # ~290m north
+                longitude=DOCK_LONGITUDE + 0.0029,  # ~245m east
                 battery_percent=72.0,
                 state=DroneState.INSPECTING,
                 armed=True,
@@ -460,8 +581,8 @@ def create_weather_emergency_scenario() -> Scenario:
             SimulatedDrone(
                 drone_id="near_drone",
                 name="Near Field Drone",
-                latitude=37.7755,
-                longitude=-122.4190,
+                latitude=DOCK_LATITUDE + 0.0006,  # ~65m north
+                longitude=DOCK_LONGITUDE + 0.0004,  # ~35m east
                 battery_percent=58.0,
                 state=DroneState.RETURNING,
                 armed=True,
@@ -478,7 +599,23 @@ def create_weather_emergency_scenario() -> Scenario:
                 priority=2,
             ),
         ],
+        defects=[
+            # Bird damage on turbine blade - visible in deteriorating weather
+            AssetDefect(
+                defect_id="defect_wth_001",
+                asset_id="wind_farm",
+                defect_type="bird_damage",
+                severity=0.45,
+                confidence=0.75,
+                uv_x=0.80,
+                uv_y=0.30,
+                size=0.10,
+                description="Bird strike damage on turbine blade leading edge",
+            ),
+        ],
         environment=EnvironmentConditions(
+            hour=11,  # Late morning, storm approaches
+            precipitation="light_rain",  # Starting conditions
             wind_speed_ms=5.0,
             visibility_m=8000.0,
             wind_increase_at=datetime.now() + timedelta(minutes=8),
@@ -512,12 +649,13 @@ def create_sensor_cascade_scenario() -> Scenario:
         duration_minutes=18.0,
         difficulty="extreme",
         tags=["sensor", "failure", "cascade", "safety", "extreme"],
+        # NOTE: This scenario starts MID-MISSION with drones already in the air
         drones=[
             SimulatedDrone(
                 drone_id="sens_critical",
                 name="Critical Sensor Drone",
-                latitude=37.7785,
-                longitude=-122.4140,
+                latitude=DOCK_LATITUDE + 0.0036,  # ~400m north
+                longitude=DOCK_LONGITUDE + 0.0054,  # ~450m east
                 battery_percent=55.0,
                 sensors_healthy=False,  # Already degraded
                 ekf_healthy=False,  # EKF also failing
@@ -529,8 +667,8 @@ def create_sensor_cascade_scenario() -> Scenario:
             SimulatedDrone(
                 drone_id="sens_partial",
                 name="Partial Sensor Drone",
-                latitude=37.7760,
-                longitude=-122.4170,
+                latitude=DOCK_LATITUDE + 0.0011,  # ~120m north
+                longitude=DOCK_LONGITUDE + 0.0024,  # ~200m east
                 battery_percent=70.0,
                 sensors_healthy=True,
                 motors_healthy=False,  # Motor vibration detected
@@ -542,8 +680,8 @@ def create_sensor_cascade_scenario() -> Scenario:
             SimulatedDrone(
                 drone_id="sens_healthy",
                 name="Healthy Sensor Drone",
-                latitude=37.7745,
-                longitude=-122.4195,
+                latitude=DOCK_LATITUDE - 0.0004,  # ~45m south
+                longitude=DOCK_LONGITUDE - 0.0001,  # Near dock longitude
                 battery_percent=83.0,
                 state=DroneState.INSPECTING,
                 armed=True,
@@ -562,6 +700,39 @@ def create_sensor_cascade_scenario() -> Scenario:
                 anomaly_severity=0.85,
             ),
         ],
+        defects=[
+            # Critical broken cell that must be documented despite sensor issues
+            AssetDefect(
+                defect_id="defect_sens_001",
+                asset_id="critical_infra",
+                defect_type="broken_cell",
+                severity=0.85,
+                confidence=0.70,  # Lower confidence due to sensor degradation
+                uv_x=0.50,
+                uv_y=0.45,
+                size=0.20,
+                description="Damaged cell requiring immediate attention",
+            ),
+            # Secondary corrosion, hard to see at night
+            AssetDefect(
+                defect_id="defect_sens_002",
+                asset_id="critical_infra",
+                defect_type="corrosion",
+                severity=0.50,
+                confidence=0.65,
+                uv_x=0.70,
+                uv_y=0.80,
+                size=0.14,
+                description="Surface corrosion visible under IR",
+            ),
+        ],
+        environment=EnvironmentConditions(
+            hour=22,  # Night operations
+            is_daylight=False,
+            precipitation="dust",
+            visibility_m=3000.0,  # Reduced night visibility
+            wind_speed_ms=6.0,
+        ),
         events=[
             ScenarioEvent(0.0, "alert", "Sensor cascade scenario - high risk"),
             ScenarioEvent(30.0, "alert", "Critical Sensor Drone: EKF variance high"),
@@ -591,18 +762,14 @@ def create_multi_anomaly_scenario() -> Scenario:
             SimulatedDrone(
                 drone_id="anom_hunter_1",
                 name="Anomaly Hunter 1",
-                latitude=37.7749,
-                longitude=-122.4194,
                 battery_percent=90.0,
-                state=DroneState.IDLE,
+                # Starts at dock (default position)
             ),
             SimulatedDrone(
                 drone_id="anom_hunter_2",
                 name="Anomaly Hunter 2",
-                latitude=37.7752,
-                longitude=-122.4191,
                 battery_percent=85.0,
-                state=DroneState.IDLE,
+                # Starts at dock (default position)
             ),
         ],
         assets=[
@@ -647,6 +814,61 @@ def create_multi_anomaly_scenario() -> Scenario:
                 anomaly_severity=0.78,  # High, detected mid-mission
             ),
         ],
+        defects=[
+            # Critical hotspot on solar array - highest priority
+            AssetDefect(
+                defect_id="defect_multi_001",
+                asset_id="crit_solar",
+                defect_type="hotspot",
+                severity=0.92,
+                confidence=0.95,
+                uv_x=0.45,
+                uv_y=0.35,
+                size=0.22,
+                description="Critical thermal hotspot - potential fire risk",
+            ),
+            # Moderate corrosion on substation
+            AssetDefect(
+                defect_id="defect_multi_002",
+                asset_id="mod_substation",
+                defect_type="corrosion",
+                severity=0.55,
+                confidence=0.88,
+                uv_x=0.30,
+                uv_y=0.65,
+                size=0.16,
+                description="Moderate surface corrosion on equipment housing",
+            ),
+            # Minor debris on power line
+            AssetDefect(
+                defect_id="defect_multi_003",
+                asset_id="low_tower",
+                defect_type="debris",
+                severity=0.25,
+                confidence=0.90,
+                uv_x=0.55,
+                uv_y=0.20,
+                size=0.08,
+                description="Bird nest debris on tower crossarm",
+            ),
+            # Crack on turbine blade - detected mid-mission
+            AssetDefect(
+                defect_id="defect_multi_004",
+                asset_id="new_anomaly",
+                defect_type="crack",
+                severity=0.78,
+                confidence=0.85,
+                uv_x=0.75,
+                uv_y=0.40,
+                size=0.18,
+                description="Structural crack in blade root section",
+            ),
+        ],
+        environment=EnvironmentConditions(
+            hour=12,  # Harsh midday sun for maximum contrast
+            visibility_m=15000.0,  # Crystal clear
+            wind_speed_ms=3.0,  # Light breeze
+        ),
         events=[
             ScenarioEvent(0.0, "mission_start", "Multi-anomaly response mission"),
             ScenarioEvent(30.0, "decision", "Hunter 1: Assigned to Critical Solar (0.92)"),
@@ -676,34 +898,26 @@ def create_coordination_scenario() -> Scenario:
             SimulatedDrone(
                 drone_id="coord_a",
                 name="Coordinator Alpha",
-                latitude=37.7749,
-                longitude=-122.4194,
                 battery_percent=88.0,
-                state=DroneState.IDLE,
+                # Starts at dock (default position)
             ),
             SimulatedDrone(
                 drone_id="coord_b",
                 name="Coordinator Beta",
-                latitude=37.7751,
-                longitude=-122.4192,
                 battery_percent=82.0,
-                state=DroneState.IDLE,
+                # Starts at dock (default position)
             ),
             SimulatedDrone(
                 drone_id="coord_c",
                 name="Coordinator Charlie",
-                latitude=37.7747,
-                longitude=-122.4196,
                 battery_percent=79.0,
-                state=DroneState.IDLE,
+                # Starts at dock (default position)
             ),
             SimulatedDrone(
                 drone_id="coord_d",
                 name="Coordinator Delta",
-                latitude=37.7753,
-                longitude=-122.4190,
                 battery_percent=91.0,
-                state=DroneState.IDLE,
+                # Starts at dock (default position)
             ),
         ],
         assets=[
@@ -740,6 +954,48 @@ def create_coordination_scenario() -> Scenario:
                 priority=2,
             ),
         ],
+        defects=[
+            # Multiple defects across the dense array for coordination testing
+            AssetDefect(
+                defect_id="defect_coord_001",
+                asset_id="dense_array_1",
+                defect_type="crack",
+                severity=0.50,
+                confidence=0.87,
+                uv_x=0.30,
+                uv_y=0.50,
+                size=0.12,
+                description="Surface crack in panel glass",
+            ),
+            AssetDefect(
+                defect_id="defect_coord_002",
+                asset_id="dense_array_2",
+                defect_type="hotspot",
+                severity=0.65,
+                confidence=0.91,
+                uv_x=0.60,
+                uv_y=0.45,
+                size=0.14,
+                description="Thermal anomaly in junction box area",
+            ),
+            AssetDefect(
+                defect_id="defect_coord_003",
+                asset_id="dense_array_3",
+                defect_type="debris",
+                severity=0.30,
+                confidence=0.94,
+                uv_x=0.40,
+                uv_y=0.25,
+                size=0.10,
+                description="Accumulated debris affecting output",
+            ),
+        ],
+        environment=EnvironmentConditions(
+            hour=17,  # Golden sunset hour
+            precipitation="light_fog",
+            visibility_m=5000.0,  # Light fog adds atmosphere
+            wind_speed_ms=4.0,
+        ),
         events=[
             ScenarioEvent(0.0, "mission_start", "Dense inspection coordination test"),
             ScenarioEvent(30.0, "decision", "Sequencing drones to avoid conflicts"),

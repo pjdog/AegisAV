@@ -181,10 +181,7 @@ async def test_llm_evaluation_approve(good_world_snapshot, borderline_risk):
     )
 
     # Mock the Agent class to avoid real API calls (patch where it's imported from)
-    with (
-        patch("agent.server.critics.safety_critic.Agent") as MockAgent,
-        patch("agent.server.critics.safety_critic.OpenAIModel"),
-    ):
+    with patch("agent.server.critics.safety_critic.Agent") as MockAgent:
         mock_agent = Mock()
         mock_agent.run = AsyncMock(return_value=mock_result)
         MockAgent.return_value = mock_agent
@@ -219,10 +216,7 @@ async def test_llm_evaluation_reject(good_world_snapshot):
         "I must REJECT this decision due to critically low battery and high risk score."
     )
 
-    with (
-        patch("agent.server.critics.safety_critic.Agent") as MockAgent,
-        patch("agent.server.critics.safety_critic.OpenAIModel"),
-    ):
+    with patch("agent.server.critics.safety_critic.Agent") as MockAgent:
         mock_agent = Mock()
         mock_agent.run = AsyncMock(return_value=mock_result)
         MockAgent.return_value = mock_agent
@@ -246,10 +240,7 @@ async def test_llm_evaluation_with_concerns(good_world_snapshot, borderline_risk
     Battery is low and wind conditions are high.
     Monitor battery closely during orbit."""
 
-    with (
-        patch("agent.server.critics.safety_critic.Agent") as MockAgent,
-        patch("agent.server.critics.safety_critic.OpenAIModel"),
-    ):
+    with patch("agent.server.critics.safety_critic.Agent") as MockAgent:
         mock_agent = Mock()
         mock_agent.run = AsyncMock(return_value=mock_result)
         MockAgent.return_value = mock_agent
@@ -275,10 +266,7 @@ async def test_llm_fallback_on_error(good_world_snapshot, borderline_risk):
     decision = Decision(action=ActionType.INSPECT, parameters={}, confidence=0.8)
 
     # Mock LLM to raise exception
-    with (
-        patch("agent.server.critics.safety_critic.Agent") as MockAgent,
-        patch("agent.server.critics.safety_critic.OpenAIModel"),
-    ):
+    with patch("agent.server.critics.safety_critic.Agent") as MockAgent:
         mock_agent = Mock()
         mock_agent.run = AsyncMock(side_effect=Exception("API timeout"))
         MockAgent.return_value = mock_agent
@@ -403,10 +391,7 @@ async def test_explanation_agent_llm_explanation(good_world_snapshot, borderline
     mock_result = Mock()
     mock_result.data = "The drone decided to inspect the asset because battery is sufficient and mission progress is on track."
 
-    with (
-        patch("agent.server.monitoring.explanation_agent.Agent") as MockAgent,
-        patch("agent.server.monitoring.explanation_agent.OpenAIModel"),
-    ):
+    with patch("agent.server.monitoring.explanation_agent.Agent") as MockAgent:
         mock_agent = Mock()
         mock_agent.run = AsyncMock(return_value=mock_result)
         MockAgent.return_value = mock_agent
@@ -434,10 +419,7 @@ async def test_explanation_agent_fallback_on_llm_failure(good_world_snapshot, bo
     )
 
     # Mock LLM to fail
-    with (
-        patch("agent.server.monitoring.explanation_agent.Agent") as MockAgent,
-        patch("agent.server.monitoring.explanation_agent.OpenAIModel"),
-    ):
+    with patch("agent.server.monitoring.explanation_agent.Agent") as MockAgent:
         mock_agent = Mock()
         mock_agent.run = AsyncMock(side_effect=Exception("LLM unavailable"))
         MockAgent.return_value = mock_agent
@@ -479,11 +461,8 @@ async def test_orchestrator_uses_llm_for_hierarchical_review(good_world_snapshot
 
     with (
         patch("agent.server.critics.safety_critic.Agent") as SafetyAgent,
-        patch("agent.server.critics.safety_critic.OpenAIModel"),
         patch("agent.server.critics.efficiency_critic.Agent") as EfficiencyAgent,
-        patch("agent.server.critics.efficiency_critic.OpenAIModel"),
         patch("agent.server.critics.goal_alignment_critic.Agent") as GoalAgent,
-        patch("agent.server.critics.goal_alignment_critic.OpenAIModel"),
     ):
         SafetyAgent.return_value.run = AsyncMock(return_value=mock_result)
         EfficiencyAgent.return_value.run = AsyncMock(return_value=mock_result)
@@ -561,10 +540,7 @@ async def test_llm_calls_tracked_for_cost_monitoring():
         },
     )
 
-    with (
-        patch("agent.server.critics.safety_critic.Agent") as MockAgent,
-        patch("agent.server.critics.safety_critic.OpenAIModel"),
-    ):
+    with patch("agent.server.critics.safety_critic.Agent") as MockAgent:
         mock_agent = Mock()
         mock_agent.run = mock_llm_call
         MockAgent.return_value = mock_agent

@@ -29,19 +29,21 @@ function injectStyles() {
   const style = document.createElement('style');
   style.id = STYLE_ID;
   style.textContent = `
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
     /* ============================================
      * CONTROL PANEL COMPONENT STYLES
      * ============================================ */
 
     .aegis-control-panel {
-      font-family: "Space Grotesk", -apple-system, BlinkMacSystemFont, sans-serif;
-      background: linear-gradient(135deg, rgba(18, 18, 22, 0.92), rgba(24, 24, 30, 0.92));
+      font-family: "Inter", "SF Pro Display", "Segoe UI", sans-serif;
+      background: linear-gradient(135deg, rgba(24, 24, 27, 0.92), rgba(24, 24, 27, 0.86));
       backdrop-filter: blur(16px);
       -webkit-backdrop-filter: blur(16px);
-      border: 1px solid rgba(255, 255, 255, 0.08);
+      border: 1px solid rgba(39, 39, 42, 0.9);
       border-radius: 14px;
       padding: 16px;
-      color: #f0f0f5;
+      color: #FAFAFA;
       min-width: 280px;
       box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
     }
@@ -70,14 +72,14 @@ function injectStyles() {
       font-size: 13px;
       text-transform: uppercase;
       letter-spacing: 0.08em;
-      color: #00f2ff;
+      color: #06b6d4;
     }
 
     .aegis-cp-status {
       display: flex;
       align-items: center;
       gap: 6px;
-      font-family: "IBM Plex Mono", monospace;
+      font-family: "JetBrains Mono", "Roboto Mono", monospace;
       font-size: 10px;
       text-transform: uppercase;
     }
@@ -90,19 +92,19 @@ function injectStyles() {
     }
 
     .aegis-cp-status-dot.connected {
-      background: #00ff9d;
-      box-shadow: 0 0 8px #00ff9d;
+      background: #10b981;
+      box-shadow: 0 0 8px rgba(16, 185, 129, 0.6);
     }
 
     .aegis-cp-status-dot.disconnected {
-      background: #ff3e3e;
-      box-shadow: 0 0 8px #ff3e3e;
+      background: #ef4444;
+      box-shadow: 0 0 8px rgba(239, 68, 68, 0.6);
       animation: none;
     }
 
     .aegis-cp-status-dot.connecting {
-      background: #ffb800;
-      box-shadow: 0 0 8px #ffb800;
+      background: #f59e0b;
+      box-shadow: 0 0 8px rgba(245, 158, 11, 0.6);
       animation: aegis-blink 1s infinite;
     }
 
@@ -137,35 +139,35 @@ function injectStyles() {
     .aegis-cp-select {
       width: 100%;
       appearance: none;
-      font-family: "IBM Plex Mono", monospace;
+      font-family: "JetBrains Mono", "Roboto Mono", monospace;
       font-size: 12px;
       font-weight: 500;
-      color: #f0f0f5;
-      background: rgba(0, 0, 0, 0.35);
-      border: 1px solid rgba(255, 255, 255, 0.1);
+      color: #FAFAFA;
+      background: rgba(9, 9, 11, 0.65);
+      border: 1px solid rgba(39, 39, 42, 0.9);
       border-radius: 8px;
       padding: 10px 32px 10px 12px;
       cursor: pointer;
       transition: all 0.2s ease;
-      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%238a8a95' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2352525B' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
       background-repeat: no-repeat;
       background-position: right 10px center;
     }
 
     .aegis-cp-select:hover {
-      border-color: rgba(255, 255, 255, 0.2);
-      background-color: rgba(0, 0, 0, 0.45);
+      border-color: rgba(6, 182, 212, 0.35);
+      background-color: rgba(9, 9, 11, 0.8);
     }
 
     .aegis-cp-select:focus {
       outline: none;
-      border-color: #00f2ff;
-      box-shadow: 0 0 0 2px rgba(0, 242, 255, 0.2);
+      border-color: #06b6d4;
+      box-shadow: 0 0 0 2px rgba(6, 182, 212, 0.25);
     }
 
     .aegis-cp-select option {
-      background: #0a0a0c;
-      color: #f0f0f5;
+      background: #09090B;
+      color: #FAFAFA;
       padding: 8px;
     }
 
@@ -176,9 +178,9 @@ function injectStyles() {
       margin-top: 6px;
       line-height: 1.4;
       padding: 8px 10px;
-      background: rgba(0, 0, 0, 0.2);
+      background: rgba(9, 9, 11, 0.4);
       border-radius: 6px;
-      border-left: 2px solid #00f2ff;
+      border-left: 2px solid #06b6d4;
     }
 
     /* Mode Toggle */
@@ -193,7 +195,7 @@ function injectStyles() {
     .aegis-cp-mode-btn {
       flex: 1;
       padding: 8px 12px;
-      font-family: "IBM Plex Mono", monospace;
+      font-family: "JetBrains Mono", "Roboto Mono", monospace;
       font-size: 10px;
       font-weight: 600;
       text-transform: uppercase;
@@ -212,9 +214,9 @@ function injectStyles() {
     }
 
     .aegis-cp-mode-btn.active {
-      color: #00f2ff;
-      background: rgba(0, 242, 255, 0.15);
-      box-shadow: 0 0 12px rgba(0, 242, 255, 0.2);
+      color: #06b6d4;
+      background: rgba(6, 182, 212, 0.18);
+      box-shadow: 0 0 12px rgba(6, 182, 212, 0.35);
     }
 
     /* Playback Controls */
@@ -248,13 +250,13 @@ function injectStyles() {
     }
 
     .aegis-cp-playback-btn.primary {
-      background: rgba(0, 242, 255, 0.15);
-      border-color: rgba(0, 242, 255, 0.4);
+      background: rgba(6, 182, 212, 0.18);
+      border-color: rgba(6, 182, 212, 0.45);
     }
 
     .aegis-cp-playback-btn.primary:hover {
-      background: rgba(0, 242, 255, 0.25);
-      box-shadow: 0 0 12px rgba(0, 242, 255, 0.3);
+      background: rgba(6, 182, 212, 0.3);
+      box-shadow: 0 0 12px rgba(6, 182, 212, 0.35);
     }
 
     .aegis-cp-playback-btn:disabled {
@@ -264,7 +266,7 @@ function injectStyles() {
 
     .aegis-cp-playback-time {
       flex: 1;
-      font-family: "IBM Plex Mono", monospace;
+      font-family: "JetBrains Mono", "Roboto Mono", monospace;
       font-size: 11px;
       color: rgba(255, 255, 255, 0.6);
       text-align: center;
@@ -292,10 +294,10 @@ function injectStyles() {
       appearance: none;
       width: 14px;
       height: 14px;
-      background: #00f2ff;
+      background: #06b6d4;
       border-radius: 50%;
       cursor: pointer;
-      box-shadow: 0 0 8px rgba(0, 242, 255, 0.5);
+      box-shadow: 0 0 8px rgba(6, 182, 212, 0.5);
       transition: transform 0.15s ease;
     }
 
@@ -306,18 +308,18 @@ function injectStyles() {
     .aegis-cp-speed-slider::-moz-range-thumb {
       width: 14px;
       height: 14px;
-      background: #00f2ff;
+      background: #06b6d4;
       border: none;
       border-radius: 50%;
       cursor: pointer;
-      box-shadow: 0 0 8px rgba(0, 242, 255, 0.5);
+      box-shadow: 0 0 8px rgba(6, 182, 212, 0.5);
     }
 
     .aegis-cp-speed-value {
-      font-family: "IBM Plex Mono", monospace;
+      font-family: "JetBrains Mono", "Roboto Mono", monospace;
       font-size: 11px;
       font-weight: 600;
-      color: #00f2ff;
+      color: #06b6d4;
       min-width: 40px;
       text-align: right;
     }
@@ -326,22 +328,22 @@ function injectStyles() {
     .aegis-cp-action-btn {
       width: 100%;
       padding: 12px 16px;
-      font-family: "Space Grotesk", sans-serif;
+      font-family: "Inter", "SF Pro Display", "Segoe UI", sans-serif;
       font-size: 12px;
       font-weight: 600;
       text-transform: uppercase;
       letter-spacing: 0.08em;
-      color: #00f2ff;
-      background: rgba(0, 242, 255, 0.12);
-      border: 1px solid rgba(0, 242, 255, 0.4);
+      color: #06b6d4;
+      background: rgba(6, 182, 212, 0.12);
+      border: 1px solid rgba(6, 182, 212, 0.4);
       border-radius: 8px;
       cursor: pointer;
       transition: all 0.2s ease;
     }
 
     .aegis-cp-action-btn:hover {
-      background: rgba(0, 242, 255, 0.2);
-      box-shadow: 0 0 20px rgba(0, 242, 255, 0.25);
+      background: rgba(6, 182, 212, 0.2);
+      box-shadow: 0 0 20px rgba(6, 182, 212, 0.25);
     }
 
     .aegis-cp-action-btn:active {
@@ -354,14 +356,14 @@ function injectStyles() {
     }
 
     .aegis-cp-action-btn.stop {
-      color: #ff3e3e;
-      background: rgba(255, 62, 62, 0.12);
-      border-color: rgba(255, 62, 62, 0.4);
+      color: #ef4444;
+      background: rgba(239, 68, 68, 0.12);
+      border-color: rgba(239, 68, 68, 0.4);
     }
 
     .aegis-cp-action-btn.stop:hover {
-      background: rgba(255, 62, 62, 0.2);
-      box-shadow: 0 0 20px rgba(255, 62, 62, 0.25);
+      background: rgba(239, 68, 68, 0.2);
+      box-shadow: 0 0 20px rgba(239, 68, 68, 0.25);
     }
 
     /* Divider */
@@ -386,10 +388,10 @@ function injectStyles() {
     }
 
     .aegis-cp-stat-value {
-      font-family: "IBM Plex Mono", monospace;
+      font-family: "JetBrains Mono", "Roboto Mono", monospace;
       font-size: 16px;
       font-weight: 600;
-      color: #00f2ff;
+      color: #06b6d4;
     }
 
     .aegis-cp-stat-label {

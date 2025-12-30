@@ -290,6 +290,10 @@ class WorldModel:
         """
         self._dock = DockState(position=position, status=status)
 
+    def get_dock(self) -> DockState | None:
+        """Return the dock state even if no vehicle telemetry is available."""
+        return self._dock
+
     def add_asset(self, asset: Asset) -> None:
         """Add or update an asset.
 

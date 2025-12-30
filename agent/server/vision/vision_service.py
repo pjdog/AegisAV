@@ -4,13 +4,14 @@ Server-side vision orchestration.
 Handles detailed analysis, anomaly creation, and observation tracking.
 """
 
+import asyncio
 import logging
 import tempfile
 import uuid
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from agent.server.models.vision_models import (
     CameraMetadata,
@@ -19,8 +20,11 @@ from agent.server.models.vision_models import (
 from agent.server.vision.detector import SimulatedDetector
 from agent.server.world_model import Anomaly, WorldModel
 from autonomy.vehicle_state import Position
-from vision.data_models import DetectionResult
+from vision.data_models import Detection, DetectionResult
 from vision.image_manager import ImageManager
+
+if TYPE_CHECKING:
+    from agent.server.unreal_stream import UnrealConnectionManager
 
 logger = logging.getLogger(__name__)
 
@@ -54,6 +58,7 @@ class VisionService:
         detector: SimulatedDetector | None = None,
         image_manager: ImageManager | None = None,
         config: VisionServiceConfig | None = None,
+        unreal_manager: "UnrealConnectionManager | None" = None,
     ) -> None:
         """Initialize vision service.
 
@@ -63,10 +68,13 @@ class VisionService:
                 :class:`agent.server.vision.detector.SimulatedDetector` if None).
             image_manager (ImageManager | None): Image manager (creates default if None).
             config (VisionServiceConfig | None): Vision service configuration.
+            unreal_manager (UnrealConnectionManager | None): Unreal connection manager
+                for broadcasting anomaly detections.
         """
         self.world_model = world_model
         self.config = config or VisionServiceConfig()
         self.logger = logger
+        self.unreal_manager = unreal_manager
 
         # Create default instances if not provided
         if detector is None:
@@ -290,7 +298,72 @@ class VisionService:
             anomaly.severity,
         )
 
+        # Broadcast to Unreal for visualization
+        if detection.detected_defects:
+            primary_defect = detection.detected_defects[0]
+            asyncio.create_task(
+                self._broadcast_anomaly_to_unreal(anomaly, primary_defect, observation)
+            )
+
         return anomaly
+
+    async def _broadcast_anomaly_to_unreal(
+        self,
+        anomaly: Anomaly,
+        detection: Detection,
+        observation: VisionObservation,
+    ) -> None:
+        """Broadcast anomaly detection to Unreal for visualization.
+
+        Args:
+            anomaly: The created anomaly
+            detection: The primary detection that triggered the anomaly
+            observation: The vision observation context
+        """
+        if not self.unreal_manager:
+            return
+
+        try:
+            from agent.server.unreal_stream import (
+                AnomalyDetectionMessage,
+                UnrealMessageType,
+            )
+
+            # Build the message
+            message = AnomalyDetectionMessage(
+                anomaly_id=anomaly.anomaly_id,
+                asset_id=anomaly.asset_id,
+                severity=anomaly.severity,
+                defect_type=detection.detection_class.value,
+                confidence=detection.confidence,
+                description=anomaly.description,
+                bbox_x=detection.bounding_box.x if detection.bounding_box else None,
+                bbox_y=detection.bounding_box.y if detection.bounding_box else None,
+                bbox_width=detection.bounding_box.width if detection.bounding_box else None,
+                bbox_height=detection.bounding_box.height if detection.bounding_box else None,
+                latitude=observation.position.latitude if observation.position else None,
+                longitude=observation.position.longitude if observation.position else None,
+                altitude_m=observation.altitude_agl,
+                timestamp=anomaly.detected_at.isoformat(),
+            )
+
+            # Broadcast to all connected Unreal clients
+            await self.unreal_manager.broadcast(
+                {
+                    "type": UnrealMessageType.ANOMALY_DETECTED.value,
+                    **message.model_dump(),
+                }
+            )
+
+            self.logger.debug(
+                "Broadcast anomaly %s to Unreal (asset: %s, defect: %s)",
+                anomaly.anomaly_id,
+                anomaly.asset_id,
+                detection.detection_class.value,
+            )
+
+        except Exception as e:
+            self.logger.warning("Failed to broadcast anomaly to Unreal: %s", e)
 
     def get_observations_for_asset(self, asset_id: str) -> list[VisionObservation]:
         """Get all vision observations for an asset.
@@ -353,6 +426,18 @@ class VisionService:
             "average_confidence": round(avg_confidence, 3),
             "average_severity": round(avg_severity, 3),
         }
+
+    def seed_navigation_map(self, assets: list[Any], scenario_id: str) -> dict[str, Any]:
+        """Seed a navigation map from known assets for initial avoidance."""
+        from agent.server.navigation_map import build_navigation_map
+
+        nav_map = build_navigation_map(assets, scenario_id, source="vision_seed")
+        self.logger.info(
+            "vision_map_seeded",
+            scenario_id=scenario_id,
+            obstacle_count=len(nav_map.get("obstacles", [])),
+        )
+        return nav_map
 
     async def shutdown(self) -> None:
         """Shutdown the vision service."""

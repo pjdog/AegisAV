@@ -8,6 +8,7 @@ import time
 from abc import ABC, abstractmethod
 
 from agent.server.decision import Decision
+from agent.server.llm_config import get_default_llm_model
 from agent.server.models.critic_models import (
     CriticConfig,
     CriticResponse,
@@ -41,7 +42,7 @@ class BaseCritic(ABC):
             llm_model: LLM model to use (default: "openai:gpt-4o-mini")
         """
         self.config = config or CriticConfig()
-        self.llm_model = llm_model or "openai:gpt-4o-mini"
+        self.llm_model = llm_model or get_default_llm_model()
         self.critic_type = self._get_critic_type()
         self.evaluations_performed = 0
         self.llm_evaluations = 0

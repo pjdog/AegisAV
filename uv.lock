@@ -45,6 +45,7 @@ dependencies = [
 [package.optional-dependencies]
 all = [
     { name = "airsim" },
+    { name = "backports-ssl-match-hostname" },
     { name = "jupyter" },
     { name = "matplotlib" },
     { name = "mkdocs" },
@@ -82,6 +83,7 @@ docs = [
 ]
 sim = [
     { name = "airsim" },
+    { name = "backports-ssl-match-hostname" },
     { name = "jupyter" },
     { name = "matplotlib" },
     { name = "msgpack-rpc-python" },
@@ -92,6 +94,7 @@ sim = [
 requires-dist = [
     { name = "aegisav", extras = ["dev", "sim", "docs"], marker = "extra == 'all'" },
     { name = "airsim", marker = "extra == 'sim'", specifier = ">=1.8.1" },
+    { name = "backports-ssl-match-hostname", marker = "extra == 'sim'" },
     { name = "fastapi", specifier = ">=0.112.0" },
     { name = "httpx", specifier = ">=0.27.0" },
     { name = "jupyter", marker = "extra == 'sim'", specifier = ">=1.0.0" },
@@ -441,6 +444,12 @@ sdist = { url = "https://files.pythonhosted.org/packages/8e/ff/70dca7d7cb1cbc0ed
 wheels = [
     { url = "https://files.pythonhosted.org/packages/a0/59/76ab57e3fe74484f48a53f8e337171b4a2349e506eabe136d7e01d059086/backports_asyncio_runner-1.2.0-py3-none-any.whl", hash = "sha256:0da0a936a8aeb554eccb426dc55af3ba63bcdc69fa1a600b5bb305413a4477b5", size = 12313, upload-time = "2025-07-02T02:27:14.263Z" },
 ]
+
+[[package]]
+name = "backports-ssl-match-hostname"
+version = "3.7.0.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/ff/2b/8265224812912bc5b7a607c44bf7b027554e1b9775e9ee0de8032e3de4b2/backports.ssl_match_hostname-3.7.0.1.tar.gz", hash = "sha256:bb82e60f9fbf4c080eabd957c39f0641f0fc247d9a16e31e26d594d8f42b9fd2", size = 5722, upload-time = "2019-01-12T22:25:58.41Z" }
 
 [[package]]
 name = "backports-tarfile"

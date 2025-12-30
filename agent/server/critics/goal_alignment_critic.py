@@ -10,14 +10,8 @@ from typing import Any
 
 try:
     from pydantic_ai import Agent
-
-    try:
-        from pydantic_ai.models.openai import OpenAIChatModel as OpenAIModel
-    except ImportError:  # pragma: no cover - older pydantic-ai
-        from pydantic_ai.models.openai import OpenAIModel
 except ImportError:  # pragma: no cover - optional dependency
     Agent = None
-    OpenAIModel = None
 
 from agent.server.critics.base import BaseCritic
 from agent.server.decision import Decision
@@ -308,7 +302,7 @@ class GoalAlignmentCritic(BaseCritic):
         Returns:
             CriticResponse with detailed LLM reasoning
         """
-        if Agent is None or OpenAIModel is None:
+        if Agent is None:
             logger.warning("pydantic_ai unavailable, falling back to fast evaluation")
             return await self.evaluate_fast(decision, world, risk)
 
@@ -343,9 +337,8 @@ class GoalAlignmentCritic(BaseCritic):
 
     def _create_llm_agent(self) -> Agent:
         """Create the LLM agent for goal alignment evaluation."""
-        model = OpenAIModel(self.llm_model)
         return Agent(
-            model,
+            self.llm_model,
             system_prompt=(
                 "You are a Goal Alignment Critic for autonomous drone operations.\n\n"
                 "Your role is to evaluate whether decisions align with mission objectives "

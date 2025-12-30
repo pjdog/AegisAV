@@ -7,7 +7,6 @@ This module provides hierarchical planning, adaptive learning, and explainable A
 import asyncio
 import heapq
 import logging
-import os
 from abc import ABC, abstractmethod
 from collections import deque
 from dataclasses import dataclass, field
@@ -21,6 +20,7 @@ from pydantic_ai import Agent, RunContext
 from pydantic_ai.models.test import TestModel
 
 from agent.server.goals import Goal, GoalType
+from agent.server.llm_config import get_default_llm_model, llm_credentials_present
 from agent.server.world_model import Asset, WorldSnapshot
 from autonomy.vehicle_state import Position
 
@@ -113,16 +113,16 @@ class MissionDecision(BaseModel):
 def _create_mission_planner() -> Agent[WorldSnapshot, MissionDecision]:
     """Factory function to create the mission planner agent.
 
-    Uses OpenAI model in production (when OPENAI_API_KEY is set),
+    Uses the configured LLM provider when credentials are available,
     or TestModel for testing when no API key is available.
     """
-    # Use TestModel when no API key is available (testing scenario)
-    if os.environ.get("OPENAI_API_KEY"):
-        model: str | TestModel = "openai:gpt-4o"
+    resolved_model = get_default_llm_model()
+    if llm_credentials_present():
+        model: str | TestModel = resolved_model
     else:
         logger.warning(
-            "OPENAI_API_KEY not set - using TestModel for mission_planner. "
-            "Set OPENAI_API_KEY for production use."
+            "LLM credentials not set - using TestModel for mission_planner. "
+            "Configure AEGIS_LLM_PROVIDER/AEGIS_LLM_MODEL and provider API key for production."
         )
         model = TestModel()
 

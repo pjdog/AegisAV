@@ -12,6 +12,7 @@ from agent.server.critics.efficiency_critic import EfficiencyCritic
 from agent.server.critics.goal_alignment_critic import GoalAlignmentCritic
 from agent.server.critics.safety_critic import SafetyCritic
 from agent.server.decision import Decision
+from agent.server.llm_config import get_default_llm_model
 from agent.server.models.critic_models import (
     CriticResponse,
     CriticVerdict,
@@ -47,6 +48,7 @@ class CriticOrchestrator:
         self,
         authority_model: str | AuthorityModel = AuthorityModel.ESCALATION,
         enable_llm: bool = True,
+        llm_model: str | None = None,
     ) -> None:
         """Initialize critic orchestrator.
 
@@ -58,11 +60,13 @@ class CriticOrchestrator:
             AuthorityModel(authority_model) if isinstance(authority_model, str) else authority_model
         )
 
+        resolved_model = llm_model or get_default_llm_model()
+
         # Initialize all critics
         self.critics = [
-            SafetyCritic(llm_model="openai:gpt-4o-mini"),
-            EfficiencyCritic(llm_model="openai:gpt-4o-mini"),
-            GoalAlignmentCritic(llm_model="openai:gpt-4o-mini"),
+            SafetyCritic(llm_model=resolved_model),
+            EfficiencyCritic(llm_model=resolved_model),
+            GoalAlignmentCritic(llm_model=resolved_model),
         ]
 
         # Configure LLM usage

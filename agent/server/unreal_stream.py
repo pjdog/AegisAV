@@ -56,6 +56,33 @@ class UnrealMessageType(str, Enum):
     ANOMALY_DETECTED = "anomaly_detected"  # Vision detection
     ANOMALY_RESOLVED = "anomaly_resolved"  # Anomaly handled
 
+    # Camera
+    CAMERA_FRAME = "camera_frame"  # Drone camera image frame
+    CAMERA_POV_REQUEST = "camera_pov_request"  # Client requests POV switch
+
+    # Defects (for Unreal asset visualization)
+    SPAWN_DEFECT = "spawn_defect"  # Spawn visual defect on asset
+    CLEAR_DEFECTS = "clear_defects"  # Clear all defects from asset
+
+    # Dock station
+    DOCK_UPDATE = "dock_update"  # Dock state changed
+    DOCK_APPROACH = "dock_approach"  # Drone approaching dock
+    DOCK_LANDING = "dock_landing"  # Drone landing on dock
+    DOCK_CHARGING = "dock_charging"  # Drone charging on dock
+    DOCK_DEPARTED = "dock_departed"  # Drone left dock
+
+    # Battery management
+    BATTERY_UPDATE = "battery_update"  # Battery state update
+    BATTERY_WARNING = "battery_warning"  # Battery low warning
+    BATTERY_CRITICAL = "battery_critical"  # Battery critical alert
+
+    # Environment
+    ENVIRONMENT_UPDATE = "environment_update"  # Weather/time update
+    SPAWN_ASSET = "spawn_asset"  # Spawn asset in scene
+    CLEAR_ASSETS = "clear_assets"  # Clear all spawned assets
+    SPAWN_ANOMALY_MARKER = "spawn_anomaly_marker"  # Spawn 3D anomaly marker
+    CLEAR_ANOMALY_MARKERS = "clear_anomaly_markers"  # Clear anomaly markers
+
     # System
     SYNC = "sync"  # Full state synchronization
     HEARTBEAT = "heartbeat"  # Keep-alive
@@ -171,6 +198,175 @@ class RiskUpdate(BaseModel):
     abort_recommended: bool = False
 
 
+class CameraFrame(BaseModel):
+    """Camera frame for POV streaming."""
+
+    drone_id: str
+    sequence: int
+    timestamp_ms: float
+
+    image_base64: str  # JPEG encoded, base64
+    width: int
+    height: int
+    camera_name: str = "front_center"
+    fov_deg: float = 90.0
+
+    # Optional detection overlay data
+    detections: list[dict[str, Any]] | None = None
+
+
+class AnomalyDetectionMessage(BaseModel):
+    """Anomaly detection broadcast to Unreal."""
+
+    anomaly_id: str
+    asset_id: str
+    severity: float  # 0.0-1.0
+    defect_type: str  # DetectionClass value
+    confidence: float
+    description: str = ""
+
+    # Bounding box (normalized 0-1)
+    bbox_x: float | None = None
+    bbox_y: float | None = None
+    bbox_width: float | None = None
+    bbox_height: float | None = None
+
+    # Position where detected
+    latitude: float | None = None
+    longitude: float | None = None
+    altitude_m: float | None = None
+
+    timestamp: str  # ISO format
+
+
+class SpawnDefectMessage(BaseModel):
+    """Message to spawn a visual defect on an asset in Unreal."""
+
+    asset_id: str
+    defect_type: str  # CRACK_MODERATE, CORROSION_SURFACE, etc.
+    severity: float  # 0.0-1.0, affects visual intensity
+    uv_x: float  # UV coordinate on asset (0-1)
+    uv_y: float  # UV coordinate on asset (0-1)
+    size: float = 0.1  # Relative size on asset (0-1)
+    defect_id: str | None = None  # Optional unique identifier
+
+
+class DockUpdateMessage(BaseModel):
+    """Dock station state update for Unreal visualization."""
+
+    dock_id: str = "dock_main"
+    status: str  # available, occupied, charging, offline
+    latitude: float
+    longitude: float
+    altitude_m: float = 0.0
+
+    # Currently docked drone (if any)
+    docked_drone_id: str | None = None
+    charge_percent: float | None = None  # Current charge level of docked drone
+    charge_rate_per_min: float = 1.5
+
+    # Visual elements
+    landing_pad_active: bool = False
+    beacon_active: bool = True
+    charging_animation: bool = False
+
+
+class BatteryUpdateMessage(BaseModel):
+    """Battery state update for UI and 3D visualization."""
+
+    drone_id: str
+    timestamp_ms: float
+
+    # Current state
+    percent: float  # 0-100
+    voltage: float  # Volts
+    current: float  # Amps (negative = discharging)
+    temperature_c: float = 25.0
+
+    # Derived metrics
+    time_remaining_s: float | None = None  # Estimated time remaining
+    distance_remaining_m: float | None = None  # Estimated distance remaining
+
+    # Status flags
+    is_charging: bool = False
+    is_critical: bool = False  # Below critical threshold
+    is_low: bool = False  # Below low threshold
+
+    # Thresholds (for UI)
+    low_threshold: float = 30.0
+    critical_threshold: float = 15.0
+
+
+class EnvironmentUpdateMessage(BaseModel):
+    """Environment/weather update for AirSim and Unreal scene."""
+
+    timestamp_ms: float
+
+    # Time of day
+    hour: int  # 0-23
+    is_daylight: bool = True
+
+    # Weather (0.0-1.0 intensity)
+    rain: float = 0.0
+    snow: float = 0.0
+    fog: float = 0.0
+    dust: float = 0.0
+
+    # Wind
+    wind_speed_ms: float = 0.0
+    wind_direction_deg: float = 0.0
+
+    # Visibility
+    visibility_m: float = 10000.0
+
+    # Scenario context
+    scenario_id: str | None = None
+    scenario_name: str | None = None
+
+
+class SpawnAssetMessage(BaseModel):
+    """Spawn an asset in the Unreal scene."""
+
+    asset_id: str
+    asset_type: str  # solar_panel, wind_turbine, substation, power_line
+    name: str
+
+    # Position
+    latitude: float
+    longitude: float
+    altitude_m: float = 0.0
+
+    # Asset properties
+    priority: int = 1
+    has_anomaly: bool = False
+    anomaly_severity: float = 0.0
+
+    # Visual scale (for Unreal)
+    scale: float = 1.0
+    rotation_deg: float = 0.0
+
+
+class SpawnAnomalyMarkerMessage(BaseModel):
+    """Spawn a 3D anomaly marker in the Unreal scene."""
+
+    anomaly_id: str
+    asset_id: str
+    severity: float  # 0.0-1.0, affects marker size/color
+
+    # World position
+    latitude: float
+    longitude: float
+    altitude_m: float
+
+    # Marker properties
+    marker_type: str = "sphere"  # sphere, icon, beam
+    color_r: float = 1.0  # Red component (severity mapped)
+    color_g: float = 0.3
+    color_b: float = 0.0
+    pulse: bool = True  # Pulsing animation
+    label: str = ""  # Optional text label
+
+
 # =============================================================================
 # Unreal Connection Manager
 # =============================================================================
@@ -188,6 +384,15 @@ class UnrealConnectionManager:
         self.drone_subscriptions: dict[str, set[str]] = {}  # connection_id -> drone_ids
         self._sequence = 0
         self._lock = asyncio.Lock()
+        self._on_connect_callback: Any | None = None  # Callback when client connects
+
+    def set_on_connect(self, callback: Any) -> None:
+        """Set callback to be called when a new client connects.
+
+        The callback should be an async function that takes connection_id as argument.
+        This is used to send scene state when Unreal connects during a scenario.
+        """
+        self._on_connect_callback = callback
 
     async def connect(
         self, websocket: WebSocket, connection_id: str, drone_ids: list[str] | None = None
@@ -197,6 +402,13 @@ class UnrealConnectionManager:
         self.connections[connection_id] = websocket
         self.drone_subscriptions[connection_id] = set(drone_ids) if drone_ids else set()
         logger.info(f"Unreal client connected: {connection_id}")
+
+        # Call on_connect callback if set (for scene sync)
+        if self._on_connect_callback:
+            try:
+                await self._on_connect_callback(connection_id)
+            except Exception as e:
+                logger.warning(f"on_connect callback failed: {e}")
 
     def disconnect(self, connection_id: str) -> None:
         """Remove a connection."""
@@ -211,21 +423,37 @@ class UnrealConnectionManager:
             return self._sequence
 
     async def broadcast(
-        self, message_type: UnrealMessageType, data: dict[str, Any], drone_id: str | None = None
+        self,
+        message_type: UnrealMessageType | dict[str, Any],
+        data: dict[str, Any] | None = None,
+        drone_id: str | None = None,
     ) -> None:
         """Broadcast message to all connected Unreal clients.
 
         Args:
-            message_type: Type of message
-            data: Message payload
-            drone_id: If set, only send to clients subscribed to this drone
+            message_type: Type of message or pre-built payload.
+            data: Message payload when message_type is UnrealMessageType.
+            drone_id: If set, only send to clients subscribed to this drone.
         """
-        message = {
-            "type": message_type.value,
-            "sequence": await self.next_sequence(),
-            "timestamp_ms": time.time() * 1000,
-            **data,
-        }
+        if isinstance(message_type, dict):
+            message = dict(message_type)
+        else:
+            if data is None:
+                logger.warning(
+                    "unreal_broadcast_missing_data",
+                    message_type=message_type.value,
+                )
+                return
+            message = {"type": message_type.value, **data}
+
+        if "type" not in message:
+            logger.warning("unreal_broadcast_missing_type", payload=message)
+            return
+
+        if "sequence" not in message:
+            message["sequence"] = await self.next_sequence()
+        if "timestamp_ms" not in message:
+            message["timestamp_ms"] = time.time() * 1000
 
         disconnected = []
 
@@ -243,6 +471,32 @@ class UnrealConnectionManager:
                 disconnected.append(conn_id)
 
         # Cleanup disconnected
+        for conn_id in disconnected:
+            self.disconnect(conn_id)
+
+    async def broadcast_raw(
+        self, message: dict[str, Any], drone_id: str | None = None
+    ) -> None:
+        """Broadcast a pre-formatted payload to all Unreal clients."""
+        payload = dict(message)
+        if "sequence" not in payload:
+            payload["sequence"] = await self.next_sequence()
+        if "timestamp_ms" not in payload:
+            payload["timestamp_ms"] = time.time() * 1000
+
+        disconnected = []
+
+        for conn_id, websocket in self.connections.items():
+            if drone_id:
+                subs = self.drone_subscriptions.get(conn_id, set())
+                if subs and drone_id not in subs:
+                    continue
+            try:
+                await websocket.send_json(payload)
+            except Exception as exc:
+                logger.warning("Failed to send to %s: %s", conn_id, exc)
+                disconnected.append(conn_id)
+
         for conn_id in disconnected:
             self.disconnect(conn_id)
 

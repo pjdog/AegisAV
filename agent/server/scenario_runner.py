@@ -42,7 +42,6 @@ from agent.server.world_model import (
     WorldModel,
     WorldSnapshot,
 )
-from simulation.coordinate_utils import haversine_distance, initial_bearing
 from autonomy.vehicle_state import (
     Attitude,
     BatteryState,
@@ -53,6 +52,7 @@ from autonomy.vehicle_state import (
     VehicleState,
     Velocity,
 )
+from simulation.coordinate_utils import haversine_distance, initial_bearing
 
 logger = logging.getLogger(__name__)
 
@@ -186,9 +186,7 @@ class ScenarioRunner:
                     authority_model=authority,
                     enable_llm=False,  # Start with fast classical critics
                 )
-                logger.info(
-                    f"Critic orchestrator initialized: authority={authority.value}"
-                )
+                logger.info(f"Critic orchestrator initialized: authority={authority.value}")
             except Exception as e:
                 logger.warning(f"Failed to initialize critic orchestrator: {e}")
                 self.critic_orchestrator = None
@@ -962,8 +960,7 @@ class ScenarioRunner:
 
         # Filter assets list
         filtered_assets = [
-            asset for asset in snapshot.assets
-            if asset.asset_id not in unavailable_assets
+            asset for asset in snapshot.assets if asset.asset_id not in unavailable_assets
         ]
 
         if not filtered_assets and snapshot.assets:
@@ -980,13 +977,19 @@ class ScenarioRunner:
                     list(self.run_state.assets_inspected),
                 )
             else:
-                logger.warning(
-                    "Fleet filtering removed all assets: total=%d in_progress=%s inspected=%s",
+                logger.info(
+                    "All assets inspected; resetting inspection cycle " "(total=%d, inspected=%s)",
                     len(snapshot.assets),
-                    list(self.run_state.assets_in_progress.keys()),
                     list(self.run_state.assets_inspected),
                 )
-                logger.info("All assets inspected; resetting inspection cycle")
+                # Clear the inspected set to allow re-inspection
+                self.run_state.assets_inspected.clear()
+                # Reset next_scheduled on all assets in snapshot
+                for asset in snapshot.assets:
+                    asset.next_scheduled = None
+                # Reset all drone world models so assets become pending again
+                for drone_state in self.run_state.drone_states.values():
+                    drone_state.world_model.reset_inspection_cycle()
                 filtered_assets = list(snapshot.assets)
 
         filtered_asset_ids = {asset.asset_id for asset in filtered_assets}
@@ -1083,16 +1086,10 @@ class ScenarioRunner:
 
         logger.info("[DECISION] Drone %s:", drone.name)
         logger.info("  - Total assets in world: %d", len(snapshot.assets))
-        logger.info(
-            "  - Fleet in-progress: %s", list(self.run_state.assets_in_progress.keys())
-        )
-        logger.info(
-            "  - Fleet inspected: %s", list(self.run_state.assets_inspected)
-        )
+        logger.info("  - Fleet in-progress: %s", list(self.run_state.assets_in_progress.keys()))
+        logger.info("  - Fleet inspected: %s", list(self.run_state.assets_inspected))
         logger.info("  - Available after filter: %d", len(available_snapshot.assets))
-        logger.info(
-            "  - Pending inspections: %s", [a.asset_id for a in pending_assets]
-        )
+        logger.info("  - Pending inspections: %s", [a.asset_id for a in pending_assets])
 
         # Create goal selector and make decision
         selector = GoalSelector()
@@ -1129,7 +1126,7 @@ class ScenarioRunner:
                     )
                     # Log the rejection but don't override the goal in advisory mode
                     if escalation and escalation.requires_human_review:
-                        logger.info(f"Escalation requires human review")
+                        logger.info("Escalation requires human review")
 
                 # B.5: Broadcast critic validation event via WebSocket
                 try:
@@ -1159,7 +1156,10 @@ class ScenarioRunner:
                 critic_result = {"approved": True, "error": str(e)}
 
         # Atomic asset claiming - prevent race conditions in multi-drone assignment
-        if goal.goal_type in (GoalType.INSPECT_ASSET, GoalType.INSPECT_ANOMALY) and goal.target_asset:
+        if (
+            goal.goal_type in (GoalType.INSPECT_ASSET, GoalType.INSPECT_ANOMALY)
+            and goal.target_asset
+        ):
             claimed = await self._try_claim_asset(goal.target_asset.asset_id, drone.drone_id)
             if not claimed:
                 # Asset was claimed by another drone - fall back to WAIT
@@ -1251,9 +1251,7 @@ class ScenarioRunner:
                 "drone_id": drone.drone_id,
                 "drone_name": drone.name,
                 "action": "critic_validation",
-                "reason": (
-                    critic_result.get("escalation", {}) or {}
-                ).get("reason")
+                "reason": (critic_result.get("escalation", {}) or {}).get("reason")
                 or (
                     "Critics approved decision"
                     if critic_result.get("approved")
@@ -1516,7 +1514,7 @@ class ScenarioRunner:
             name="battery",
             value=battery_risk,
             threshold=0.5,  # 50% depleted = concerning
-            critical=0.8,   # 80% depleted = critical
+            critical=0.8,  # 80% depleted = critical
             description=f"Battery at {drone.battery_percent:.1f}%",
         )
 
@@ -1542,7 +1540,9 @@ class ScenarioRunner:
             value=weather_risk,
             threshold=0.5,
             critical=0.8,
-            description=f"Wind: {self.run_state.environment.wind_speed_ms:.1f} m/s" if self.run_state else "Unknown",
+            description=f"Wind: {self.run_state.environment.wind_speed_ms:.1f} m/s"
+            if self.run_state
+            else "Unknown",
         )
 
         # Build warnings
@@ -1627,7 +1627,9 @@ class ScenarioRunner:
             self.critic_orchestrator.authority_model = authority_map[authority.lower()]
             logger.info(f"Critic authority changed to: {authority}")
         else:
-            logger.error(f"Unknown authority model: {authority}. Valid: {list(authority_map.keys())}")
+            logger.error(
+                f"Unknown authority model: {authority}. Valid: {list(authority_map.keys())}"
+            )
 
     def _log_entry(self, entry: dict[str, Any]) -> None:
         """Add entry to decision log with run_id."""

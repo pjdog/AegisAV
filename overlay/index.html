@@ -7,25 +7,28 @@
   <title>AegisAV Agent Thought Overlay</title>
   <link rel="icon" type="image/svg+xml" href="/aegis_logo.svg">
   <style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Orbitron:wght@400;500;600;700&display=swap');
 
     :root {
       --font-sans: "Inter", "SF Pro Display", "Segoe UI", sans-serif;
       --font-mono: "JetBrains Mono", "Roboto Mono", monospace;
-      --bg-deep: #09090B;
-      --bg-onyx: #18181B;
-      --card-glass: rgba(39, 39, 42, 0.65);
-      --border-glass: rgba(39, 39, 42, 0.9);
-      --text-primary: #FAFAFA;
-      --text-muted: #52525B;
-      --accent-cyber: #06b6d4;
-      --accent-security: #10b981;
-      --accent-alert: #ef4444;
-      --accent-warning: #f59e0b;
+      --font-tactical: "Orbitron", "Inter", sans-serif;
+      --bg-deep: #050508;
+      --bg-onyx: #0a0a0f;
+      --card-glass: rgba(15, 15, 20, 0.9);
+      --border-glass: rgba(45, 50, 60, 0.8);
+      --border-tactical: rgba(0, 212, 255, 0.3);
+      --text-primary: #E8E8EC;
+      --text-muted: #5A5A68;
+      --accent-cyber: #00d4ff;
+      --accent-security: #00ff88;
+      --accent-alert: #ff3344;
+      --accent-warning: #ffaa00;
       --accent-purple: #8b5cf6;
       --accent-blue: #3b82f6;
-      --glass-blur: blur(12px);
-      --sidebar-width: 320px;
+      --glass-blur: blur(8px);
+      --sidebar-width: 300px;
+      --corner-cut: 8px;
     }
 
     * {
@@ -36,6 +39,10 @@
 
     body {
       background: var(--bg-deep);
+      background-image:
+        linear-gradient(rgba(0, 212, 255, 0.015) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(0, 212, 255, 0.015) 1px, transparent 1px);
+      background-size: 50px 50px;
       overflow: hidden;
       font-family: var(--font-sans);
       width: 100vw;
@@ -47,39 +54,59 @@
       background: transparent;
     }
 
-    /* ========== LEFT SIDEBAR ========== */
+    /* ========== LEFT SIDEBAR (TACTICAL) ========== */
     .sidebar {
       width: var(--sidebar-width);
       height: 100vh;
       background: var(--card-glass);
       backdrop-filter: var(--glass-blur);
-      border-right: 1px solid var(--border-glass);
+      border-right: 2px solid var(--border-tactical);
       display: flex;
       flex-direction: column;
       overflow: hidden;
       z-index: 100;
       flex-shrink: 0;
+      position: relative;
+    }
+
+    .sidebar::before {
+      content: "";
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 3px;
+      background: linear-gradient(90deg, var(--accent-cyber), transparent);
     }
 
     .sidebar-header {
-      padding: 16px;
+      padding: 14px 16px;
       border-bottom: 1px solid var(--border-glass);
       display: flex;
       align-items: center;
       justify-content: space-between;
+      background: rgba(0, 0, 0, 0.3);
     }
 
     .sidebar-title {
-      font-size: 1rem;
-      font-weight: 700;
+      font-size: 0.85rem;
+      font-weight: 600;
+      font-family: var(--font-tactical);
       color: var(--accent-cyber);
       text-transform: uppercase;
-      letter-spacing: 0.05em;
+      letter-spacing: 0.15em;
+      text-shadow: 0 0 20px rgba(0, 212, 255, 0.5);
+    }
+
+    .sidebar-title::before {
+      content: "// ";
+      opacity: 0.5;
     }
 
     .connection-status {
-      padding: 6px 12px;
-      border-radius: 16px;
+      padding: 4px 10px;
+      border-radius: 2px;
+      clip-path: polygon(0 0, calc(100% - 4px) 0, 100% 4px, 100% 100%, 4px 100%, 0 calc(100% - 4px));
       font-size: 11px;
       font-weight: 600;
       text-transform: uppercase;
@@ -124,14 +151,31 @@
       justify-content: space-between;
       margin-bottom: 12px;
       cursor: pointer;
+      padding-bottom: 8px;
+      border-bottom: 1px solid var(--border-glass);
     }
 
     .section-title {
-      font-size: 0.8rem;
-      font-weight: 600;
-      letter-spacing: 0.04em;
+      font-size: 0.7rem;
+      font-weight: 500;
+      font-family: var(--font-tactical);
+      letter-spacing: 0.12em;
       text-transform: uppercase;
       color: var(--text-muted);
+    }
+
+    .section-title::before {
+      content: "[";
+      color: var(--accent-cyber);
+      margin-right: 4px;
+      opacity: 0.5;
+    }
+
+    .section-title::after {
+      content: "]";
+      color: var(--accent-cyber);
+      margin-left: 4px;
+      opacity: 0.5;
     }
 
     .section-toggle {
@@ -283,6 +327,25 @@
     .drone-camera-tab:hover:not(.active) {
       background: rgba(255, 255, 255, 0.1);
       color: var(--text-primary);
+    }
+
+    .drone-camera-tab.streaming {
+      border-color: rgba(16, 185, 129, 0.5);
+    }
+
+    .drone-camera-tab .stream-dot {
+      display: inline-block;
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--accent-security);
+      margin-right: 4px;
+      animation: pulse-dot 1.5s ease-in-out infinite;
+    }
+
+    @keyframes pulse-dot {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.4; }
     }
 
     .camera-thumbnails {
@@ -711,7 +774,8 @@
       background: rgba(9, 9, 11, 0.95);
       backdrop-filter: blur(12px);
       border: 1px solid rgba(6, 182, 212, 0.3);
-      border-radius: 8px;
+      border-radius: 4px;
+      clip-path: polygon(0 0, calc(100% - 12px) 0, 100% 12px, 100% 100%, 12px 100%, 0 calc(100% - 12px));
       padding: 14px 16px;
       min-width: 260px;
       max-width: 320px;
@@ -811,15 +875,7 @@
       box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5), 0 0 25px rgba(16, 185, 129, 0.2);
     }
 
-    .thought-bubble::after {
-      content: '';
-      position: absolute;
-      bottom: -8px;
-      left: 24px;
-      border: 8px solid transparent;
-      border-top-color: rgba(9, 9, 11, 0.95);
-      border-bottom: 0;
-    }
+    /* Pointer removed - doesn't work with clip-path angular corners */
 
     .bubble-header {
       display: flex;
@@ -1037,10 +1093,11 @@
       position: absolute;
       top: 16px;
       right: 16px;
-      background: rgba(9, 9, 11, 0.8);
+      background: rgba(9, 9, 11, 0.9);
       backdrop-filter: blur(8px);
-      border: 1px solid var(--border-glass);
-      border-radius: 8px;
+      border: 1px solid var(--border-tactical);
+      border-radius: 4px;
+      clip-path: polygon(0 0, calc(100% - 8px) 0, 100% 8px, 100% 100%, 8px 100%, 0 calc(100% - 8px));
       padding: 12px 14px;
       font-size: 0.75rem;
       color: var(--text-muted);
@@ -1064,44 +1121,97 @@
       position: absolute;
       bottom: 16px;
       right: 16px;
-      background: rgba(245, 158, 11, 0.15);
-      backdrop-filter: blur(8px);
-      border: 1px solid rgba(245, 158, 11, 0.4);
-      border-radius: 8px;
-      padding: 10px 14px;
+      background: linear-gradient(135deg, rgba(245, 158, 11, 0.12), rgba(245, 158, 11, 0.08));
+      backdrop-filter: blur(12px);
+      border: 1px solid rgba(245, 158, 11, 0.35);
+      border-radius: 4px;
+      clip-path: polygon(0 0, calc(100% - 10px) 0, 100% 10px, 100% 100%, 10px 100%, 0 calc(100% - 10px));
+      padding: 14px 18px;
       font-size: 0.75rem;
       z-index: 50;
-      min-width: 160px;
+      min-width: 200px;
+      max-width: 240px;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3), 0 0 20px rgba(245, 158, 11, 0.1);
+      transition: all 0.3s ease;
+    }
+    .target-info:hover {
+      border-color: rgba(245, 158, 11, 0.5);
+      box-shadow: 0 8px 28px rgba(0, 0, 0, 0.35), 0 0 25px rgba(245, 158, 11, 0.15);
     }
     .target-header {
       display: flex;
       align-items: center;
-      gap: 6px;
-      margin-bottom: 6px;
+      gap: 8px;
+      margin-bottom: 10px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid rgba(245, 158, 11, 0.2);
     }
-    .target-icon { font-size: 1rem; }
+    .target-icon {
+      font-size: 1.1rem;
+      animation: target-pulse 2s ease-in-out infinite;
+    }
+    @keyframes target-pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.7; transform: scale(0.95); }
+    }
     .target-title {
       color: #f59e0b;
       font-weight: 600;
-      font-size: 0.85rem;
+      font-size: 0.9rem;
+      letter-spacing: 0.02em;
+      text-shadow: 0 0 10px rgba(245, 158, 11, 0.3);
     }
     .target-coords {
       font-family: var(--font-mono);
       color: var(--text-muted);
       font-size: 0.7rem;
-      margin-bottom: 4px;
+      margin-bottom: 8px;
+      display: flex;
+      gap: 12px;
+    }
+    .target-coords .coord {
+      display: flex;
+      flex-direction: column;
+    }
+    .target-coords .coord-label {
+      font-size: 0.55rem;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      opacity: 0.6;
+      margin-bottom: 2px;
+    }
+    .target-coords .coord-value {
+      color: var(--text-primary);
     }
     .target-delta {
       display: flex;
       justify-content: space-between;
       align-items: center;
+      background: rgba(0, 0, 0, 0.2);
+      padding: 8px 10px;
+      border-radius: 6px;
+      margin-top: 4px;
     }
-    .delta-label { color: var(--text-muted); }
+    .delta-label {
+      color: var(--text-muted);
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
     .delta-value {
       color: #f59e0b;
-      font-weight: 600;
+      font-weight: 700;
       font-family: var(--font-mono);
-      font-size: 0.9rem;
+      font-size: 1rem;
+      text-shadow: 0 0 8px rgba(245, 158, 11, 0.4);
+    }
+    .delta-value.close {
+      color: var(--accent-security);
+      text-shadow: 0 0 8px rgba(16, 185, 129, 0.4);
+    }
+    .delta-value.far {
+      color: var(--accent-alert);
+      text-shadow: 0 0 8px rgba(239, 68, 68, 0.4);
     }
 
     /* Map controls */
@@ -1112,12 +1222,136 @@
       display: flex;
       flex-direction: column;
       gap: 4px;
-      background: rgba(9, 9, 11, 0.8);
+      background: rgba(9, 9, 11, 0.9);
       backdrop-filter: blur(8px);
-      border: 1px solid var(--border-glass);
-      border-radius: 8px;
+      border: 1px solid var(--border-tactical);
+      border-radius: 4px;
+      clip-path: polygon(0 0, calc(100% - 6px) 0, 100% 6px, 100% 100%, 6px 100%, 0 calc(100% - 6px));
       padding: 6px;
       z-index: 50;
+    }
+
+    /* SLAM controls styling */
+    .slam-controls-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+
+    .slam-controls-row:last-child {
+      margin-bottom: 0;
+    }
+
+    .slam-controls-row label {
+      flex: 1;
+      font-size: 0.7rem;
+      color: var(--text-muted);
+    }
+
+    .slam-toggle {
+      position: relative;
+      width: 36px;
+      height: 18px;
+      background: rgba(255, 255, 255, 0.1);
+      border-radius: 9px;
+      cursor: pointer;
+      transition: background 0.2s;
+      flex-shrink: 0;
+    }
+
+    .slam-toggle.active {
+      background: rgba(0, 212, 255, 0.3);
+    }
+
+    .slam-toggle::after {
+      content: "";
+      position: absolute;
+      top: 2px;
+      left: 2px;
+      width: 14px;
+      height: 14px;
+      background: var(--text-muted);
+      border-radius: 50%;
+      transition: all 0.2s;
+    }
+
+    .slam-toggle.active::after {
+      left: 20px;
+      background: var(--accent-cyber);
+    }
+
+    .slam-slider-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .slam-slider-row label {
+      font-size: 0.65rem;
+      color: var(--text-muted);
+      min-width: 60px;
+    }
+
+    .slam-slider {
+      flex: 1;
+      -webkit-appearance: none;
+      appearance: none;
+      height: 4px;
+      background: rgba(255, 255, 255, 0.15);
+      border-radius: 2px;
+      cursor: pointer;
+    }
+
+    .slam-slider::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      background: var(--accent-cyber);
+      cursor: pointer;
+      border: 2px solid rgba(0, 0, 0, 0.3);
+    }
+
+    .slam-slider::-moz-range-thumb {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      background: var(--accent-cyber);
+      cursor: pointer;
+      border: 2px solid rgba(0, 0, 0, 0.3);
+    }
+
+    .slam-slider-value {
+      font-size: 0.65rem;
+      font-family: var(--font-mono);
+      color: var(--text-primary);
+      min-width: 32px;
+      text-align: right;
+    }
+
+    .slam-legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 8px;
+      padding-top: 8px;
+      border-top: 1px solid var(--border-glass);
+    }
+
+    .slam-legend-item {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 0.55rem;
+      color: var(--text-muted);
+    }
+
+    .slam-legend-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
     }
     .map-btn {
       width: 28px;
@@ -1135,6 +1369,9 @@
     }
     .map-btn:hover {
       background: rgba(255, 255, 255, 0.2);
+    }
+    .map-btn.link {
+      text-decoration: none;
     }
     .zoom-indicator {
       font-size: 0.65rem;
@@ -1381,6 +1618,75 @@
         </div>
       </div>
 
+      <!-- SLAM/Map Display Configuration -->
+      <div class="sidebar-section">
+        <div class="section-header" data-section="slamconfig">
+          <span class="section-title">SLAM Display</span>
+          <button class="section-toggle">-</button>
+        </div>
+        <div class="section-content" id="slamConfigSection">
+          <div class="slam-controls-row">
+            <label>Show Obstacles</label>
+            <div class="slam-toggle active" id="slamObstaclesToggle" data-key="showObstacles" title="Show/hide SLAM obstacles"></div>
+          </div>
+          <div class="slam-controls-row">
+            <label>Show Point Cloud</label>
+            <div class="slam-toggle active" id="slamPointsToggle" data-key="showPoints" title="Show/hide point cloud"></div>
+          </div>
+          <div class="slam-controls-row">
+            <label>Heatmap Mode</label>
+            <div class="slam-toggle" id="slamHeatmapToggle" data-key="heatmapMode" title="Color by height"></div>
+          </div>
+          <div class="slam-slider-row">
+            <label>Max Height</label>
+            <input type="range" class="slam-slider" id="slamHeightMax" min="0" max="100" value="100" title="Filter obstacles by max height">
+            <span class="slam-slider-value" id="slamHeightMaxValue">100m</span>
+          </div>
+          <div class="slam-slider-row">
+            <label>Min Height</label>
+            <input type="range" class="slam-slider" id="slamHeightMin" min="0" max="100" value="0" title="Filter obstacles by min height">
+            <span class="slam-slider-value" id="slamHeightMinValue">0m</span>
+          </div>
+          <div class="slam-slider-row">
+            <label>Point Size</label>
+            <input type="range" class="slam-slider" id="slamPointSize" min="1" max="10" value="3" title="Point cloud dot size">
+            <span class="slam-slider-value" id="slamPointSizeValue">3</span>
+          </div>
+          <div class="slam-slider-row">
+            <label>Opacity</label>
+            <input type="range" class="slam-slider" id="slamOpacity" min="10" max="100" value="70" title="Point opacity">
+            <span class="slam-slider-value" id="slamOpacityValue">70%</span>
+          </div>
+          <div class="slam-slider-row">
+            <label>Offset X</label>
+            <input type="range" class="slam-slider" id="slamOffsetX" min="-200" max="200" value="0" title="East/West offset (meters)">
+            <span class="slam-slider-value" id="slamOffsetXValue">0m</span>
+          </div>
+          <div class="slam-slider-row">
+            <label>Offset Y</label>
+            <input type="range" class="slam-slider" id="slamOffsetY" min="-200" max="200" value="0" title="North/South offset (meters)">
+            <span class="slam-slider-value" id="slamOffsetYValue">0m</span>
+          </div>
+          <div class="slam-slider-row">
+            <label>View Tilt</label>
+            <input type="range" class="slam-slider" id="slamViewAngle" min="5" max="90" value="30" title="View tilt angle (5=top-down, 90=edge-on)">
+            <span class="slam-slider-value" id="slamViewAngleValue">30°</span>
+          </div>
+          <div class="slam-slider-row">
+            <label>Rotation</label>
+            <input type="range" class="slam-slider" id="slamRotation" min="0" max="360" value="45" title="Scene rotation angle">
+            <span class="slam-slider-value" id="slamRotationValue">45°</span>
+          </div>
+          <div class="slam-legend">
+            <div class="slam-legend-item"><span class="slam-legend-dot" style="background:#ef4444"></span>Building</div>
+            <div class="slam-legend-item"><span class="slam-legend-dot" style="background:#22c55e"></span>Tree</div>
+            <div class="slam-legend-item"><span class="slam-legend-dot" style="background:#3b82f6"></span>Solar</div>
+            <div class="slam-legend-item"><span class="slam-legend-dot" style="background:#8b5cf6"></span>Substation</div>
+            <div class="slam-legend-item"><span class="slam-legend-dot" style="background:#06b6d4"></span>Turbine</div>
+          </div>
+        </div>
+      </div>
+
       <!-- Camera -->
       <div class="sidebar-section">
         <div class="section-header" data-section="camera">
@@ -1520,12 +1826,21 @@
     <!-- Target Info Panel -->
     <div class="target-info" id="targetInfo" style="display: none;">
       <div class="target-header">
-        <span class="target-icon">🎯</span>
+        <span class="target-icon">&#127919;</span>
         <span class="target-title" id="targetName">Target</span>
       </div>
-      <div class="target-coords" id="targetCoords">--</div>
+      <div class="target-coords" id="targetCoords">
+        <div class="coord">
+          <span class="coord-label">X</span>
+          <span class="coord-value" id="targetX">--</span>
+        </div>
+        <div class="coord">
+          <span class="coord-label">Y</span>
+          <span class="coord-value" id="targetY">--</span>
+        </div>
+      </div>
       <div class="target-delta">
-        <span class="delta-label">Distance:</span>
+        <span class="delta-label">Distance</span>
         <span class="delta-value" id="targetDelta">--</span>
       </div>
     </div>
@@ -1535,7 +1850,9 @@
       <button class="map-btn" id="zoomIn" title="Zoom In">+</button>
       <span class="zoom-indicator" id="zoomIndicator">100%</span>
       <button class="map-btn" id="zoomOut" title="Zoom Out">−</button>
+      <button class="map-btn" id="fitView" title="Fit to Map">⤢</button>
       <button class="map-btn" id="resetView" title="Reset View">⌂</button>
+      <a class="map-btn link" id="openFullMap" title="Open Full Map" href="#" target="_blank" rel="noreferrer">🗺</a>
     </div>
 
     <div class="empty-state" id="emptyState">
@@ -1592,6 +1909,7 @@
       // SLAM/Navigation data
       slamObstacles: [],
       splatPoints: [],
+      previewPoints: [],
       splatLoading: false,
       // Target/Mission objective
       target: null, // { x, y, z, lat, lon, name, assetId }
@@ -1601,6 +1919,8 @@
       panStartY: 0,
       lastPanX: 0,
       lastPanY: 0,
+      autoFitEnabled: true,
+      lastFitSignature: null,
       // UI
       expandedDroneId: null
     };
@@ -1637,6 +1957,23 @@
     const droneCameraTabs = document.getElementById('droneCameraTabs');
     const cameraThumbnails = document.getElementById('cameraThumbnails');
 
+    // SLAM Display Configuration
+    const slamConfig = {
+      showObstacles: true,
+      showPoints: true,
+      heatmapMode: false,
+      heightMin: 0,      // meters
+      heightMax: 100,    // meters
+      pointSize: 3,
+      opacity: 0.7,
+      // Offset to align SLAM NED coords with drone GPS-based coords
+      offsetX: 0,        // meters (East offset)
+      offsetY: 0,        // meters (North offset)
+      // View angle controls
+      viewAngle: 30,     // degrees (0 = top-down, 90 = edge-on)
+      rotationAngle: 45  // degrees rotation around vertical axis
+    };
+
     const cameraState = {
       streaming: false,
       droneId: 'Drone1',
@@ -1649,6 +1986,10 @@
     };
 
     dashboardLink.href = `${CONFIG.httpBase}/dashboard`;
+    const fullMapLink = document.getElementById('openFullMap');
+    if (fullMapLink) {
+      fullMapLink.href = `${CONFIG.httpBase}/dashboard/maps`;
+    }
 
     // ========== ISOMETRIC HELPERS ==========
     function gpsToLocal(lat, lon) {
@@ -1661,13 +2002,33 @@
       return { x: lonDiff, y: -latDiff }; // Flip Y for screen coords
     }
 
+    function toIsoCoords(x, y, z = 0) {
+      // Use configurable view angles from slamConfig
+      const pitchRad = (slamConfig.viewAngle * Math.PI) / 180;  // Tilt angle (0=top, 90=side)
+      const rotRad = (slamConfig.rotationAngle * Math.PI) / 180; // Rotation around Z axis
+
+      // First rotate around vertical axis
+      const cosRot = Math.cos(rotRad);
+      const sinRot = Math.sin(rotRad);
+      const rx = x * cosRot - y * sinRot;
+      const ry = x * sinRot + y * cosRot;
+
+      // Then apply pitch (tilt) - affects how much Y compresses and Z shows
+      const cosPitch = Math.cos(pitchRad);
+      const sinPitch = Math.sin(pitchRad);
+
+      return {
+        isoX: rx,
+        isoY: ry * sinPitch - z * cosPitch
+      };
+    }
+
     function toIsometric(x, y, z = 0) {
-      const cos30 = Math.cos(CONFIG.isoAngle);
-      const sin30 = Math.sin(CONFIG.isoAngle);
+      const iso = toIsoCoords(x, y, z);
       const effectiveScale = CONFIG.scale * CONFIG.zoom;
       return {
-        screenX: CONFIG.originX + CONFIG.panX + (x - y) * cos30 * effectiveScale,
-        screenY: CONFIG.originY + CONFIG.panY + (x + y) * sin30 * effectiveScale - z * effectiveScale
+        screenX: CONFIG.originX + CONFIG.panX + iso.isoX * effectiveScale,
+        screenY: CONFIG.originY + CONFIG.panY + iso.isoY * effectiveScale
       };
     }
 
@@ -1813,11 +2174,16 @@
       state.mapStatus = null;
       state.slamObstacles = [];
       state.splatPoints = [];
+      state.previewPoints = [];
       state.target = null;
       state.expandedDroneId = null;
+      state.autoFitEnabled = true;
+      state.lastFitSignature = null;
     }
 
     function renderGrid() {
+      // Clear existing grid lines before re-rendering
+      gridLayer.innerHTML = '';
       updateOrigin();
       const gridSize = 100; // meters
       const step = 25; // meters per line
@@ -1848,7 +2214,167 @@
       gridLayer.setAttribute('class', 'iso-grid');
     }
 
+    function getLocalBounds() {
+      let hasBounds = false;
+      let minX = Infinity;
+      let maxX = -Infinity;
+      let minY = Infinity;
+      let maxY = -Infinity;
+      let minZ = Infinity;
+      let maxZ = -Infinity;
+
+      const includePoint = (x, y, z = 0, padding = 0) => {
+        if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z)) return;
+        hasBounds = true;
+        minX = Math.min(minX, x - padding);
+        maxX = Math.max(maxX, x + padding);
+        minY = Math.min(minY, y - padding);
+        maxY = Math.max(maxY, y + padding);
+        minZ = Math.min(minZ, z);
+        maxZ = Math.max(maxZ, z);
+      };
+
+      const includeBoundsCorners = (minXLocal, maxXLocal, minYLocal, maxYLocal, z = 0) => {
+        includePoint(minXLocal, minYLocal, z);
+        includePoint(minXLocal, maxYLocal, z);
+        includePoint(maxXLocal, minYLocal, z);
+        includePoint(maxXLocal, maxYLocal, z);
+      };
+
+      if (state.slamObstacles && state.slamObstacles.length > 0) {
+        state.slamObstacles.forEach(obs => {
+          const nedX = obs.x ?? obs.x_ned ?? 0;
+          const nedY = obs.y ?? obs.y_ned ?? 0;
+          const localX = nedY;
+          const localY = -nedX;
+          const radius = obs.r ?? obs.radius_m ?? 0;
+          const height = obs.h ?? obs.height_m ?? 0;
+          includePoint(localX, localY, 0, radius);
+          if (height > 0) includePoint(localX, localY, height, radius);
+        });
+      }
+
+      const points = state.splatPoints.length > 0 ? state.splatPoints : state.previewPoints;
+      if (points && points.length > 0) {
+        const stride = Math.max(1, Math.floor(points.length / 2000));
+        for (let i = 0; i < points.length; i += stride) {
+          const pt = points[i];
+          const localX = pt.y;
+          const localY = -pt.x;
+          includePoint(localX, localY, pt.z || 0);
+        }
+      }
+
+      if (!hasBounds && state.mapPreview && state.mapPreview.bounds) {
+        const bounds = state.mapPreview.bounds;
+        if ([bounds.min_x, bounds.max_x, bounds.min_y, bounds.max_y].every(Number.isFinite)) {
+          const localMinX = bounds.min_y;
+          const localMaxX = bounds.max_y;
+          const localMinY = -bounds.max_x;
+          const localMaxY = -bounds.min_x;
+          includeBoundsCorners(localMinX, localMaxX, localMinY, localMaxY, 0);
+        }
+      }
+
+      if (!hasBounds && state.assets.size > 0) {
+        state.assets.forEach(asset => {
+          if (asset && asset.data) {
+            includePoint(asset.data.localX, asset.data.localY, asset.data.alt || 0);
+          }
+        });
+      }
+
+      if (!hasBounds && state.drones.size > 0) {
+        state.drones.forEach(drone => {
+          if (drone && drone.data) {
+            includePoint(drone.data.localX || 0, drone.data.localY || 0, drone.data.altitude_agl || 0);
+          }
+        });
+      }
+
+      if (!hasBounds) return null;
+      if (!Number.isFinite(minZ)) minZ = 0;
+      if (!Number.isFinite(maxZ)) maxZ = 0;
+      return { minX, maxX, minY, maxY, minZ, maxZ };
+    }
+
+    function fitToMapView(boundsOverride = null) {
+      const bounds = boundsOverride || getLocalBounds();
+      if (!bounds) return false;
+
+      const rect = sceneSvg.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) return false;
+
+      const corners = [
+        { x: bounds.minX, y: bounds.minY, z: bounds.minZ },
+        { x: bounds.minX, y: bounds.maxY, z: bounds.minZ },
+        { x: bounds.maxX, y: bounds.minY, z: bounds.minZ },
+        { x: bounds.maxX, y: bounds.maxY, z: bounds.minZ },
+        { x: bounds.minX, y: bounds.minY, z: bounds.maxZ },
+        { x: bounds.minX, y: bounds.maxY, z: bounds.maxZ },
+        { x: bounds.maxX, y: bounds.minY, z: bounds.maxZ },
+        { x: bounds.maxX, y: bounds.maxY, z: bounds.maxZ }
+      ];
+
+      let minIsoX = Infinity;
+      let maxIsoX = -Infinity;
+      let minIsoY = Infinity;
+      let maxIsoY = -Infinity;
+
+      corners.forEach(pt => {
+        const iso = toIsoCoords(pt.x, pt.y, pt.z);
+        minIsoX = Math.min(minIsoX, iso.isoX);
+        maxIsoX = Math.max(maxIsoX, iso.isoX);
+        minIsoY = Math.min(minIsoY, iso.isoY);
+        maxIsoY = Math.max(maxIsoY, iso.isoY);
+      });
+
+      const spanX = Math.max(1, maxIsoX - minIsoX);
+      const spanY = Math.max(1, maxIsoY - minIsoY);
+      const padding = 80;
+      const availableWidth = Math.max(100, rect.width - padding * 2);
+      const availableHeight = Math.max(100, rect.height - padding * 2);
+      const targetScale = Math.min(availableWidth / spanX, availableHeight / spanY);
+      const targetZoom = targetScale / CONFIG.scale;
+
+      CONFIG.zoom = Math.max(CONFIG.minZoom, Math.min(CONFIG.maxZoom, targetZoom));
+
+      const isoCenterX = (minIsoX + maxIsoX) / 2;
+      const isoCenterY = (minIsoY + maxIsoY) / 2;
+      const effectiveScale = CONFIG.scale * CONFIG.zoom;
+      CONFIG.panX = -isoCenterX * effectiveScale;
+      CONFIG.panY = -isoCenterY * effectiveScale;
+
+      updateZoomIndicator();
+      redrawScene();
+      return true;
+    }
+
+    function maybeAutoFit() {
+      if (!state.autoFitEnabled || state.isPanning) return;
+      const bounds = getLocalBounds();
+      if (!bounds) return;
+
+      const round = (value) => Math.round(value * 10) / 10;
+      const signature = [
+        round(bounds.minX),
+        round(bounds.maxX),
+        round(bounds.minY),
+        round(bounds.maxY),
+        round(bounds.minZ),
+        round(bounds.maxZ)
+      ].join('|');
+
+      if (signature === state.lastFitSignature) return;
+      state.lastFitSignature = signature;
+      fitToMapView(bounds);
+    }
+
     function renderDock() {
+      // Remove existing dock marker before re-rendering
+      const existingDock = groundLayer.querySelector('.dock-marker');
+      if (existingDock) existingDock.remove();
+
       const pos = toIsometric(0, 0, 0);
       const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
       g.setAttribute('class', 'dock-marker');
@@ -1981,11 +2507,32 @@
       unknown: '#6b7280'
     };
 
+    // Helper for heatmap color (height-based gradient)
+    function getHeatmapColor(height, minH, maxH) {
+      const t = Math.min(1, Math.max(0, (height - minH) / (maxH - minH || 1)));
+      // Blue -> Cyan -> Green -> Yellow -> Red gradient
+      if (t < 0.25) {
+        const s = t / 0.25;
+        return `rgb(${Math.round(0 + s * 0)}, ${Math.round(128 + s * 127)}, ${Math.round(255 - s * 55)})`;
+      } else if (t < 0.5) {
+        const s = (t - 0.25) / 0.25;
+        return `rgb(${Math.round(0 + s * 100)}, ${Math.round(255 - s * 55)}, ${Math.round(200 - s * 100)})`;
+      } else if (t < 0.75) {
+        const s = (t - 0.5) / 0.25;
+        return `rgb(${Math.round(100 + s * 155)}, ${Math.round(200 - s * 50)}, ${Math.round(100 - s * 100)})`;
+      } else {
+        const s = (t - 0.75) / 0.25;
+        return `rgb(255, ${Math.round(150 - s * 150)}, 0)`;
+      }
+    }
+
     function renderSlamObstacles() {
       // Clear existing obstacle elements
       const existingObstacles = mapLayer.querySelectorAll('.slam-obstacle');
       existingObstacles.forEach(el => el.remove());
 
+      // Check if obstacles should be shown
+      if (!slamConfig.showObstacles) return;
       if (!state.slamObstacles || state.slamObstacles.length === 0) return;
 
       state.slamObstacles.forEach(obs => {
@@ -1993,13 +2540,21 @@
         // Overlay local coords: x=East, y=-North (South positive)
         const nedX = obs.x ?? obs.x_ned ?? 0;  // North
         const nedY = obs.y ?? obs.y_ned ?? 0;  // East
-        const localX = nedY;   // East maps to overlay X
-        const localY = -nedX;  // -North (South) maps to overlay Y
+        // Apply offset and coordinate transformation
+        const localX = nedY + slamConfig.offsetX;   // East maps to overlay X + offset
+        const localY = -nedX + slamConfig.offsetY;  // -North (South) maps to overlay Y + offset
 
         const r = obs.r ?? obs.radius_m ?? 3;
         const h = obs.h ?? obs.height_m ?? 5;
+
+        // Apply height filtering
+        if (h < slamConfig.heightMin || h > slamConfig.heightMax) return;
+
         const type = obs.type ?? obs.obstacle_type ?? 'unknown';
-        const color = OBSTACLE_COLORS[type] || OBSTACLE_COLORS.unknown;
+        // Use heatmap color if enabled, otherwise use type-based color
+        const color = slamConfig.heatmapMode
+          ? getHeatmapColor(h, slamConfig.heightMin, slamConfig.heightMax)
+          : (OBSTACLE_COLORS[type] || OBSTACLE_COLORS.unknown);
 
         const pos = toIsometric(localX, localY, 0);
         const topPos = toIsometric(localX, localY, h);
@@ -2016,7 +2571,7 @@
         base.setAttribute('rx', screenRadius);
         base.setAttribute('ry', screenRadius * 0.5);
         base.setAttribute('fill', color);
-        base.setAttribute('fill-opacity', '0.4');
+        base.setAttribute('fill-opacity', String(slamConfig.opacity * 0.6));
         base.setAttribute('stroke', color);
         base.setAttribute('stroke-width', '1');
         g.appendChild(base);
@@ -2030,7 +2585,7 @@
           vline.setAttribute('y2', topPos.screenY);
           vline.setAttribute('stroke', color);
           vline.setAttribute('stroke-width', '2');
-          vline.setAttribute('stroke-opacity', '0.6');
+          vline.setAttribute('stroke-opacity', String(slamConfig.opacity * 0.85));
           g.appendChild(vline);
 
           // Top marker
@@ -2050,27 +2605,46 @@
       const existingPoints = mapLayer.querySelectorAll('.splat-point');
       existingPoints.forEach(el => el.remove());
 
-      if (!state.splatPoints || state.splatPoints.length === 0) return;
+      // Check if points should be shown
+      if (!slamConfig.showPoints) return;
+
+      const points = state.splatPoints.length > 0 ? state.splatPoints : state.previewPoints;
+      if (!points || points.length === 0) return;
 
       // Limit rendering for performance (show every Nth point at low zoom)
       const stride = CONFIG.zoom < 0.5 ? 5 : CONFIG.zoom < 1 ? 3 : 1;
-      const effectiveScale = CONFIG.scale * CONFIG.zoom;
+      const pointRadius = Math.max(1, slamConfig.pointSize * 0.5 * CONFIG.zoom);
 
-      for (let i = 0; i < state.splatPoints.length; i += stride) {
-        const pt = state.splatPoints[i];
+      for (let i = 0; i < points.length; i += stride) {
+        const pt = points[i];
+        const height = pt.z || 0;
+
+        // Apply height filtering (z is typically negative for altitude in NED)
+        const absHeight = Math.abs(height);
+        if (absHeight < slamConfig.heightMin || absHeight > slamConfig.heightMax) continue;
+
         // Splat points are typically in NED frame from AirSim
         // Convert: NED x=North, y=East -> Overlay x=East, y=-North
-        const localX = pt.y;   // East
-        const localY = -pt.x;  // -North
-        const pos = toIsometric(localX, localY, pt.z || 0);
+        // Apply offset for alignment with drone positions
+        const localX = pt.y + slamConfig.offsetX;   // East + offset
+        const localY = -pt.x + slamConfig.offsetY;  // -North + offset
+        const pos = toIsometric(localX, localY, height);
+
+        // Determine color: heatmap or original RGB
+        let fill;
+        if (slamConfig.heatmapMode) {
+          fill = getHeatmapColor(absHeight, slamConfig.heightMin, slamConfig.heightMax);
+        } else {
+          fill = `rgb(${pt.r || 128}, ${pt.g || 128}, ${pt.b || 128})`;
+        }
 
         const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
         circle.setAttribute('class', 'splat-point');
         circle.setAttribute('cx', pos.screenX);
         circle.setAttribute('cy', pos.screenY);
-        circle.setAttribute('r', Math.max(1, 1.5 * CONFIG.zoom));
-        circle.setAttribute('fill', `rgb(${pt.r || 128}, ${pt.g || 128}, ${pt.b || 128})`);
-        circle.setAttribute('fill-opacity', '0.7');
+        circle.setAttribute('r', pointRadius);
+        circle.setAttribute('fill', fill);
+        circle.setAttribute('fill-opacity', String(slamConfig.opacity));
         mapLayer.appendChild(circle);
       }
     }
@@ -2221,17 +2795,34 @@
       }
 
       document.getElementById('targetName').textContent = target.name || 'Target';
-      // Display coordinates - check for valid numbers to avoid NaN display
-      const hasValidGeo = isValidNum(target.lat) && isValidNum(target.lon);
+
+      // Display coordinates in separate X/Y fields
       const hasValidLocal = isValidNum(target.x) && isValidNum(target.y);
-      let coordsText = '--';
-      if (hasValidGeo) {
-        coordsText = `${target.lat.toFixed(5)}, ${target.lon.toFixed(5)}`;
-      } else if (hasValidLocal) {
-        coordsText = `${target.x.toFixed(1)}, ${target.y.toFixed(1)}`;
+      const targetXEl = document.getElementById('targetX');
+      const targetYEl = document.getElementById('targetY');
+      if (targetXEl && targetYEl) {
+        if (hasValidLocal) {
+          targetXEl.textContent = target.x.toFixed(1);
+          targetYEl.textContent = target.y.toFixed(1);
+        } else {
+          targetXEl.textContent = '--';
+          targetYEl.textContent = '--';
+        }
       }
-      document.getElementById('targetCoords').textContent = coordsText;
-      document.getElementById('targetDelta').textContent = delta;
+
+      // Update distance with color coding
+      const deltaEl = document.getElementById('targetDelta');
+      if (deltaEl) {
+        deltaEl.textContent = delta;
+        deltaEl.classList.remove('close', 'far');
+        if (isValidNum(deltaM)) {
+          if (deltaM < 20) {
+            deltaEl.classList.add('close');
+          } else if (deltaM > 100) {
+            deltaEl.classList.add('far');
+          }
+        }
+      }
     }
 
     function updateAssetPosition(asset) {
@@ -2846,12 +3437,74 @@
           hideEmptyState();
           handleServerDecision(droneId, data);
           break;
+        case 'scenario_stopped':
+        case 'scenario_complete':
+        case 'scenario_reset':
+        case 'scenario_failed':
+          handleScenarioReset();
+          appendLog(`Scenario ${type.replace('scenario_', '')}: ${data.message || 'Mission ended'}`, 'info');
+          break;
         case 'heartbeat':
         case 'sync':
           break;
         default:
           console.log('Unknown message:', type, data);
       }
+    }
+
+    // Reset all overlay state when scenario ends
+    function handleScenarioReset() {
+      // Clear all drones
+      state.drones.forEach((drone, droneId) => {
+        if (drone.element) drone.element.remove();
+        if (drone.bubble) drone.bubble.remove();
+        if (drone.connector) drone.connector.remove();
+      });
+      state.drones.clear();
+
+      // Clear all assets
+      state.assets.forEach((asset) => {
+        if (asset.element) asset.element.remove();
+      });
+      state.assets.clear();
+
+      // Clear target
+      state.target = null;
+
+      // Clear camera state
+      cameraState.frames.clear();
+      cameraState.selectedDroneId = null;
+      cameraState.streaming = false;
+
+      // Hide target info
+      const targetInfo = document.getElementById('targetInfo');
+      if (targetInfo) targetInfo.style.display = 'none';
+
+      // Reset counters
+      document.getElementById('infoDrones').textContent = '0';
+      document.getElementById('infoAssets').textContent = '0';
+
+      // Clear drone camera tabs
+      droneCameraTabs.innerHTML = '';
+
+      // Clear camera thumbnail strip
+      cameraThumbnails.innerHTML = '';
+
+      // Reset main camera view
+      cameraImage.style.display = 'none';
+      cameraPlaceholder.style.display = 'flex';
+      cameraPlaceholder.textContent = 'Awaiting camera stream...';
+
+      // Clear logs
+      const scenarioLogList = document.getElementById('scenarioLogList');
+      if (scenarioLogList) {
+        scenarioLogList.innerHTML = '<div class="log-placeholder">No events yet</div>';
+      }
+
+      // Show empty state
+      showEmptyState();
+
+      appendLog('Scenario reset - all state cleared', 'info');
     }
 
     function handleTelemetry(droneId, data) {
@@ -3435,7 +4088,8 @@
       }
     }
 
-    function selectCameraDrone(droneId) {
+    async function selectCameraDrone(droneId) {
+      const previousDroneId = cameraState.selectedDroneId;
       cameraState.selectedDroneId = droneId;
       cameraState.droneId = droneId;
 
@@ -3446,7 +4100,7 @@
       // Update tabs UI
       renderDroneCameraTabs();
 
-      // Display cached frame if available
+      // Display cached frame if available (while waiting for new stream)
       const cachedFrame = cameraState.frames.get(droneId);
       if (cachedFrame) {
         displayCameraFrame(droneId, cachedFrame.image_base64);
@@ -3454,6 +4108,23 @@
 
       // Update target info for the newly selected drone
       updateTargetInfoForDrone(droneId);
+
+      // If streaming is active, start stream for new drone
+      if (cameraState.streaming && !cameraState.streamingDrones.has(droneId)) {
+        try {
+          appendLog(`Starting camera for ${droneId}...`, 'info');
+          const response = await fetch(
+            `${CONFIG.httpBase}/api/camera/start_stream?drone_id=${encodeURIComponent(droneId)}&fps=15`,
+            { method: 'POST' }
+          );
+          if (response.ok) {
+            cameraState.streamingDrones.add(droneId);
+            appendLog(`Camera stream started for ${droneId}`, 'success');
+          }
+        } catch (error) {
+          appendLog(`Failed to start camera for ${droneId}: ${error.message}`, 'warning');
+        }
+      }
 
       appendLog(`Switched camera to ${droneId}`, 'info');
     }
@@ -3467,9 +4138,18 @@
 
       droneIds.forEach(droneId => {
         const droneData = state.drones.get(droneId);
+        const isStreaming = cameraState.streamingDrones.has(droneId);
+        const isSelected = droneId === cameraState.selectedDroneId;
+
         const tab = document.createElement('button');
-        tab.className = `drone-camera-tab ${droneId === cameraState.selectedDroneId ? 'active' : ''}`;
-        tab.textContent = droneData?.data?.name || droneId;
+        tab.className = `drone-camera-tab ${isSelected ? 'active' : ''} ${isStreaming ? 'streaming' : ''}`;
+
+        // Show drone name with streaming indicator
+        const name = droneData?.data?.name || droneId;
+        tab.innerHTML = isStreaming
+          ? `<span class="stream-dot"></span>${name}`
+          : name;
+
         tab.onclick = () => selectCameraDrone(droneId);
         droneCameraTabs.appendChild(tab);
       });
@@ -3677,10 +4357,25 @@
         const payload = await response.json();
         if (!payload.running) {
           scenarioStatus.textContent = 'Idle';
+          // If we had a scenario loaded but it's no longer running, clear it
+          if (state.scenario) {
+            state.scenario = null;
+            clearScene();
+            renderGrid();
+            renderDock();
+            emptyState.classList.remove('hidden');
+            sceneInfo.style.display = 'none';
+          }
           return;
         }
         scenarioStatus.textContent = `Running: ${payload.scenario_id}`;
         document.getElementById('infoScenario').textContent = payload.scenario_id;
+
+        // If scenario is running but not yet loaded (e.g., after page refresh), load it
+        if (!state.scenario || state.scenario.scenario_id !== payload.scenario_id) {
+          console.log('Loading running scenario:', payload.scenario_id);
+          await loadScenarioScene(payload.scenario_id);
+        }
       } catch (error) {
         console.error('Status error:', error);
       }
@@ -3696,7 +4391,29 @@
       appendLog(`Starting: ${scenarioId}`, 'info');
       try {
         const response = await fetch(`${CONFIG.httpBase}/api/scenarios/${scenarioId}/start`, { method: 'POST' });
-        const payload = await response.json();
+        const contentType = response.headers.get('content-type') || '';
+
+        // Handle non-JSON responses (server errors, etc.)
+        if (!contentType.includes('application/json')) {
+          const text = await response.text();
+          console.error('Non-JSON response:', response.status, text.slice(0, 500));
+          throw new Error(`Server error: HTTP ${response.status}`);
+        }
+
+        // Read response text first to handle empty responses
+        const text = await response.text();
+        if (!text || text.trim() === '') {
+          console.error('Empty response body from server');
+          throw new Error(`Server returned empty response (HTTP ${response.status})`);
+        }
+
+        let payload;
+        try {
+          payload = JSON.parse(text);
+        } catch (parseError) {
+          console.error('JSON parse error:', parseError, 'Response text:', text.slice(0, 200));
+          throw new Error(`Invalid JSON response: ${text.slice(0, 100)}`);
+        }
         if (!response.ok) throw new Error(payload.detail || `HTTP ${response.status}`);
 
         scenarioStatus.textContent = `Running: ${payload.scenario_id}`;
@@ -3708,6 +4425,7 @@
       } catch (error) {
         scenarioStatus.textContent = 'Start failed';
         appendLog(`Start failed: ${error.message}`, 'error');
+        console.error('Scenario start error:', error);
       }
     });
 
@@ -3716,7 +4434,15 @@
       appendLog('Stopping scenario...', 'info');
       try {
         const response = await fetch(`${CONFIG.httpBase}/api/scenarios/stop`, { method: 'POST' });
-        const payload = await response.json();
+        const text = await response.text();
+        let payload = {};
+        if (text && text.trim()) {
+          try {
+            payload = JSON.parse(text);
+          } catch (e) {
+            console.error('Stop response parse error:', e, text.slice(0, 200));
+          }
+        }
         if (!response.ok) throw new Error(payload.detail || `HTTP ${response.status}`);
 
         scenarioStatus.textContent = 'Idle';
@@ -3788,6 +4514,18 @@
           renderSlamObstacles();
         }
 
+        if (payload.preview.points && payload.preview.points.length > 0) {
+          state.previewPoints = payload.preview.points;
+          if (state.splatPoints.length === 0) {
+            renderSplatPoints();
+          }
+        } else if (state.previewPoints.length > 0 && state.splatPoints.length === 0) {
+          state.previewPoints = [];
+          renderSplatPoints();
+        }
+
+        maybeAutoFit();
+
         // Note: Map cube preview removed - obstacles now render in main coordinate space
       } catch (error) {
         console.error('Failed to load map preview:', error);
@@ -3831,6 +4569,8 @@
             renderSlamObstacles();
           }
         }
+
+        maybeAutoFit();
       } catch (error) {
         console.warn('Failed to refresh SLAM data:', error);
       }
@@ -3840,6 +4580,7 @@
       const zoomIn = document.getElementById('zoomIn');
       const zoomOut = document.getElementById('zoomOut');
       const resetView = document.getElementById('resetView');
+      const fitView = document.getElementById('fitView');
 
       if (zoomIn) {
         zoomIn.addEventListener('click', () => {
@@ -3860,6 +4601,12 @@
       if (resetView) {
         resetView.addEventListener('click', () => {
           resetPanZoom();
+        });
+      }
+
+      if (fitView) {
+        fitView.addEventListener('click', () => {
+          fitToMapView();
         });
       }
     }
@@ -3929,6 +4676,157 @@
       });
     });
 
+    // ========== SLAM CONFIG CONTROLS ==========
+    function initSlamConfigControls() {
+      // Toggle controls
+      const toggles = document.querySelectorAll('.slam-toggle');
+      toggles.forEach(toggle => {
+        toggle.addEventListener('click', () => {
+          const key = toggle.dataset.key;
+          if (key && slamConfig.hasOwnProperty(key)) {
+            slamConfig[key] = !slamConfig[key];
+            toggle.classList.toggle('active', slamConfig[key]);
+            // Re-render SLAM visualization
+            renderSlamObstacles();
+            renderSplatPoints();
+          }
+        });
+      });
+
+      // Height Max slider
+      const heightMaxSlider = document.getElementById('slamHeightMax');
+      const heightMaxValue = document.getElementById('slamHeightMaxValue');
+      if (heightMaxSlider) {
+        heightMaxSlider.addEventListener('input', () => {
+          slamConfig.heightMax = parseInt(heightMaxSlider.value, 10);
+          heightMaxValue.textContent = `${slamConfig.heightMax}m`;
+          renderSlamObstacles();
+          renderSplatPoints();
+        });
+      }
+
+      // Height Min slider
+      const heightMinSlider = document.getElementById('slamHeightMin');
+      const heightMinValue = document.getElementById('slamHeightMinValue');
+      if (heightMinSlider) {
+        heightMinSlider.addEventListener('input', () => {
+          slamConfig.heightMin = parseInt(heightMinSlider.value, 10);
+          heightMinValue.textContent = `${slamConfig.heightMin}m`;
+          renderSlamObstacles();
+          renderSplatPoints();
+        });
+      }
+
+      // Point Size slider
+      const pointSizeSlider = document.getElementById('slamPointSize');
+      const pointSizeValue = document.getElementById('slamPointSizeValue');
+      if (pointSizeSlider) {
+        pointSizeSlider.addEventListener('input', () => {
+          slamConfig.pointSize = parseInt(pointSizeSlider.value, 10);
+          pointSizeValue.textContent = String(slamConfig.pointSize);
+          renderSplatPoints();
+        });
+      }
+
+      // Opacity slider
+      const opacitySlider = document.getElementById('slamOpacity');
+      const opacityValue = document.getElementById('slamOpacityValue');
+      if (opacitySlider) {
+        opacitySlider.addEventListener('input', () => {
+          slamConfig.opacity = parseInt(opacitySlider.value, 10) / 100;
+          opacityValue.textContent = `${opacitySlider.value}%`;
+          renderSlamObstacles();
+          renderSplatPoints();
+        });
+      }
+
+      // Offset X slider (East/West)
+      const offsetXSlider = document.getElementById('slamOffsetX');
+      const offsetXValue = document.getElementById('slamOffsetXValue');
+      if (offsetXSlider) {
+        offsetXSlider.addEventListener('input', () => {
+          slamConfig.offsetX = parseInt(offsetXSlider.value, 10);
+          offsetXValue.textContent = `${slamConfig.offsetX}m`;
+          renderSlamObstacles();
+          renderSplatPoints();
+        });
+      }
+
+      // Offset Y slider (North/South)
+      const offsetYSlider = document.getElementById('slamOffsetY');
+      const offsetYValue = document.getElementById('slamOffsetYValue');
+      if (offsetYSlider) {
+        offsetYSlider.addEventListener('input', () => {
+          slamConfig.offsetY = parseInt(offsetYSlider.value, 10);
+          offsetYValue.textContent = `${slamConfig.offsetY}m`;
+          renderSlamObstacles();
+          renderSplatPoints();
+        });
+      }
+
+      // View Tilt slider
+      const viewAngleSlider = document.getElementById('slamViewAngle');
+      const viewAngleValue = document.getElementById('slamViewAngleValue');
+      if (viewAngleSlider) {
+        viewAngleSlider.addEventListener('input', () => {
+          slamConfig.viewAngle = parseInt(viewAngleSlider.value, 10);
+          viewAngleValue.textContent = `${slamConfig.viewAngle}°`;
+          rerenderEntireSceneThrottled();
+        });
+      }
+
+      // Rotation slider
+      const rotationSlider = document.getElementById('slamRotation');
+      const rotationValue = document.getElementById('slamRotationValue');
+      if (rotationSlider) {
+        rotationSlider.addEventListener('input', () => {
+          slamConfig.rotationAngle = parseInt(rotationSlider.value, 10);
+          rotationValue.textContent = `${slamConfig.rotationAngle}°`;
+          rerenderEntireSceneThrottled();
+        });
+      }
+    }
+
+    // Throttled re-render to prevent UI lockup during slider drag
+    let rerenderRAF = null;
+    function rerenderEntireSceneThrottled() {
+      if (rerenderRAF) return;
+      rerenderRAF = requestAnimationFrame(() => {
+        rerenderEntireScene();
+        rerenderRAF = null;
+      });
+    }
+
+    // Re-render entire scene when view angle changes
+    function rerenderEntireScene() {
+      // Re-render grid
+      renderGrid();
+      // Re-render dock
+      renderDock();
+      // Re-render assets
+      state.assets.forEach((assetData, assetId) => {
+        if (assetData.element) assetData.element.remove();
+        renderAsset(assetData.data);
+      });
+      // Re-render drones at their current positions
+      state.drones.forEach((droneData, droneId) => {
+        if (droneData.element) {
+          const lat = droneData.data.latitude ?? droneData.data.position?.latitude ?? CONFIG.dockLat;
+          const lon = droneData.data.longitude ?? droneData.data.position?.longitude ?? CONFIG.dockLon;
+          const alt = droneData.data.altitude_agl ?? droneData.data.position?.altitude_agl ?? 0;
+          updateDroneVisualPosition(droneId, lat, lon, alt);
+        }
+      });
+      // Re-render SLAM data
+      renderMapCube();
+      renderSlamObstacles();
+      renderSplatPoints();
+      renderTarget();
+    }
+
+    // Initialize SLAM config controls
+    initSlamConfigControls();
+
     // ========== WEBSOCKET ==========
     function connect() {
       updateStatus('connecting');
@@ -3939,6 +4837,8 @@
           state.connected = true;
           updateStatus('connected');
           state.socket.send(JSON.stringify({ subscribe: [] }));
+          // Refresh scenario status on reconnect to sync drones/assets
+          refreshScenarioStatus();
         };
 
         state.socket.onclose = () => {

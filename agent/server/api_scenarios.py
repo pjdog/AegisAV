@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import math
+import shutil
 from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
@@ -13,6 +15,7 @@ import structlog
 from fastapi import FastAPI, HTTPException
 
 from agent.edge_config import EdgeComputeProfile, default_edge_compute_config
+from agent.server.airsim_settings import update_airsim_settings
 from agent.server.airsim_support import (
     _airsim_bridge_connected,
     _apply_airsim_environment,
@@ -22,10 +25,13 @@ from agent.server.airsim_support import (
     _schedule_airsim_environment,
     _sync_airsim_scene,
     _update_airsim_georef_for_scenario,
+    apply_navigation_map_to_executors,
     broadcast_battery_update,
     broadcast_dock_state,
     broadcast_scenario_scene,
+    schedule_airsim_restart,
     seed_navigation_map_from_assets,
+    sync_multi_drone_scenario,
 )
 from agent.server.config_manager import get_config_manager
 from agent.server.events import Event, EventSeverity, EventType
@@ -49,18 +55,152 @@ from agent.server.state import (
 )
 from agent.server.unreal_stream import (
     CognitiveLevel as UnrealCognitiveLevel,
+)
+from agent.server.unreal_stream import (
     UnrealMessageType,
     thinking_tracker,
     unreal_manager,
 )
-from autonomy.vehicle_state import Position
 from agent.server.world_model import Anomaly, Asset, AssetType, DockStatus
-from mapping.map_fusion import MapFusion, MapFusionConfig
+from autonomy.vehicle_state import Position
 from mapping.manifest import ManifestBuilder, SensorCalibration
+from mapping.map_fusion import MapFusion, MapFusionConfig
 from mapping.slam_runner import run as run_slam_runner
+from mapping.splat_trainer import SplatTrainingConfig, train_splat
 
 logger = structlog.get_logger(__name__)
 log = logging.getLogger(__name__)
+
+
+def _is_within_base_dir(path: Path, base_dir: Path) -> bool:
+    """Return True when path is contained within base_dir."""
+    try:
+        path.resolve().relative_to(base_dir.resolve())
+        return True
+    except ValueError:
+        return False
+
+
+def _clear_mapping_dir(path: Path, base_dir: Path, label: str) -> dict[str, object]:
+    """Clear mapping artifacts in a directory, guarded by base_dir."""
+    resolved = path
+    if not resolved.is_absolute():
+        resolved = (base_dir / resolved).resolve()
+    else:
+        resolved = resolved.resolve()
+    result = {
+        "label": label,
+        "path": str(resolved),
+        "removed_entries": 0,
+        "skipped": False,
+        "reason": None,
+        "errors": [],
+    }
+
+    if not resolved.exists():
+        result["skipped"] = True
+        result["reason"] = "missing"
+        return result
+    if not resolved.is_dir():
+        result["skipped"] = True
+        result["reason"] = "not_dir"
+        return result
+    if not _is_within_base_dir(resolved, base_dir):
+        result["skipped"] = True
+        result["reason"] = "outside_repo"
+        return result
+
+    for child in resolved.iterdir():
+        try:
+            if child.is_dir():
+                shutil.rmtree(child)
+            else:
+                child.unlink()
+            result["removed_entries"] += 1
+        except Exception as exc:
+            result["errors"].append(f"{child.name}: {exc}")
+
+    resolved.mkdir(parents=True, exist_ok=True)
+    return result
+
+
+async def _reset_mapping_state(scenario_id: str) -> dict[str, object]:
+    """Clear in-memory and on-disk mapping state before a scenario run."""
+    config = get_config_manager().config
+    mapping_cfg = config.mapping
+    if not mapping_cfg.enabled:
+        return {"skipped": True, "reason": "mapping_disabled"}
+    if not getattr(mapping_cfg, "reset_on_scenario_start", True):
+        return {"skipped": True, "reason": "reset_disabled"}
+
+    map_service = server_state.map_update_service
+    try:
+        if map_service:
+            await map_service.stop()
+            map_service.reset_state()
+
+        server_state.slam_status = None
+        server_state.splat_artifacts = None
+        server_state.slam_pose_graph_summary = None
+        server_state.map_update_last_error = None
+        server_state.map_update_last_error_at = None
+        server_state.fused_map_artifact = None
+        server_state.navigation_map = None
+        server_state.last_valid_navigation_map = None
+        server_state.last_depth_capture = None
+        server_state.last_vision_observation = None
+        server_state.map_gate_history = []
+        server_state.preflight_status = None
+        if server_state.preflight_task and not server_state.preflight_task.done():
+            server_state.preflight_task.cancel()
+        server_state.preflight_task = None
+
+        if server_state.airsim_action_executor:
+            server_state.airsim_action_executor.set_avoid_zones([])
+
+        base_dir = Path(__file__).resolve().parents[2]
+        dir_results = [
+            _clear_mapping_dir(Path(mapping_cfg.slam_dir), base_dir, "slam_runs"),
+            _clear_mapping_dir(Path(mapping_cfg.splat_dir), base_dir, "splat_scenes"),
+            _clear_mapping_dir(Path(mapping_cfg.fused_map_dir), base_dir, "fused_maps"),
+        ]
+
+        if map_service and mapping_cfg.enabled:
+            await map_service.start()
+
+        if mapping_cfg.preflight_enabled:
+            await _broadcast_preflight_status(
+                scenario_id,
+                "pending",
+                "Preflight mapping pending.",
+                details={
+                    "mapping_status": "pending",
+                    "slam_status": "pending",
+                },
+            )
+
+        logger.info(
+            "mapping_state_reset",
+            scenario_id=scenario_id,
+            dir_results=dir_results,
+        )
+        return {"reset": True, "dir_results": dir_results}
+    except Exception as exc:
+        if map_service and mapping_cfg.enabled:
+            try:
+                await map_service.start()
+            except Exception as restart_exc:
+                logger.warning(
+                    "map_update_restart_failed",
+                    scenario_id=scenario_id,
+                    error=str(restart_exc),
+                )
+        logger.warning(
+            "mapping_state_reset_failed",
+            scenario_id=scenario_id,
+            error=str(exc),
+        )
+        return {"reset": False, "error": str(exc)}
 
 
 async def _broadcast_preflight_status(
@@ -178,12 +318,25 @@ async def _broadcast_scenario_decision(drone_id: str, decision: dict) -> None:
     })
 
     executor = server_state.airsim_action_executor
+    fleet_ready = bool(server_state.fleet_bridge_enabled and server_state.fleet_bridge)
     if action.lower() not in ("none", "wait"):
         exec_decision = dict(decision)
         exec_decision["drone_id"] = drone_id
 
+        if fleet_ready:
+            try:
+                asyncio.create_task(_execute_airsim_action(exec_decision))
+            except Exception as exc:
+                logger.warning(
+                    "airsim_action_schedule_failed",
+                    action=action,
+                    error=str(exc),
+                )
+            return
+
         if not executor:
             config = get_config_manager().config
+            mapping_cfg = config.mapping
             if config.simulation.airsim_enabled:
                 max_queued = 50
                 if len(server_state.airsim_pending_actions) < max_queued:
@@ -219,6 +372,113 @@ async def _broadcast_scenario_decision(drone_id: str, decision: dict) -> None:
                 )
 
 
+def _assign_assets_round_robin(assets: list, drone_ids: list[str]) -> dict[str, list]:
+    assignments = {drone_id: [] for drone_id in drone_ids}
+    if not drone_ids:
+        return assignments
+    for idx, asset in enumerate(assets):
+        assignments[drone_ids[idx % len(drone_ids)]].append(asset)
+    return assignments
+
+
+def _collect_preflight_path_points(
+    assets: list, geo_ref, altitude_agl: float, start_n: float, start_e: float
+) -> list[tuple[float, float]]:
+    path_points = [(start_n, start_e)]
+    for asset in assets:
+        n, e, _ = geo_ref.gps_to_ned(
+            asset.latitude,
+            asset.longitude,
+            geo_ref.altitude + altitude_agl,
+        )
+        path_points.append((n, e))
+    path_points.append((0.0, 0.0))
+    return path_points
+
+
+def _merge_preflight_sessions(
+    combined_dir: Path,
+    session_dirs: list[Path],
+    drone_ids: list[str],
+) -> int:
+    frames_dir = combined_dir / "frames"
+    frames_dir.mkdir(parents=True, exist_ok=True)
+
+    copied = 0
+    for drone_id, session_dir in zip(drone_ids, session_dirs, strict=False):
+        source_frames = session_dir / "frames"
+        if not source_frames.exists():
+            continue
+        for json_path in source_frames.glob("*.json"):
+            stem = f"{drone_id}_{json_path.stem}"
+            (frames_dir / f"{stem}.json").write_text(json_path.read_text())
+            for ext in (".png", ".jpg", ".jpeg"):
+                src = source_frames / f"{json_path.stem}{ext}"
+                if src.exists():
+                    shutil.copy2(src, frames_dir / f"{stem}{ext}")
+                    break
+            for suffix in ("_depth.npy", "_depth.png", "_depth.exr"):
+                src = source_frames / f"{json_path.stem}{suffix}"
+                if src.exists():
+                    shutil.copy2(src, frames_dir / f"{stem}{suffix}")
+            copied += 1
+
+    return copied
+
+
+async def _train_splat_from_pose_graph(
+    pose_graph_path: Path,
+    mapping_cfg,
+    scenario_id: str,
+    run_id: str,
+) -> None:
+    if not mapping_cfg.splat_auto_train:
+        return
+    if not pose_graph_path.exists():
+        logger.warning("splat_auto_train_missing_pose_graph", path=str(pose_graph_path))
+        return
+
+    backend = getattr(mapping_cfg, "splat_backend", "stub") or "stub"
+    iterations = int(getattr(mapping_cfg, "splat_iterations", 7000))
+    config = SplatTrainingConfig(
+        backend=backend,
+        iterations=iterations,
+        max_points=int(mapping_cfg.max_points),
+        min_points=int(mapping_cfg.min_points),
+    )
+    try:
+        result = await asyncio.to_thread(
+            train_splat,
+            pose_graph_path=pose_graph_path,
+            run_id=run_id,
+            scenario_id=scenario_id,
+            config=config,
+        )
+    except Exception as exc:
+        logger.warning("splat_auto_train_failed", error=str(exc))
+        return
+
+    if not result.success or not result.scene_path:
+        logger.warning(
+            "splat_auto_train_failed",
+            error=result.error_message or "unknown_error",
+        )
+        return
+
+    try:
+        scene_data = json.loads(result.scene_path.read_text())
+        scene_data["scene_path"] = str(result.scene_path)
+        server_state.splat_artifacts = scene_data
+        logger.info(
+            "splat_auto_train_complete",
+            backend=backend,
+            run_id=run_id,
+            scene_path=str(result.scene_path),
+        )
+    except Exception as exc:
+        logger.warning("splat_auto_train_scene_parse_failed", error=str(exc))
+
+
 async def _run_preflight_slam_mapping(scenario, executor) -> None:
     """Capture a short SLAM mapping pass between dock and first target."""
     config = get_config_manager().config
@@ -226,6 +486,10 @@ async def _run_preflight_slam_mapping(scenario, executor) -> None:
     if not mapping_cfg.enabled or not mapping_cfg.preflight_enabled:
         return
     if not scenario.assets:
+        return
+
+    if server_state.fleet_bridge_enabled and server_state.fleet_bridge and len(scenario.drones) > 1:
+        await _run_preflight_slam_mapping_multi(scenario)
         return
 
     bridge = server_state.airsim_bridge
@@ -294,7 +558,9 @@ async def _run_preflight_slam_mapping(scenario, executor) -> None:
     })
     calibration_set = False
 
-    def _quat_to_euler_deg(qw: float, qx: float, qy: float, qz: float) -> tuple[float, float, float]:
+    def _quat_to_euler_deg(
+        qw: float, qx: float, qy: float, qz: float
+    ) -> tuple[float, float, float]:
         sinr_cosp = 2.0 * (qw * qx + qy * qz)
         cosr_cosp = 1.0 - 2.0 * (qx * qx + qy * qy)
         roll = math.atan2(sinr_cosp, cosr_cosp)
@@ -416,7 +682,9 @@ async def _run_preflight_slam_mapping(scenario, executor) -> None:
                 if executor and executor.is_flying:
                     try:
                         await bridge.hover()
-                        logger.info("preflight_recovery_hover_fallback", scenario_id=scenario.scenario_id)
+                        logger.info(
+                            "preflight_recovery_hover_fallback", scenario_id=scenario.scenario_id
+                        )
                         recovery_success = True
                     except Exception as hover_exc:
                         logger.error("preflight_recovery_hover_failed", error=str(hover_exc))
@@ -430,7 +698,7 @@ async def _run_preflight_slam_mapping(scenario, executor) -> None:
                 await _broadcast_preflight_status(
                     scenario.scenario_id,
                     "idle",
-                    f"Recovery complete. Drone returned to safe position.",
+                    "Recovery complete. Drone returned to safe position.",
                     severity=EventSeverity.INFO,
                     details={
                         "reason": reason,
@@ -463,7 +731,9 @@ async def _run_preflight_slam_mapping(scenario, executor) -> None:
         move_failures = 0
         capture_failures = 0
         max_move_failures = max(1, int(getattr(mapping_cfg, "preflight_max_move_failures", 3)))
-        max_capture_failures = max(1, int(getattr(mapping_cfg, "preflight_max_capture_failures", 5)))
+        max_capture_failures = max(
+            1, int(getattr(mapping_cfg, "preflight_max_capture_failures", 5))
+        )
         if executor and not executor.is_flying:
             await executor.execute({
                 "action": "takeoff",
@@ -644,8 +914,14 @@ async def _run_preflight_slam_mapping(scenario, executor) -> None:
                             fy=float(intrinsics.get("fy", 0.0)),
                             cx=float(intrinsics.get("cx", 0.0)),
                             cy=float(intrinsics.get("cy", 0.0)),
-                            width=int(intrinsics.get("width") or (resolution[0] if len(resolution) > 0 else 0)),
-                            height=int(intrinsics.get("height") or (resolution[1] if len(resolution) > 1 else 0)),
+                            width=int(
+                                intrinsics.get("width")
+                                or (resolution[0] if len(resolution) > 0 else 0)
+                            ),
+                            height=int(
+                                intrinsics.get("height")
+                                or (resolution[1] if len(resolution) > 1 else 0)
+                            ),
                         )
                         manifest_builder.set_calibration(calibration)
                         calibration_set = True
@@ -786,13 +1062,20 @@ async def _run_preflight_slam_mapping(scenario, executor) -> None:
                 scenario_id=scenario.scenario_id,
                 source="slam_preflight",
             )
-            server_state.navigation_map = fused.navigation_map
-            if server_state.airsim_action_executor:
-                executor_ref = server_state.airsim_action_executor
-                if hasattr(executor_ref, "set_navigation_map"):
-                    executor_ref.set_navigation_map(fused.navigation_map)
-                else:
-                    executor_ref.set_avoid_zones(fused.navigation_map.get("obstacles", []))
+            nav_map = fused.navigation_map
+            metadata = nav_map.get("metadata", {})
+            metadata["point_cloud_path"] = str(map_points)
+            nav_map["metadata"] = metadata
+            server_state.navigation_map = nav_map
+            apply_navigation_map_to_executors(nav_map)
+
+        pose_graph_path = output_dir / "pose_graph.json"
+        await _train_splat_from_pose_graph(
+            pose_graph_path,
+            mapping_cfg,
+            scenario.scenario_id,
+            output_dir.name,
+        )
 
     try:
         attempts = retry_count + 1
@@ -879,6 +1162,353 @@ async def _run_preflight_slam_mapping(scenario, executor) -> None:
     finally:
         if manifest_builder.manifest.frames:
             manifest_builder.save()
+
+
+async def _run_preflight_slam_mapping_multi(scenario) -> None:
+    """Run preflight mapping using all available drones and merge captures."""
+    config = get_config_manager().config
+    mapping_cfg = config.mapping
+    if not mapping_cfg.enabled or not mapping_cfg.preflight_enabled:
+        return
+    if not scenario.assets:
+        return
+
+    fleet_bridge = server_state.fleet_bridge
+    if not fleet_bridge:
+        logger.info("preflight_mapping_skipped", reason="fleet_bridge_missing")
+        await _broadcast_preflight_status(
+            scenario.scenario_id,
+            "skipped",
+            "Preflight mapping skipped (fleet bridge unavailable).",
+            severity=EventSeverity.WARNING,
+        )
+        return
+
+    geo_ref = server_state.airsim_geo_ref
+    if not geo_ref:
+        logger.info("preflight_mapping_skipped", reason="missing_geo_ref")
+        await _broadcast_preflight_status(
+            scenario.scenario_id,
+            "skipped",
+            "Preflight mapping skipped (missing geo reference).",
+            severity=EventSeverity.WARNING,
+        )
+        return
+
+    drone_entries: list[tuple[str, object, object]] = []
+    for drone in scenario.drones:
+        bridge = fleet_bridge.get_bridge(drone.drone_id)
+        executor = fleet_bridge.get_executor(drone.drone_id)
+        if not bridge or not executor or not getattr(bridge, "connected", False):
+            logger.warning(
+                "preflight_mapping_drone_unavailable",
+                scenario_id=scenario.scenario_id,
+                drone_id=drone.drone_id,
+            )
+            continue
+        drone_entries.append((drone.drone_id, bridge, executor))
+
+    if not drone_entries:
+        await _broadcast_preflight_status(
+            scenario.scenario_id,
+            "skipped",
+            "Preflight mapping skipped (no drones available).",
+            severity=EventSeverity.WARNING,
+        )
+        return
+
+    drone_ids = [drone_id for drone_id, _, _ in drone_entries]
+    assignments = _assign_assets_round_robin(scenario.assets, drone_ids)
+
+    altitude_agl = float(mapping_cfg.preflight_altitude_agl)
+    timeout_s = float(getattr(mapping_cfg, "preflight_timeout_s", 180.0))
+    move_timeout_s = float(getattr(mapping_cfg, "preflight_move_timeout_s", 30.0))
+    wait_timeout_s = move_timeout_s + 10.0
+    step_m = max(1.0, float(mapping_cfg.preflight_step_m))
+    stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+    await _broadcast_preflight_status(
+        scenario.scenario_id,
+        "started",
+        f"Preflight mapping started (multi-drone: {len(drone_entries)}).",
+        details={
+            "drone_count": len(drone_entries),
+            "asset_count": len(scenario.assets),
+            "mapping_status": "started",
+            "slam_status": "pending",
+        },
+    )
+
+    async def _capture_for_drone(
+        drone_id: str,
+        bridge,
+        executor,
+        assets: list,
+    ) -> dict[str, object]:
+        start_pos = await bridge.get_position()
+        if start_pos:
+            start_n = float(start_pos.x_val)
+            start_e = float(start_pos.y_val)
+        else:
+            start_n, start_e = 0.0, 0.0
+
+        path_points = _collect_preflight_path_points(
+            assets, geo_ref, altitude_agl, start_n, start_e
+        )
+        estimated_captures = 0
+        for seg_idx in range(len(path_points) - 1):
+            seg_start = path_points[seg_idx]
+            seg_end = path_points[seg_idx + 1]
+            distance = math.hypot(seg_end[0] - seg_start[0], seg_end[1] - seg_start[1])
+            estimated_captures += max(1, int(math.ceil(distance / step_m))) + 1
+
+        session_dir = (
+            Path("data/maps") / f"sequence_{scenario.scenario_id}_preflight_{drone_id}_{stamp}"
+        )
+        session_dir.mkdir(parents=True, exist_ok=True)
+
+        move_failures = 0
+        capture_failures = 0
+        max_move_failures = max(1, int(getattr(mapping_cfg, "preflight_max_move_failures", 3)))
+        max_capture_failures = max(
+            1, int(getattr(mapping_cfg, "preflight_max_capture_failures", 5))
+        )
+
+        if executor and not executor.is_flying:
+            await executor.execute({
+                "action": "takeoff",
+                "parameters": {"altitude_agl": altitude_agl},
+                "reasoning": f"Preflight mapping takeoff for {scenario.scenario_id} ({drone_id})",
+                "confidence": 1.0,
+            })
+
+        capture_count = 0
+        move_with_avoidance = getattr(bridge, "move_to_position_with_obstacle_avoidance", None)
+
+        for seg_idx in range(len(path_points) - 1):
+            seg_start = path_points[seg_idx]
+            seg_end = path_points[seg_idx + 1]
+            distance = math.hypot(seg_end[0] - seg_start[0], seg_end[1] - seg_start[1])
+            steps = max(1, int(math.ceil(distance / step_m)))
+
+            for idx in range(steps + 1):
+                frac = idx / steps
+                n = seg_start[0] + (seg_end[0] - seg_start[0]) * frac
+                e = seg_start[1] + (seg_end[1] - seg_start[1]) * frac
+                try:
+                    if move_with_avoidance:
+                        move_ok = await asyncio.wait_for(
+                            move_with_avoidance(
+                                n,
+                                e,
+                                -altitude_agl,
+                                velocity=float(mapping_cfg.preflight_velocity_ms),
+                            ),
+                            timeout=wait_timeout_s,
+                        )
+                    else:
+                        move_ok = await asyncio.wait_for(
+                            bridge.move_to_position(
+                                n,
+                                e,
+                                -altitude_agl,
+                                velocity=float(mapping_cfg.preflight_velocity_ms),
+                                timeout=move_timeout_s,
+                            ),
+                            timeout=wait_timeout_s,
+                        )
+                    if not move_ok:
+                        raise RuntimeError("move_to_position returned False")
+                except Exception as exc:
+                    move_failures += 1
+                    logger.warning(
+                        "preflight_move_failed",
+                        scenario_id=scenario.scenario_id,
+                        drone_id=drone_id,
+                        error=str(exc),
+                        failures=move_failures,
+                    )
+                    if move_failures >= max_move_failures:
+                        break
+                    continue
+
+                try:
+                    capture = await bridge.capture_mapping_bundle(
+                        output_dir=session_dir,
+                        include_depth=True,
+                        include_imu=True,
+                    )
+                except Exception as exc:
+                    capture = {"success": False, "error": str(exc)}
+                if capture.get("success"):
+                    capture_count += 1
+                else:
+                    capture_failures += 1
+                    if capture_failures >= max_capture_failures:
+                        break
+                await asyncio.sleep(float(mapping_cfg.preflight_capture_interval_s))
+
+            if move_failures >= max_move_failures or capture_failures >= max_capture_failures:
+                break
+
+        if executor and executor.is_flying:
+            await bridge.hover()
+
+        return {
+            "drone_id": drone_id,
+            "session_dir": session_dir,
+            "capture_count": capture_count,
+            "estimated_captures": estimated_captures,
+            "move_failures": move_failures,
+            "capture_failures": capture_failures,
+        }
+
+    try:
+        results = await asyncio.wait_for(
+            asyncio.gather(*[
+                _capture_for_drone(drone_id, bridge, executor, assignments.get(drone_id, []))
+                for drone_id, bridge, executor in drone_entries
+            ]),
+            timeout=timeout_s,
+        )
+    except asyncio.TimeoutError:
+        logger.warning(
+            "preflight_mapping_timeout",
+            scenario_id=scenario.scenario_id,
+            timeout_s=timeout_s,
+        )
+        await _broadcast_preflight_status(
+            scenario.scenario_id,
+            "timeout",
+            f"Preflight mapping timed out after {timeout_s:.0f}s.",
+            severity=EventSeverity.WARNING,
+        )
+        return
+
+    total_captures = sum(int(res.get("capture_count", 0)) for res in results)
+    if total_captures == 0:
+        await _broadcast_preflight_status(
+            scenario.scenario_id,
+            "complete",
+            "Preflight completed without map (no captures collected).",
+            severity=EventSeverity.WARNING,
+            details={
+                "capture_count": 0,
+                "total_captures": 0,
+                "mapping_status": "skipped",
+                "slam_status": "skipped",
+                "quality": 0,
+            },
+        )
+        return
+
+    combined_session_dir = Path("data/maps") / f"sequence_{scenario.scenario_id}_preflight_{stamp}"
+    combined_session_dir.mkdir(parents=True, exist_ok=True)
+    session_dirs = [Path(res["session_dir"]) for res in results]
+    merged = _merge_preflight_sessions(combined_session_dir, session_dirs, drone_ids)
+    if merged == 0:
+        logger.warning("preflight_merge_failed", scenario_id=scenario.scenario_id)
+        return
+
+    await _broadcast_preflight_status(
+        scenario.scenario_id,
+        "processing",
+        f"Running SLAM on {total_captures} frames from {len(drone_entries)} drones...",
+        details={
+            "capture_count": total_captures,
+            "total_captures": total_captures,
+            "mapping_status": "processing",
+            "slam_status": "running",
+        },
+    )
+
+    output_dir = Path(mapping_cfg.slam_dir) / f"run_{scenario.scenario_id}_preflight_{stamp}"
+    backend = getattr(mapping_cfg, "slam_backend", "telemetry") or "telemetry"
+    args = SimpleNamespace(
+        input_dir=str(combined_session_dir),
+        output_dir=str(output_dir),
+        backend=backend,
+        allow_telemetry_fallback=bool(getattr(mapping_cfg, "slam_allow_fallback", True)),
+        no_pointcloud=False,
+        max_points=mapping_cfg.max_points,
+        depth_subsample=6,
+        min_time_interval_s=None,
+        max_time_interval_s=None,
+        min_translation_m=None,
+        min_rotation_deg=None,
+        velocity_threshold_ms=None,
+        blur_threshold=None,
+        min_feature_count=None,
+        overlap_target=None,
+    )
+
+    slam_result = await asyncio.to_thread(run_slam_runner, args)
+    map_points = output_dir / "map_points.ply"
+    if slam_result != 0 and not map_points.exists():
+        raise RuntimeError(f"SLAM runner failed (backend={backend}, code={slam_result})")
+
+    await _broadcast_preflight_status(
+        scenario.scenario_id,
+        "processing",
+        "SLAM complete. Fusing navigation map...",
+        details={
+            "capture_count": total_captures,
+            "total_captures": total_captures,
+            "mapping_status": "fusing",
+            "slam_status": "complete",
+        },
+    )
+
+    if map_points.exists():
+        fusion = MapFusion(
+            MapFusionConfig(
+                resolution_m=mapping_cfg.map_resolution_m,
+                tile_size_cells=getattr(mapping_cfg, "tile_size_cells", 120),
+                voxel_size_m=mapping_cfg.voxel_size_m,
+                max_points=mapping_cfg.max_points,
+                min_points=mapping_cfg.min_points,
+            )
+        )
+        fused = fusion.build_navigation_map(
+            point_cloud_path=map_points,
+            map_id=output_dir.name,
+            scenario_id=scenario.scenario_id,
+            source="slam_preflight_multi",
+        )
+        nav_map = fused.navigation_map
+        metadata = nav_map.get("metadata", {})
+        metadata["point_cloud_path"] = str(map_points)
+        nav_map["metadata"] = metadata
+        server_state.navigation_map = nav_map
+        apply_navigation_map_to_executors(nav_map)
+
+    pose_graph_path = output_dir / "pose_graph.json"
+    await _train_splat_from_pose_graph(
+        pose_graph_path,
+        mapping_cfg,
+        scenario.scenario_id,
+        output_dir.name,
+    )
+
+    quality = None
+    obstacle_count = 0
+    if server_state.navigation_map:
+        meta = server_state.navigation_map.get("metadata", {})
+        quality = meta.get("map_quality_score")
+        obstacle_count = len(server_state.navigation_map.get("obstacles", []))
+    await _broadcast_preflight_status(
+        scenario.scenario_id,
+        "complete",
+        "Preflight mapping completed successfully.",
+        details={
+            "capture_count": total_captures,
+            "total_captures": total_captures,
+            "mapping_status": "complete",
+            "slam_status": "complete",
+            "quality": quality,
+            "obstacle_count": obstacle_count,
+        },
+    )
 
 
 def register_scenario_routes(app: FastAPI) -> None:
@@ -1075,10 +1705,7 @@ def register_scenario_routes(app: FastAPI) -> None:
             if edge_profile not in valid_profiles:
                 raise HTTPException(
                     status_code=400,
-                    detail=(
-                        f"Invalid edge profile: {edge_profile}. "
-                        f"Valid: {valid_profiles}"
-                    ),
+                    detail=(f"Invalid edge profile: {edge_profile}. " f"Valid: {valid_profiles}"),
                 )
 
             time_scale = max(0.5, min(5.0, time_scale))
@@ -1101,6 +1728,8 @@ def register_scenario_routes(app: FastAPI) -> None:
                 assets=len(scenario.assets),
                 defects=len(scenario.defects),
             )
+
+            await _reset_mapping_state(scenario_id)
 
             # Seed the shared world model so live decisions see scenario assets.
             server_state.world_model.reset_assets()
@@ -1263,6 +1892,7 @@ def register_scenario_routes(app: FastAPI) -> None:
                 navigation_map = seed_navigation_map_from_assets(scenario)
                 if navigation_map:
                     server_state.navigation_map = navigation_map
+                    apply_navigation_map_to_executors(navigation_map)
                     logger.info(
                         "navigation_map_ready",
                         scenario_id=scenario_id,
@@ -1315,19 +1945,62 @@ def register_scenario_routes(app: FastAPI) -> None:
                     is_charging=False,
                 )
 
+            airsim_settings_update: dict[str, object] | None = None
+            airsim_restart: dict[str, object] | None = None
+            if config.simulation.airsim_enabled:
+                airsim_settings_update = update_airsim_settings(
+                    config,
+                    scenario_drone_ids=[drone.drone_id for drone in scenario.drones],
+                    reason=f"scenario_start:{scenario_id}",
+                )
+                if (
+                    airsim_settings_update
+                    and airsim_settings_update.get("updated")
+                    and config.simulation.airsim_auto_restart_on_scenario_change
+                ):
+                    airsim_restart = schedule_airsim_restart(
+                        reason=f"scenario_start:{scenario_id}",
+                    )
+
             airsim_sync: dict[str, object] | None = None
             if config.simulation.airsim_enabled:
-                if _airsim_bridge_connected():
-                    airsim_sync = await _sync_airsim_scene(scenario)
+                restart_pending = bool(
+                    airsim_restart
+                    and (airsim_restart.get("scheduled") or airsim_restart.get("restarted"))
+                )
+                if restart_pending:
+                    if len(scenario.drones) > 1:
+
+                        async def _sync_multi_after_restart() -> None:
+                            await asyncio.sleep(6.0)
+                            try:
+                                await sync_multi_drone_scenario(scenario)
+                            except Exception as exc:
+                                logger.warning(
+                                    "airsim_multi_sync_after_restart_failed",
+                                    scenario_id=scenario_id,
+                                    error=str(exc),
+                                )
+
+                        asyncio.create_task(_sync_multi_after_restart())
+                    else:
+                        asyncio.create_task(_sync_airsim_scene(scenario, wait_for_connect=True))
+
+                    airsim_sync = {"scheduled": True, "reason": "airsim_restarting"}
+                elif len(scenario.drones) > 1:
+                    airsim_sync = await sync_multi_drone_scenario(scenario)
                 else:
-                    asyncio.create_task(_sync_airsim_scene(scenario, wait_for_connect=True))
-                    airsim_sync = {"scheduled": True, "reason": "airsim_not_connected"}
-                    logger.warning(
-                        "airsim_not_connected_at_start",
-                        scenario_id=scenario_id,
-                        host=config.simulation.airsim_host,
-                        vehicle=config.simulation.airsim_vehicle_name,
-                    )
+                    if _airsim_bridge_connected():
+                        airsim_sync = await _sync_airsim_scene(scenario)
+                    else:
+                        asyncio.create_task(_sync_airsim_scene(scenario, wait_for_connect=True))
+                        airsim_sync = {"scheduled": True, "reason": "airsim_not_connected"}
+                        logger.warning(
+                            "airsim_not_connected_at_start",
+                            scenario_id=scenario_id,
+                            host=config.simulation.airsim_host,
+                            vehicle=config.simulation.airsim_vehicle_name,
+                        )
                 if server_state.airsim_action_executor is None:
                     logger.warning(
                         "airsim_executor_missing",
@@ -1335,9 +2008,62 @@ def register_scenario_routes(app: FastAPI) -> None:
                         reason="No AirSim action executor available yet.",
                     )
                 elif server_state.navigation_map:
-                    server_state.airsim_action_executor.set_avoid_zones(
-                        server_state.navigation_map.get("obstacles", [])
-                    )
+                    apply_navigation_map_to_executors(server_state.navigation_map)
+
+            if (
+                config.simulation.airsim_enabled
+                and len(scenario.drones) > 1
+                and config.simulation.require_fleet_for_multi_drone
+            ):
+                failed_drones = []
+                if isinstance(airsim_sync, dict):
+                    failed_drones = airsim_sync.get("failed_drones") or []
+                multi_ready = bool(airsim_sync and airsim_sync.get("multi_drone"))
+                if not multi_ready or failed_drones:
+                    scenario_runner_state.is_running = False
+                    if scenario_runner_state.run_task:
+                        try:
+                            if not scenario_runner_state.run_task.done():
+                                scenario_runner_state.run_task.cancel()
+                                await asyncio.wait_for(scenario_runner_state.run_task, timeout=2.0)
+                        except asyncio.TimeoutError:
+                            logger.warning(
+                                "scenario_runner_cancel_timeout", scenario_id=scenario_id
+                            )
+                        except Exception as exc:
+                            logger.warning(
+                                "scenario_runner_cancel_failed",
+                                scenario_id=scenario_id,
+                                error=str(exc),
+                            )
+                        scenario_runner_state.run_task = None
+                    if scenario_runner_state.runner is runner:
+                        scenario_runner_state.runner = None
+                    scenario_run_state.running = False
+                    scenario_run_state.scenario_id = None
+                    scenario_run_state.start_time = None
+                    detail = {
+                        "reason": "multi_drone_fleet_not_ready",
+                        "failed_drones": failed_drones,
+                        "sync": airsim_sync,
+                    }
+                    logger.error("multi_drone_fleet_required", **detail)
+                    raise HTTPException(status_code=409, detail=detail)
+
+            mapping_cfg = config.mapping
+            if mapping_cfg.enabled and mapping_cfg.preflight_enabled:
+                if server_state.preflight_task and not server_state.preflight_task.done():
+                    server_state.preflight_task.cancel()
+                preflight_task = asyncio.create_task(
+                    _run_preflight_slam_mapping(scenario, server_state.airsim_action_executor)
+                )
+                server_state.preflight_task = preflight_task
+
+                def _clear_preflight_task(task: asyncio.Task) -> None:
+                    if server_state.preflight_task is task:
+                        server_state.preflight_task = None
+
+                preflight_task.add_done_callback(_clear_preflight_task)
 
             logger.info(
                 "scenario_start_success",
@@ -1354,7 +2080,10 @@ def register_scenario_routes(app: FastAPI) -> None:
                         # Wait for AirSim executor to become available (up to 30 seconds)
                         wait_attempts = 0
                         max_wait_attempts = 30
-                        while server_state.airsim_action_executor is None and wait_attempts < max_wait_attempts:
+                        while (
+                            server_state.airsim_action_executor is None
+                            and wait_attempts < max_wait_attempts
+                        ):
                             wait_attempts += 1
                             logger.debug(
                                 "auto_fly_waiting_for_executor",
@@ -1398,7 +2127,19 @@ def register_scenario_routes(app: FastAPI) -> None:
                                 return
                             await asyncio.sleep(1.0)
 
-                        await _run_preflight_slam_mapping(scenario, executor)
+                        if server_state.preflight_task:
+                            try:
+                                await server_state.preflight_task
+                            except asyncio.CancelledError:
+                                raise
+                            except Exception as exc:
+                                logger.warning(
+                                    "preflight_task_failed",
+                                    scenario_id=scenario_id,
+                                    error=str(exc),
+                                )
+                        else:
+                            await _run_preflight_slam_mapping(scenario, executor)
 
                         # Fly to each asset in sequence
                         logger.info(
@@ -1518,6 +2259,8 @@ def register_scenario_routes(app: FastAPI) -> None:
                 "assets_spawned": len(scenario.assets),
                 "environment_applied": bool(scenario.environment),
                 "airsim_sync": airsim_sync,
+                "airsim_settings": airsim_settings_update,
+                "airsim_restart": airsim_restart,
                 "unreal_connections": unreal_manager.active_connections,
                 "airsim_connected": _airsim_bridge_connected(),
                 "airsim_executor_available": server_state.airsim_action_executor is not None,

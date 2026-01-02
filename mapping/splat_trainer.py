@@ -16,7 +16,6 @@ import logging
 import math
 import shutil
 import subprocess
-import tempfile
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -155,6 +154,12 @@ class StubBackend(SplatBackend):
         points = _collect_preview_points(
             frames, keyframes, base_dir, config.max_points, config.depth_subsample
         )
+        if points.shape[0] < config.min_points:
+            fallback_path = pose_graph.get("point_cloud")
+            if fallback_path:
+                candidate = _resolve_path(base_dir, fallback_path)
+                if candidate:
+                    points = _load_point_cloud_points(candidate, config.max_points)
 
         if points.shape[0] < config.min_points:
             return SplatTrainingResult(
@@ -271,15 +276,13 @@ class GsplatBackend(SplatBackend):
         colors = torch.nn.Parameter(colors)
 
         # Optimizer
-        optimizer = torch.optim.Adam(
-            [
-                {"params": [means], "lr": config.learning_rate * 0.1},
-                {"params": [scales], "lr": config.learning_rate * 0.01},
-                {"params": [quats], "lr": config.learning_rate * 0.001},
-                {"params": [opacities], "lr": config.learning_rate * 0.05},
-                {"params": [colors], "lr": config.learning_rate * 0.1},
-            ]
-        )
+        optimizer = torch.optim.Adam([
+            {"params": [means], "lr": config.learning_rate * 0.1},
+            {"params": [scales], "lr": config.learning_rate * 0.01},
+            {"params": [quats], "lr": config.learning_rate * 0.001},
+            {"params": [opacities], "lr": config.learning_rate * 0.05},
+            {"params": [colors], "lr": config.learning_rate * 0.1},
+        ])
 
         # Load training images
         training_frames = self._load_training_frames(frames, keyframes, base_dir)
@@ -344,7 +347,9 @@ class GsplatBackend(SplatBackend):
                 continue
 
             if iteration % 500 == 0:
-                logger.info(f"gsplat iteration {iteration}/{config.iterations}, loss={final_loss:.4f}")
+                logger.info(
+                    f"gsplat iteration {iteration}/{config.iterations}, loss={final_loss:.4f}"
+                )
 
         # Extract final Gaussians
         final_means = means.detach().cpu().numpy()
@@ -430,15 +435,13 @@ class GsplatBackend(SplatBackend):
 
                 viewmat = self._pose_to_viewmat(pos, ori, device)
 
-                training_data.append(
-                    {
-                        "image": img_tensor,
-                        "viewmat": viewmat,
-                        "K": K,
-                        "width": img.width,
-                        "height": img.height,
-                    }
-                )
+                training_data.append({
+                    "image": img_tensor,
+                    "viewmat": viewmat,
+                    "K": K,
+                    "width": img.width,
+                    "height": img.height,
+                })
 
             except Exception as e:
                 logger.warning(f"Failed to load training frame: {e}")
@@ -557,9 +560,7 @@ class NerfstudioBackend(SplatBackend):
 
     def is_available(self) -> bool:
         try:
-            result = subprocess.run(
-                ["ns-train", "--help"], capture_output=True, timeout=10
-            )
+            result = subprocess.run(["ns-train", "--help"], capture_output=True, timeout=10)
             return result.returncode == 0
         except (FileNotFoundError, subprocess.TimeoutExpired):
             return False
@@ -686,18 +687,16 @@ class NerfstudioBackend(SplatBackend):
             # Build transform matrix (camera-to-world)
             transform = self._pose_to_transform(pos, ori)
 
-            transforms["frames"].append(
-                {
-                    "file_path": f"images/frame_{i:05d}.png",
-                    "transform_matrix": transform,
-                    "fl_x": intrinsics.get("fx", 500),
-                    "fl_y": intrinsics.get("fy", 500),
-                    "cx": intrinsics.get("cx", 320),
-                    "cy": intrinsics.get("cy", 240),
-                    "w": intrinsics.get("width", 640),
-                    "h": intrinsics.get("height", 480),
-                }
-            )
+            transforms["frames"].append({
+                "file_path": f"images/frame_{i:05d}.png",
+                "transform_matrix": transform,
+                "fl_x": intrinsics.get("fx", 500),
+                "fl_y": intrinsics.get("fy", 500),
+                "cx": intrinsics.get("cx", 320),
+                "cy": intrinsics.get("cy", 240),
+                "w": intrinsics.get("width", 640),
+                "h": intrinsics.get("height", 480),
+            })
 
         transforms_path = dataset_dir / "transforms.json"
         transforms_path.write_text(json.dumps(transforms, indent=2))
@@ -835,7 +834,9 @@ def _collect_preview_points(
             continue
 
         intrinsics = frame.get("intrinsics", {})
-        cam_points = depth_to_points(depth, intrinsics, subsample=subsample, max_points=max_per_frame)
+        cam_points = depth_to_points(
+            depth, intrinsics, subsample=subsample, max_points=max_per_frame
+        )
         if cam_points.size == 0:
             continue
 
@@ -860,6 +861,64 @@ def _collect_preview_points(
         combined = combined[::step]
 
     return combined.astype(np.float32)
+
+
+def _load_point_cloud_points(path: Path, max_points: int) -> np.ndarray:
+    if not path.exists():
+        return np.empty((0, 3), dtype=np.float32)
+    suffix = path.suffix.lower()
+    try:
+        if suffix == ".npy":
+            data = np.load(path)
+        elif suffix == ".npz":
+            archive = np.load(path)
+            data = archive["points"] if "points" in archive else None
+        elif suffix == ".ply":
+            data = []
+            with open(path, encoding="utf-8") as f:
+                vertex_count = 0
+                format_ascii = False
+                while True:
+                    line = f.readline()
+                    if not line:
+                        return np.empty((0, 3), dtype=np.float32)
+                    if line.startswith("format"):
+                        format_ascii = "ascii" in line
+                    if line.startswith("element vertex"):
+                        parts = line.split()
+                        if len(parts) >= 3:
+                            vertex_count = int(parts[2])
+                    if line.strip() == "end_header":
+                        break
+                if not format_ascii or vertex_count <= 0:
+                    return np.empty((0, 3), dtype=np.float32)
+                step = max(1, int(math.ceil(vertex_count / max_points)))
+                for idx in range(vertex_count):
+                    line = f.readline()
+                    if not line:
+                        break
+                    if idx % step != 0:
+                        continue
+                    parts = line.strip().split()
+                    if len(parts) < 3:
+                        continue
+                    data.append([float(parts[0]), float(parts[1]), float(parts[2])])
+            if not data:
+                return np.empty((0, 3), dtype=np.float32)
+            return np.array(data, dtype=np.float32)
+        else:
+            return np.empty((0, 3), dtype=np.float32)
+    except Exception:
+        return np.empty((0, 3), dtype=np.float32)
+
+    if data is None:
+        return np.empty((0, 3), dtype=np.float32)
+    if data.ndim != 2 or data.shape[1] < 3:
+        return np.empty((0, 3), dtype=np.float32)
+    if data.shape[0] > max_points:
+        step = int(math.ceil(data.shape[0] / max_points))
+        data = data[::step]
+    return data[:, :3].astype(np.float32)
 
 
 def train_splat(
@@ -921,6 +980,10 @@ def train_splat(
     frames = pose_graph["frames"]
     keyframes = set(pose_graph.get("keyframes") or [])
 
+    # Store paths relative to scene.json directory (not full paths from project root)
+    preview_rel = result.preview_path.name if result.preview_path else None
+    model_rel = result.model_path.name if result.model_path else None
+
     scene = {
         "format_version": 2,
         "run_id": run_id,
@@ -930,8 +993,8 @@ def train_splat(
         "pose_graph": str(pose_graph_path),
         "keyframes": sorted(keyframes),
         "frame_count": len(frames),
-        "preview_point_cloud": str(result.preview_path) if result.preview_path else None,
-        "model": str(result.model_path) if result.model_path else None,
+        "preview_point_cloud": preview_rel,
+        "model": model_rel,
         "metrics": {
             "psnr": result.psnr,
             "ssim": result.ssim,
@@ -1051,7 +1114,9 @@ def parse_args() -> argparse.Namespace:
         choices=["stub", "gsplat", "nerfstudio"],
         help="Training backend: stub (fast preview), gsplat (real training), nerfstudio (full pipeline)",
     )
-    parser.add_argument("--iterations", type=int, default=7000, help="Training iterations (for real backends)")
+    parser.add_argument(
+        "--iterations", type=int, default=7000, help="Training iterations (for real backends)"
+    )
     parser.add_argument("--max-points", type=int, default=300000, help="Maximum points")
     parser.add_argument("--min-points", type=int, default=100, help="Minimum points required")
     parser.add_argument("--depth-subsample", type=int, default=6, help="Depth image subsample step")

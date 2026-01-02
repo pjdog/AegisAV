@@ -5,8 +5,8 @@ for decision-making. Fuses data from vehicle telemetry, asset database,
 and environmental sources.
 """
 
-from datetime import datetime, timedelta
 import logging
+from datetime import datetime, timedelta
 from enum import Enum
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -15,7 +15,6 @@ from mapping.decision_context import MapContext
 
 logger = logging.getLogger(__name__)
 
-from mapping.decision_context import MapContext
 
 from autonomy.vehicle_state import Position, VehicleState
 
@@ -368,6 +367,16 @@ class WorldModel:
                 asset.last_inspection = datetime.now()
                 asset.next_scheduled = datetime.now() + timedelta(minutes=cadence_minutes)
                 break
+
+    def reset_inspection_cycle(self) -> None:
+        """Reset all assets to be pending for inspection again.
+
+        Clears next_scheduled on all assets so they become immediately
+        available for re-inspection. Used when starting a new patrol cycle.
+        """
+        for asset in self._assets:
+            asset.next_scheduled = None
+        logger.debug("Reset inspection cycle for %d assets", len(self._assets))
 
     def add_anomaly(self, anomaly: Anomaly) -> None:
         """Add a detected anomaly.

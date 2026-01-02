@@ -38,6 +38,7 @@ from autonomy.state_estimator import (
     StateEstimatorConfig,
 )
 from autonomy.vehicle_state import Position, VehicleState
+from mapping.decision_context import MapContext
 from simulation.coordinate_utils import GeoReference
 
 logger = logging.getLogger(__name__)
@@ -160,6 +161,10 @@ class FlightController:
         self._current_waypoint_idx: int = 0
         self._is_initialized = False
         self._abort_requested = False
+        self._navigation_map: dict[str, Any] | None = None
+        self._replan_requested = False
+        self._replan_reason: str | None = None
+        self._completed_target_ids: set[str] = set()
 
         # Background tasks
         self._state_update_task: asyncio.Task | None = None
@@ -341,6 +346,38 @@ class FlightController:
 
         return self._mission_planner.load_mission_dict(config)
 
+    def set_navigation_map(self, nav_map: dict | None) -> None:
+        """Update navigation map used for obstacle-aware planning."""
+        self._navigation_map = nav_map
+        if self._mission_planner:
+            self._mission_planner.set_navigation_map(nav_map)
+            if nav_map:
+                self.request_replan("map_update")
+            return
+
+        if not self._path_planner or not nav_map:
+            return
+
+        map_context = MapContext.from_navigation_map(
+            nav_map,
+            stale_threshold_s=self._config.mission_planner_config.map_stale_threshold_s,
+            min_quality_score=self._config.mission_planner_config.map_min_quality_score,
+        )
+
+        self._path_planner.clear_obstacles()
+        if not map_context.map_valid:
+            logger.info(
+                "navigation_map_skipped",
+                map_age_s=map_context.map_age_s,
+                quality=map_context.map_quality_score,
+            )
+            self.request_replan("map_stale_or_invalid")
+            return
+
+        loaded = self._path_planner.load_obstacles_from_map(nav_map)
+        logger.info("navigation_map_applied", obstacle_count=loaded)
+        self.request_replan("map_update")
+
     async def execute_mission(self) -> bool:
         """Execute the loaded mission.
 
@@ -371,6 +408,9 @@ class FlightController:
         self._current_mission = plan
         self._current_waypoint_idx = 0
         self._abort_requested = False
+        self._replan_requested = False
+        self._replan_reason = None
+        self._completed_target_ids = set()
 
         self._emit_event(
             "mission_started",
@@ -379,13 +419,45 @@ class FlightController:
         )
 
         # Execute waypoints
-        for i, waypoint in enumerate(plan.waypoints):
+        waypoints = list(plan.waypoints)
+        i = 0
+        while i < len(waypoints):
             if self._abort_requested:
                 logger.warning("Mission aborted")
                 self._emit_event("mission_aborted", f"Mission aborted: {self._abort_reason.value}")
                 return False
 
+            if self._replan_requested and self._mission_planner:
+                state = await self._backend.get_state() if self._backend else None
+                current_pos = state.position if state else None
+                battery_percent = state.battery.remaining_percent if state else 100.0
+                new_plan = self._mission_planner.create_plan(
+                    current_position=current_pos,
+                    battery_percent=battery_percent,
+                    exclude_target_ids=self._completed_target_ids,
+                )
+                self._replan_requested = False
+                if new_plan:
+                    plan = new_plan
+                    waypoints = list(plan.waypoints)
+                    self._current_mission = plan
+                    self._current_waypoint_idx = 0
+                    i = 0
+                    self._emit_event(
+                        "mission_replanned",
+                        "Mission plan regenerated",
+                        {
+                            "mission_id": plan.mission_id,
+                            "waypoints": plan.num_waypoints,
+                            "reason": self._replan_reason,
+                        },
+                    )
+                    self._replan_reason = None
+                    continue
+                self._replan_reason = None
+
             self._current_waypoint_idx = i
+            waypoint = waypoints[i]
             success = await self._execute_waypoint(waypoint)
 
             if not success:
@@ -398,11 +470,14 @@ class FlightController:
 
             # Update target status if inspection waypoint
             if waypoint.target_id:
+                self._completed_target_ids.add(waypoint.target_id)
                 for target in plan.targets:
                     if target.target_id == waypoint.target_id:
                         target.inspected = True
                         target.last_inspection = datetime.now()
                         break
+
+            i += 1
 
         self._emit_event(
             "mission_complete",
@@ -508,6 +583,22 @@ class FlightController:
         if not state:
             logger.error("Cannot get current state")
             return False
+
+        if self._mission_planner:
+            map_context = self._mission_planner.refresh_navigation_map()
+            if map_context and not map_context.map_valid:
+                self.request_replan("map_stale_or_invalid")
+        elif self._navigation_map and self._path_planner:
+            map_context = MapContext.from_navigation_map(
+                self._navigation_map,
+                stale_threshold_s=self._config.mission_planner_config.map_stale_threshold_s,
+                min_quality_score=self._config.mission_planner_config.map_min_quality_score,
+            )
+            self._path_planner.clear_obstacles()
+            if map_context.map_valid:
+                self._path_planner.load_obstacles_from_map(self._navigation_map)
+            else:
+                self.request_replan("map_stale_or_invalid")
 
         # Plan path with obstacle avoidance
         if self._path_planner:
@@ -648,6 +739,13 @@ class FlightController:
         self._abort_reason = reason
         self._emit_event("abort_requested", f"Abort requested: {reason.value}")
         logger.warning(f"Abort requested: {reason.value}")
+
+    def request_replan(self, reason: str = "map_update") -> None:
+        """Request mission replanning."""
+        self._replan_requested = True
+        self._replan_reason = reason
+        self._emit_event("mission_replan_requested", f"Replan requested: {reason}")
+        logger.info("mission_replan_requested", reason=reason)
 
     async def emergency_land(self) -> bool:
         """Perform emergency landing at current position.

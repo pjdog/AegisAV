@@ -15,7 +15,7 @@
 #include "Engine/Engine.h"
 
 UAegisAVWebSocketClient::UAegisAVWebSocketClient()
-    : ServerURL(TEXT("ws://localhost:8080/ws/unreal"))
+    : ServerURL(TEXT("ws://localhost:8090/ws/unreal"))
     , bAutoReconnect(true)
     , ReconnectInterval(5.0f)
     , bIsConnected(false)
@@ -181,6 +181,22 @@ void UAegisAVWebSocketClient::ParseAndDispatchMessage(const FString& JsonString)
     else if (MessageType == TEXT("anomaly_detected"))
     {
         ParseAnomalyMessage(JsonObject);
+    }
+    else if (MessageType == TEXT("spawn_asset"))
+    {
+        ParseSpawnAssetMessage(JsonObject);
+    }
+    else if (MessageType == TEXT("clear_assets"))
+    {
+        OnAssetsCleared.Broadcast();
+    }
+    else if (MessageType == TEXT("spawn_anomaly_marker"))
+    {
+        ParseAnomalyMarkerMessage(JsonObject);
+    }
+    else if (MessageType == TEXT("clear_anomaly_markers"))
+    {
+        OnAnomalyMarkersCleared.Broadcast();
     }
     else if (MessageType == TEXT("camera_frame"))
     {
@@ -380,6 +396,50 @@ void UAegisAVWebSocketClient::ParseAnomalyMessage(const TSharedPtr<FJsonObject>&
     }
 
     OnAnomalyReceived.Broadcast(Anomaly);
+}
+
+void UAegisAVWebSocketClient::ParseSpawnAssetMessage(const TSharedPtr<FJsonObject>& JsonObject)
+{
+    FAegisAssetSpawn Asset;
+
+    JsonObject->TryGetStringField(TEXT("asset_id"), Asset.AssetId);
+    JsonObject->TryGetStringField(TEXT("asset_type"), Asset.AssetType);
+    JsonObject->TryGetStringField(TEXT("name"), Asset.Name);
+    JsonObject->TryGetNumberField(TEXT("latitude"), Asset.Latitude);
+    JsonObject->TryGetNumberField(TEXT("longitude"), Asset.Longitude);
+    JsonObject->TryGetNumberField(TEXT("altitude_m"), Asset.AltitudeM);
+    JsonObject->TryGetNumberField(TEXT("priority"), Asset.Priority);
+    JsonObject->TryGetBoolField(TEXT("has_anomaly"), Asset.bHasAnomaly);
+    JsonObject->TryGetNumberField(TEXT("anomaly_severity"), Asset.AnomalySeverity);
+    JsonObject->TryGetNumberField(TEXT("scale"), Asset.Scale);
+    JsonObject->TryGetNumberField(TEXT("rotation_deg"), Asset.RotationDeg);
+
+    OnAssetSpawnReceived.Broadcast(Asset);
+}
+
+void UAegisAVWebSocketClient::ParseAnomalyMarkerMessage(const TSharedPtr<FJsonObject>& JsonObject)
+{
+    FAegisAnomalyMarker Marker;
+
+    JsonObject->TryGetStringField(TEXT("anomaly_id"), Marker.AnomalyId);
+    JsonObject->TryGetStringField(TEXT("asset_id"), Marker.AssetId);
+    JsonObject->TryGetNumberField(TEXT("severity"), Marker.Severity);
+    JsonObject->TryGetNumberField(TEXT("latitude"), Marker.Latitude);
+    JsonObject->TryGetNumberField(TEXT("longitude"), Marker.Longitude);
+    JsonObject->TryGetNumberField(TEXT("altitude_m"), Marker.AltitudeM);
+    JsonObject->TryGetStringField(TEXT("marker_type"), Marker.MarkerType);
+    JsonObject->TryGetBoolField(TEXT("pulse"), Marker.bPulse);
+    JsonObject->TryGetStringField(TEXT("label"), Marker.Label);
+
+    double ColorR = 1.0;
+    double ColorG = 0.3;
+    double ColorB = 0.0;
+    JsonObject->TryGetNumberField(TEXT("color_r"), ColorR);
+    JsonObject->TryGetNumberField(TEXT("color_g"), ColorG);
+    JsonObject->TryGetNumberField(TEXT("color_b"), ColorB);
+    Marker.Color = FLinearColor(ColorR, ColorG, ColorB, 1.0f);
+
+    OnAnomalyMarkerReceived.Broadcast(Marker);
 }
 
 void UAegisAVWebSocketClient::ParseCameraFrameMessage(const TSharedPtr<FJsonObject>& JsonObject)

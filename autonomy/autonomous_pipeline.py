@@ -188,6 +188,7 @@ class AutonomousPipeline:
         self._status = PipelineStatus()
         self._is_running = False
         self._run_task: asyncio.Task | None = None
+        self._navigation_map: dict[str, Any] | None = None
 
         # Callbacks
         self._on_status_change: list[Callable[[PipelineStatus], None]] = []
@@ -529,6 +530,16 @@ class AutonomousPipeline:
     def on_error(self, callback: Callable[[str], None]) -> None:
         """Register callback for errors."""
         self._on_error.append(callback)
+
+    def set_navigation_map(self, nav_map: dict[str, Any] | None) -> None:
+        """Update navigation map and trigger replanning if active."""
+        self._navigation_map = nav_map
+        if self._mission_planner:
+            self._mission_planner.set_navigation_map(nav_map)
+        if self._flight_controller:
+            self._flight_controller.set_navigation_map(nav_map)
+            if self._is_running:
+                self._flight_controller.request_replan("map_update")
 
     async def _run_mission(self) -> None:
         """Main mission execution loop."""

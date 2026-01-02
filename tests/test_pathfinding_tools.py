@@ -2,6 +2,8 @@ from datetime import datetime
 
 import pytest
 
+pytest.importorskip("pydantic_ai")
+
 from agent.server.advanced_decision import (
     build_neighbor_graph,
     collect_nodes,

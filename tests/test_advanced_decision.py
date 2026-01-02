@@ -4,6 +4,8 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+pytest.importorskip("pydantic_ai")
+
 from agent.server.advanced_decision import AdvancedDecisionEngine, MissionDecision
 from agent.server.goals import GoalType
 from agent.server.world_model import (

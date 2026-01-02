@@ -11,7 +11,15 @@ import logging
 from collections import deque
 from datetime import datetime, timedelta
 
-from agent.server.advanced_decision import AdvancedDecisionEngine, create_advanced_decision_engine
+try:
+    from agent.server.advanced_decision import AdvancedDecisionEngine, create_advanced_decision_engine
+    _ADVANCED_DECISION_AVAILABLE = True
+except ModuleNotFoundError as exc:
+    if exc.name != "pydantic_ai":
+        raise
+    AdvancedDecisionEngine = None  # type: ignore[assignment]
+    create_advanced_decision_engine = None  # type: ignore[assignment]
+    _ADVANCED_DECISION_AVAILABLE = False
 from agent.server.goals import Goal, GoalSelectorConfig, GoalType
 from agent.server.world_model import WorldSnapshot
 
@@ -58,7 +66,13 @@ class GoalSelector:
             minutes=self.config.anomaly_revisit_interval_minutes
         )
         self.normal_cadence = timedelta(minutes=self.config.normal_cadence_minutes)
-        self.use_advanced_engine = self.config.use_advanced_engine
+        if self.config.use_advanced_engine and not _ADVANCED_DECISION_AVAILABLE:
+            logger.warning(
+                "Advanced decision engine disabled: optional dependency pydantic_ai is missing."
+            )
+            self.use_advanced_engine = False
+        else:
+            self.use_advanced_engine = self.config.use_advanced_engine
 
         # Initialize advanced components
         self.advanced_engine: AdvancedDecisionEngine | None = None
@@ -76,6 +90,12 @@ class GoalSelector:
             None
         """
         if self.use_advanced_engine:
+            if not create_advanced_decision_engine:
+                logger.warning(
+                    "Advanced decision engine unavailable: optional dependency pydantic_ai is missing."
+                )
+                self.use_advanced_engine = False
+                return
             self.advanced_engine = await create_advanced_decision_engine()
             logger.info("Advanced decision engine initialized")
 
@@ -88,6 +108,20 @@ class GoalSelector:
         Returns:
             Goal: Selected goal with priority and context.
         """
+        logger.debug(
+            "[GOAL SELECT] Battery %.1f%%",
+            world.vehicle.battery.remaining_percent,
+        )
+        logger.debug(
+            "[GOAL SELECT] Assets in snapshot: %d", len(world.assets)
+        )
+        logger.debug(
+            "[GOAL SELECT] Pending assets: %d", len(world.get_pending_assets())
+        )
+        logger.debug(
+            "[GOAL SELECT] Anomaly assets: %d", len(world.get_anomaly_assets())
+        )
+
         goal: Goal | None = None
 
         # If advanced engine is enabled and initialized, use it
@@ -288,10 +322,16 @@ class GoalSelector:
             Goal if asset inspection needed, None otherwise.
         """
         pending_assets = world.get_pending_assets()
+        logger.debug("[INSPECT CHECK] Found %d pending assets", len(pending_assets))
 
         if pending_assets:
             # Take highest priority (lowest number) asset
             asset = pending_assets[0]
+            logger.info(
+                "[INSPECT CHECK] Selecting asset %s (priority %d)",
+                asset.asset_id,
+                asset.priority,
+            )
 
             return Goal(
                 goal_type=GoalType.INSPECT_ASSET,

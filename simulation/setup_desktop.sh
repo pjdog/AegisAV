@@ -4,7 +4,7 @@
 #
 # Comprehensive setup for high-fidelity drone simulation with:
 # - ArduPilot SITL (flight controller)
-# - AirSim (Unreal Engine rendering)
+# - Cosys-AirSim (Unreal Engine 5.5 rendering)
 # - GPU-accelerated vision (YOLO)
 # - Interactive configuration
 #
@@ -175,8 +175,8 @@ Config overrides:
   --yolo-model MODEL           YOLO model path (default: yolov8n.pt)
   --confidence FLOAT           Detection confidence threshold (default: 0.5)
   --sim / --no-sim             Enable/disable simulation (default: enabled)
-  --airsim / --no-airsim       Enable/disable AirSim integration (default: enabled)
-  --airsim-host HOST           AirSim host (default: 127.0.0.1)
+  --airsim / --no-airsim       Enable/disable Cosys-AirSim integration (default: enabled)
+  --airsim-host HOST           Cosys-AirSim host (default: 127.0.0.1)
   --sitl / --no-sitl           Enable/disable ArduPilot SITL (default: enabled)
   --ardupilot-path PATH         ArduPilot path (default: ~/ardupilot)
   --sitl-speedup FLOAT          SITL speedup (default: 1.0)
@@ -625,12 +625,12 @@ interactive_config() {
     if [[ ! $SIM_ENABLED =~ ^[Nn]$ ]]; then
         SIM_ENABLED="true"
 
-        print_prompt "Enable AirSim integration? (Y/n):"
+        print_prompt "Enable Cosys-AirSim integration? (Y/n):"
         read -r AIRSIM_ENABLED
         if [[ ! $AIRSIM_ENABLED =~ ^[Nn]$ ]]; then
             AIRSIM_ENABLED="true"
 
-            print_prompt "AirSim host (default: 127.0.0.1):"
+            print_prompt "Cosys-AirSim host (default: 127.0.0.1):"
             read -r AIRSIM_HOST
             AIRSIM_HOST=${AIRSIM_HOST:-"127.0.0.1"}
         else
@@ -1029,20 +1029,20 @@ install_ardupilot() {
     disable_install_trace
 }
 
-# Install AirSim
+# Install Cosys-AirSim
 install_airsim() {
     if [[ "$AIRSIM_ENABLED" != "true" ]]; then
-        print_info "Skipping AirSim installation (AirSim disabled)"
+        print_info "Skipping Cosys-AirSim installation (disabled)"
         return
     fi
 
     echo ""
     echo "============================================================"
-    echo "  Setting up AirSim"
+    echo "  Setting up Cosys-AirSim"
     echo "============================================================"
     echo ""
 
-    AIRSIM_DIR="$HOME/AirSim"
+    AIRSIM_DIR="$HOME/Cosys-AirSim"
     local airsim_marker="$STATE_DIR/airsim.done"
     local settings_marker="$STATE_DIR/airsim_settings.done"
 
@@ -1054,34 +1054,36 @@ install_airsim() {
     mkdir -p "$AIRSIM_SETTINGS_DIR"
 
     if [[ "$FORCE_REINSTALL" != "true" ]] && [[ "$FORCE_AIRSIM" != "true" ]] && [ -f "$airsim_marker" ]; then
-        print_status "AirSim already configured; skipping install (set FORCE_AIRSIM=true to reinstall)."
+        print_status "Cosys-AirSim already configured; skipping install (set FORCE_AIRSIM=true to reinstall)."
     else
         enable_install_trace
         if [[ "$OS" == "wsl" ]]; then
-            print_info "AirSim for WSL2 setup..."
-            print_warning "AirSim must run on Windows side for GPU rendering"
+            print_info "Cosys-AirSim for WSL2 setup..."
+            print_warning "Cosys-AirSim must run on Windows side for GPU rendering"
             echo ""
-            echo "To set up AirSim on Windows:"
-            echo "  1. Download AirSim from: https://github.com/Microsoft/AirSim/releases"
-            echo "  2. Extract to C:\\Users\\$WINDOWS_USER\\AirSim"
-            echo "  3. Use Windows path in WSL: /mnt/c/Users/$WINDOWS_USER/AirSim"
+            echo "To set up Cosys-AirSim on Windows:"
+            echo "  1. Download from: https://github.com/Cosys-Lab/Cosys-AirSim/releases"
+            echo "  2. Extract to C:\\Users\\$WINDOWS_USER\\Cosys-AirSim"
+            echo "  3. Use Windows path in WSL: /mnt/c/Users/$WINDOWS_USER/Cosys-AirSim"
+            echo ""
+            echo "Cosys-AirSim supports UE 5.5 (recommended) or UE 5.2 (LTS)"
             echo ""
         else
             if [ -d "$AIRSIM_DIR" ]; then
-                print_warning "AirSim already exists at $AIRSIM_DIR"
+                print_warning "Cosys-AirSim already exists at $AIRSIM_DIR"
             else
-                print_info "Cloning AirSim (large repo, may take a while)..."
-                git clone https://github.com/Microsoft/AirSim.git "$AIRSIM_DIR"
-                print_status "AirSim cloned"
+                print_info "Cloning Cosys-AirSim (large repo, may take a while)..."
+                git clone https://github.com/Cosys-Lab/Cosys-AirSim.git "$AIRSIM_DIR"
+                print_status "Cosys-AirSim cloned"
             fi
 
             cd "$AIRSIM_DIR"
 
             if [[ "$OS" == "linux" ]]; then
-                print_info "Building AirSim (this can take 10+ minutes)..."
+                print_info "Building Cosys-AirSim (this can take 10+ minutes)..."
                 ./setup.sh
                 ./build.sh
-                print_status "AirSim built"
+                print_status "Cosys-AirSim built"
             fi
         fi
         mark_done "$airsim_marker"
@@ -1205,12 +1207,8 @@ install_python_deps() {
 
     # Install additional simulation dependencies
     print_info "Installing simulation Python packages..."
-    print_info "Installing msgpack-rpc-python first (required by airsim setup)..."
-    pip3 install msgpack-rpc-python
-    print_info "Installing backports.ssl_match_hostname for legacy tornado compatibility..."
-    pip3 install backports.ssl_match_hostname
     pip3 install \
-        airsim \
+        cosysairsim \
         pymavlink \
         MAVProxy \
         opencv-python \
@@ -1276,18 +1274,18 @@ EOF
     if [[ "$OS" == "wsl" ]]; then
         cat > "$AEGISAV_DIR/start_airsim.bat" << EOF
 @echo off
-REM Start AirSim on Windows
+REM Start Cosys-AirSim on Windows
 REM Run this from Windows Command Prompt, not WSL
 
-echo Starting AirSim...
-cd %USERPROFILE%\\AirSim\\AirSimNH
-start AirSimNH.exe -ResX=1920 -ResY=1080 -windowed
+echo Starting Cosys-AirSim...
+cd %USERPROFILE%\\Cosys-AirSim
+start Blocks.exe -ResX=1920 -ResY=1080 -windowed
 EOF
         print_status "Created start_airsim.bat (run from Windows)"
     fi
 }
 
-# Verify AirSim is running and reachable
+# Verify Cosys-AirSim is running and reachable
 verify_airsim_running() {
     if [[ "$AIRSIM_ENABLED" != "true" ]]; then
         return
@@ -1295,10 +1293,10 @@ verify_airsim_running() {
 
     echo ""
     echo "============================================================"
-    echo "  Verifying AirSim Runtime"
+    echo "  Verifying Cosys-AirSim Runtime"
     echo "============================================================"
     echo ""
-    print_info "Checking AirSim RPC on 127.0.0.1:41451..."
+    print_info "Checking Cosys-AirSim RPC on 127.0.0.1:41451..."
 
     if python3 - << 'PY'
 import socket
@@ -1316,13 +1314,13 @@ finally:
     s.close()
 PY
     then
-        print_status "AirSim RPC reachable"
+        print_status "Cosys-AirSim RPC reachable"
     else
-        print_warning "AirSim RPC not reachable"
+        print_warning "Cosys-AirSim RPC not reachable"
         if [[ "$OS" == "wsl" ]]; then
-            print_info "Start AirSim on Windows: run start_airsim.bat, then re-run this check."
+            print_info "Start Cosys-AirSim on Windows: run start_airsim.bat, then re-run this check."
         else
-            print_info "Start AirSim (Unreal) and try again."
+            print_info "Start Cosys-AirSim (Unreal) and try again."
         fi
     fi
 }
@@ -1351,7 +1349,8 @@ print_summary() {
     if [[ "$OS" == "wsl" ]]; then
         echo "WSL2 Setup Instructions:"
         echo ""
-        echo "  1. On Windows: Download AirSim from GitHub releases"
+        echo "  1. On Windows: Download Cosys-AirSim from GitHub releases"
+        echo "     https://github.com/Cosys-Lab/Cosys-AirSim/releases"
         echo "  2. On Windows: Run start_airsim.bat"
         echo "  3. In WSL: ./start_simulation.sh"
         echo "  4. Open: http://localhost:${SERVER_PORT}/dashboard"
@@ -1359,8 +1358,8 @@ print_summary() {
     else
         echo "To run the simulation:"
         echo ""
-        echo "  Terminal 1 - Start AirSim:"
-        echo "    ~/AirSimEnv/AirSimNH.sh -ResX=1920 -ResY=1080 -windowed"
+        echo "  Terminal 1 - Start Cosys-AirSim:"
+        echo "    ~/Cosys-AirSim/Blocks.sh -ResX=1920 -ResY=1080 -windowed"
         echo ""
         echo "  Terminal 2 - Start ArduPilot SITL:"
         echo "    cd $(eval echo $ARDUPILOT_PATH)/ArduCopter"

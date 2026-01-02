@@ -92,6 +92,7 @@ class SafetyCritic(BaseCritic):
             (self._check_gps, (world, risk)),
             (self._check_weather, (decision, world, risk)),
             (self._check_vehicle_health, (world, risk)),
+            (self._check_map_context, (decision, world)),
         ):
             check_concerns, check_alternatives, check_risk = check(*args)
             if check_concerns:
@@ -157,6 +158,32 @@ class SafetyCritic(BaseCritic):
                 )
                 alternatives.append("Reduce distance from dock before continuing mission")
                 risk_score = max(risk_score, 0.7)
+
+        return concerns, alternatives, risk_score
+
+    def _check_map_context(
+        self, decision: Decision, world: WorldSnapshot
+    ) -> tuple[list[str], list[str], float]:
+        """Check navigation map safety context."""
+        concerns = []
+        alternatives = []
+        risk_score = 0.0
+
+        map_context = getattr(world, "map_context", None)
+        if not map_context:
+            return concerns, alternatives, risk_score
+
+        if decision.is_movement and not map_context.map_valid:
+            if map_context.map_stale:
+                concerns.append("Navigation map is stale; movement risk increased")
+                alternatives.append("Hold position until map refresh")
+                risk_score = max(risk_score, 0.7)
+            elif map_context.map_quality_score < 0.3:
+                concerns.append(
+                    f"Navigation map quality low ({map_context.map_quality_score:.2f})"
+                )
+                alternatives.append("Proceed cautiously or wait for map improvement")
+                risk_score = max(risk_score, 0.6)
 
         return concerns, alternatives, risk_score
 

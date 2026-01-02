@@ -16,12 +16,15 @@ from typing import Any
 import numpy as np
 
 try:
-    import airsim
+    # Use Cosys-AirSim (actively maintained fork with UE 5.5 support)
+    # Install: pip install cosysairsim
+    # https://github.com/Cosys-Lab/Cosys-AirSim
+    import cosysairsim as airsim
 
     AIRSIM_AVAILABLE = True
 except ImportError:
     AIRSIM_AVAILABLE = False
-    airsim = None
+    airsim = None  # type: ignore[assignment]
 
 from PIL import Image
 
@@ -127,6 +130,7 @@ class AirSimBridge:
 
         except Exception as e:
             logger.error(f"Failed to connect to AirSim: {e}")
+            await self.disconnect()
             self.connected = False
             return False
 
@@ -137,6 +141,12 @@ class AirSimBridge:
                 self.client.enableApiControl(False, self.config.vehicle_name)
             except Exception as exc:
                 logger.warning("Failed to release API control: %s", exc)
+            for handle in (self.client, getattr(self.client, "client", None), getattr(self.client, "_client", None)):
+                if handle and hasattr(handle, "close"):
+                    try:
+                        handle.close()
+                    except Exception as exc:
+                        logger.debug("Failed to close AirSim handle: %s", exc)
             self.client = None
         self.connected = False
         logger.info("Disconnected from AirSim")

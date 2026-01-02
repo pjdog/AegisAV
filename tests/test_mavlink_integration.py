@@ -787,7 +787,7 @@ class TestMissionPrimitivesExtended:
 
     @pytest.mark.asyncio
     @pytest.mark.allow_error_logs
-    async def test_goto_failure(self, _mock_mavlink_connection):
+    async def test_goto_failure(self):
         """Test goto fails when goto command fails."""
         interface = MAVLinkInterface(_make_config())
         interface._connection = None  # No connection
@@ -1233,7 +1233,7 @@ class TestBackgroundLoops:
         # First call returns message, subsequent calls return None
         call_count = [0]
 
-        def mock_recv():
+        def mock_recv(*_args, **_kwargs):
             call_count[0] += 1
             if call_count[0] == 1:
                 return heartbeat_msg
@@ -1257,7 +1257,7 @@ class TestBackgroundLoops:
 
         call_count = [0]
 
-        def mock_recv():
+        def mock_recv(*_args, **_kwargs):
             call_count[0] += 1
             if call_count[0] >= 2:
                 interface._running = False
@@ -1280,7 +1280,7 @@ class TestBackgroundLoops:
 
         call_count = [0]
 
-        def mock_recv():
+        def mock_recv(*_args, **_kwargs):
             call_count[0] += 1
             if call_count[0] == 1:
                 raise RuntimeError("Receive error")
@@ -1396,7 +1396,7 @@ class TestBackgroundLoops:
         mock_mavlink_connection.mav.heartbeat_send.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_receive_loop_stops_when_no_connection(self, _mock_mavlink_connection):
+    async def test_receive_loop_stops_when_no_connection(self):
         """Test receive loop stops when connection is None."""
         interface = MAVLinkInterface(_make_config())
         interface._connection = None  # No connection
@@ -1406,7 +1406,7 @@ class TestBackgroundLoops:
         # Should return immediately
 
     @pytest.mark.asyncio
-    async def test_heartbeat_loop_stops_when_no_connection(self, _mock_mavlink_connection):
+    async def test_heartbeat_loop_stops_when_no_connection(self):
         """Test heartbeat loop stops when connection is None."""
         interface = MAVLinkInterface(_make_config())
         interface._connection = None  # No connection

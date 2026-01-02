@@ -15,6 +15,7 @@ from agent.server.config_manager import (
     AuthSettings,
     ConfigManager,
     DashboardSettings,
+    DEFAULT_SERVER_PORT,
     RedisSettings,
     ServerSettings,
     SimulationSettings,
@@ -29,7 +30,7 @@ class TestSettingsModels:
         """Test ServerSettings has correct defaults."""
         settings = ServerSettings()
         assert settings.host == "0.0.0.0"
-        assert settings.port == 8080
+        assert settings.port == DEFAULT_SERVER_PORT
         assert settings.log_level == "INFO"
         assert settings.cors_origins == ["*"]
 
@@ -171,7 +172,7 @@ class TestConfigManager:
 
             assert manager._loaded is True
             assert isinstance(config, AegisConfig)
-            assert config.server.port == 8080
+            assert config.server.port == DEFAULT_SERVER_PORT
 
     def test_config_manager_save_and_load(self):
         """Test save() and load() round-trip."""
@@ -240,7 +241,7 @@ class TestConfigManager:
             section = manager.get_section("server")
             assert isinstance(section, dict)
             assert section["host"] == "0.0.0.0"
-            assert section["port"] == 8080
+            assert section["port"] == DEFAULT_SERVER_PORT
 
             # Invalid section returns None
             assert manager.get_section("invalid") is None
@@ -274,7 +275,7 @@ class TestConfigManager:
 
             success = manager.reset_section("server")
             assert success is True
-            assert manager.config.server.port == 8080
+            assert manager.config.server.port == DEFAULT_SERVER_PORT
 
     def test_config_manager_reset_all(self):
         """Test reset_all() restores all defaults."""
@@ -289,7 +290,7 @@ class TestConfigManager:
 
             manager.reset_all()
 
-            assert manager.config.server.port == 8080
+            assert manager.config.server.port == DEFAULT_SERVER_PORT
             assert manager.config.redis.host == "localhost"
             assert manager.config.auth.enabled is False
 
@@ -451,7 +452,7 @@ class TestConfigManagerYAMLLoading:
             config = manager.load()
 
             # Should have defaults
-            assert config.server.port == 8080
+            assert config.server.port == DEFAULT_SERVER_PORT
 
     def test_load_handles_partial_config(self):
         """Test loading handles partial config with missing sections."""

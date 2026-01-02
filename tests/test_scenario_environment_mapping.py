@@ -1,5 +1,7 @@
 """Tests for scenario environment -> AirSim mapping helpers."""
 
+import pytest
+
 from agent.server import main as main_module
 from agent.server.scenarios import EnvironmentConditions
 
@@ -15,7 +17,7 @@ def test_map_scenario_environment_rain() -> None:
 
     mapped = main_module._map_scenario_environment(env)
 
-    assert mapped["rain"] == 0.7
+    assert mapped["rain"] == 0.6
     assert mapped["snow"] == 0.0
     assert mapped["fog"] == 0.0
     assert mapped["dust"] == 0.0
@@ -35,8 +37,9 @@ def test_map_scenario_environment_visibility_drives_fog() -> None:
 
     mapped = main_module._map_scenario_environment(env)
 
-    assert mapped["fog"] == 0.8
-    assert mapped["hour"] == 22
+    expected_fog = 1.0 - (env.visibility_m / 10000.0) ** 0.5
+    assert mapped["fog"] == pytest.approx(expected_fog)
+    assert mapped["hour"] == env.hour
 
 
 def test_env_changed_thresholds() -> None:

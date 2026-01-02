@@ -5,10 +5,14 @@ from __future__ import annotations
 import os
 
 from fastapi import Depends, FastAPI, HTTPException
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 
 from agent.edge_config import apply_edge_compute_update, available_edge_profiles
-from agent.server.config_manager import get_config_manager
+from agent.server.config_manager import (
+    MissionSuccessThresholds,
+    MissionSuccessWeights,
+    get_config_manager,
+)
 from agent.server.deps import auth_handler
 from agent.server.llm_config import (
     apply_llm_settings,
@@ -31,6 +35,10 @@ def _normalize_optional_string(value: object) -> str | None:
 
 def register_config_routes(app: FastAPI) -> None:
     """Register configuration and LLM-related routes."""
+
+    class MissionSuccessUpdate(BaseModel):
+        weights: MissionSuccessWeights | None = None
+        thresholds: MissionSuccessThresholds | None = None
 
     @app.get("/api/config/agent")
     async def get_agent_config() -> dict:
@@ -68,6 +76,37 @@ def register_config_routes(app: FastAPI) -> None:
         return {
             "status": "success",
             "edge_config": server_state.edge_config.model_dump(mode="json"),
+        }
+
+    @app.get("/api/config/mission-success")
+    async def get_mission_success_config() -> dict:
+        """Return the mission success scoring configuration."""
+        dashboard = get_config_manager().config.dashboard
+        return {
+            "weights": dashboard.mission_success_weights.model_dump(mode="json"),
+            "thresholds": dashboard.mission_success_thresholds.model_dump(mode="json"),
+        }
+
+    @app.post("/api/config/mission-success")
+    async def update_mission_success_config(payload: MissionSuccessUpdate) -> dict:
+        """Update mission success scoring configuration (weights + thresholds)."""
+        config_manager = get_config_manager()
+        dashboard = config_manager.config.dashboard
+
+        if payload.weights is not None:
+            dashboard.mission_success_weights = payload.weights
+        if payload.thresholds is not None:
+            dashboard.mission_success_thresholds = payload.thresholds
+
+        config_manager.config.dashboard = dashboard
+
+        return {
+            "status": "success",
+            "mission_success": {
+                "weights": dashboard.mission_success_weights.model_dump(mode="json"),
+                "thresholds": dashboard.mission_success_thresholds.model_dump(mode="json"),
+            },
+            "note": "Use /api/config/save to persist.",
         }
 
     @app.get("/api/config")

@@ -21,7 +21,7 @@ class IWebSocket;
  * Usage:
  *   UAegisAVWebSocketClient* Client = NewObject<UAegisAVWebSocketClient>();
  *   Client->OnTelemetryReceived.AddDynamic(this, &MyClass::HandleTelemetry);
- *   Client->Connect("ws://localhost:8080/ws/unreal");
+ *   Client->Connect("ws://localhost:8090/ws/unreal");
  */
 UCLASS(BlueprintType)
 class AEGISAVOVERLAY_API UAegisAVWebSocketClient : public UObject
@@ -38,10 +38,10 @@ public:
 
     /**
      * Connect to the AegisAV WebSocket server
-     * @param URL WebSocket URL (default: ws://localhost:8080/ws/unreal)
+     * @param URL WebSocket URL (default: ws://localhost:8090/ws/unreal)
      */
     UFUNCTION(BlueprintCallable, Category = "AegisAV|WebSocket")
-    void Connect(const FString& URL = TEXT("ws://localhost:8080/ws/unreal"));
+    void Connect(const FString& URL = TEXT("ws://localhost:8090/ws/unreal"));
 
     /**
      * Disconnect from the server
@@ -91,6 +91,22 @@ public:
     UPROPERTY(BlueprintAssignable, Category = "AegisAV|Events")
     FOnAegisAnomalyReceived OnAnomalyReceived;
 
+    /** Fired when an asset spawn message is received */
+    UPROPERTY(BlueprintAssignable, Category = "AegisAV|Events")
+    FOnAegisAssetSpawnReceived OnAssetSpawnReceived;
+
+    /** Fired when assets should be cleared */
+    UPROPERTY(BlueprintAssignable, Category = "AegisAV|Events")
+    FOnAegisAssetsCleared OnAssetsCleared;
+
+    /** Fired when an anomaly marker spawn message is received */
+    UPROPERTY(BlueprintAssignable, Category = "AegisAV|Events")
+    FOnAegisAnomalyMarkerReceived OnAnomalyMarkerReceived;
+
+    /** Fired when anomaly markers should be cleared */
+    UPROPERTY(BlueprintAssignable, Category = "AegisAV|Events")
+    FOnAegisAnomalyMarkersCleared OnAnomalyMarkersCleared;
+
     /** Fired when camera frame is received (with decoded texture) */
     UPROPERTY(BlueprintAssignable, Category = "AegisAV|Events")
     FOnAegisCameraFrameReceived OnCameraFrameReceived;
@@ -127,6 +143,8 @@ protected:
     void ParseCriticResultMessage(const TSharedPtr<class FJsonObject>& JsonObject);
     void ParseBatteryUpdateMessage(const TSharedPtr<class FJsonObject>& JsonObject);
     void ParseAnomalyMessage(const TSharedPtr<class FJsonObject>& JsonObject);
+    void ParseSpawnAssetMessage(const TSharedPtr<class FJsonObject>& JsonObject);
+    void ParseAnomalyMarkerMessage(const TSharedPtr<class FJsonObject>& JsonObject);
     void ParseCameraFrameMessage(const TSharedPtr<class FJsonObject>& JsonObject);
 
     // Helper functions

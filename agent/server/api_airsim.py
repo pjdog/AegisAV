@@ -325,7 +325,17 @@ async def airsim_move(x: float, y: float, z: float, velocity: float = 5.0) -> di
         )
         logger.info("airsim_move_api_control_enabled")
 
-        success = await bridge.move_to_position(x, y, z, velocity)
+        if hasattr(bridge, "move_to_position_with_obstacle_avoidance"):
+            success = await bridge.move_to_position_with_obstacle_avoidance(
+                x,
+                y,
+                z,
+                velocity=velocity,
+                obstacle_distance_m=15.0,
+                avoidance_step_m=10.0,
+            )
+        else:
+            success = await bridge.move_to_position(x, y, z, velocity)
         logger.info("airsim_move_result", success=success)
         return {
             "status": "completed" if success else "failed",
@@ -1052,6 +1062,54 @@ def register_airsim_routes(app: FastAPI) -> None:
             logger.exception("reset_drone_error", error=str(exc))
             return {"status": "failed", "error": str(exc)}
 
+    async def spawn_scene() -> dict:
+        """Spawn dock and assets in AirSim for the current scenario."""
+        bridge = server_state.airsim_bridge
+        if not bridge:
+            raise HTTPException(status_code=503, detail="AirSim bridge not initialized")
+
+        geo_ref = server_state.airsim_geo_ref
+        if not geo_ref:
+            raise HTTPException(status_code=503, detail="Geo reference not initialized")
+
+        scenario = None
+        if scenario_run_state.running and scenario_run_state.scenario_id:
+            scenario = get_scenario(scenario_run_state.scenario_id)
+
+        if not scenario:
+            raise HTTPException(status_code=400, detail="No scenario running")
+
+        try:
+            # Convert assets to dict format
+            asset_dicts = [
+                {
+                    "latitude": a.latitude,
+                    "longitude": a.longitude,
+                    "name": a.name,
+                    "asset_id": a.asset_id,
+                    "asset_type": a.asset_type,
+                }
+                for a in scenario.assets
+            ]
+
+            results = await bridge.spawn_scene_objects(
+                dock_ned=(0.0, 0.0, 0.0),
+                assets=asset_dicts,
+                geo_ref=geo_ref,
+            )
+
+            return {
+                "status": "success",
+                "dock_spawned": results.get("dock", False),
+                "assets_spawned": len([a for a in results.get("assets", []) if a.get("success")]),
+                "total_assets": len(scenario.assets),
+                "details": results,
+            }
+        except Exception as exc:
+            logger.exception("spawn_scene_error", error=str(exc))
+            return {"status": "failed", "error": str(exc)}
+
+    app.post("/api/airsim/spawn_scene")(spawn_scene)
     app.post("/api/airsim/reset")(reset_drone)
     app.post("/api/airsim/debug_fly_to")(debug_fly_to)
     app.post("/api/airsim/debug_takeoff")(debug_takeoff)

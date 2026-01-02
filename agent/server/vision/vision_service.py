@@ -11,7 +11,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Callable
 
 from agent.server.models.vision_models import (
     CameraMetadata,
@@ -20,7 +20,8 @@ from agent.server.models.vision_models import (
 from agent.server.vision.detector import SimulatedDetector
 from agent.server.world_model import Anomaly, WorldModel
 from autonomy.vehicle_state import Position
-from vision.data_models import Detection, DetectionResult
+from mapping.splat_change_detection import SplatChangeConfig, detect_splat_change
+from vision.data_models import BoundingBox, Detection, DetectionClass, DetectionResult
 from vision.image_manager import ImageManager
 
 if TYPE_CHECKING:
@@ -40,6 +41,10 @@ class VisionServiceConfig:
 
     confidence_threshold: float = 0.7
     severity_threshold: float = 0.4
+    enable_splat_change_detection: bool = False
+    splat_change_threshold: float = 0.85
+    splat_change_min_age_s: float = 600.0
+    splat_change_max_age_s: float = 3600.0
 
 
 class VisionService:
@@ -59,6 +64,7 @@ class VisionService:
         image_manager: ImageManager | None = None,
         config: VisionServiceConfig | None = None,
         unreal_manager: "UnrealConnectionManager | None" = None,
+        splat_scene_provider: Callable[[], Path | None] | None = None,
     ) -> None:
         """Initialize vision service.
 
@@ -75,6 +81,7 @@ class VisionService:
         self.config = config or VisionServiceConfig()
         self.logger = logger
         self.unreal_manager = unreal_manager
+        self.splat_scene_provider = splat_scene_provider
 
         # Create default instances if not provided
         if detector is None:
@@ -148,6 +155,8 @@ class VisionService:
             # Simulate detection
             detection = await self.simulate_inspection_result(asset_id)
 
+        detection = self._apply_splat_change_detection(detection, image_path)
+
         # Extract position from vehicle state
         position = None
         altitude_agl = None
@@ -166,6 +175,9 @@ class VisionService:
             heading_deg = vehicle_state.get("heading_deg")
             distance_to_asset = vehicle_state.get("distance_to_asset")
 
+        detection_payloads = [d.model_dump(mode="json") for d in detection.detections]
+        detected_labels = [d.detection_class.value for d in detection.detections]
+
         # Create observation
         observation = VisionObservation(
             observation_id=observation_id,
@@ -177,7 +189,7 @@ class VisionService:
             altitude_agl=altitude_agl,
             heading_deg=heading_deg,
             distance_to_asset=distance_to_asset,
-            detections=[],
+            detections=detection_payloads,
             max_confidence=detection.max_confidence,
             max_severity=detection.max_severity,
             defect_detected=len(detection.detected_defects) > 0,
@@ -189,6 +201,17 @@ class VisionService:
         # Store observation
         self.observations[observation_id] = observation
 
+        if detected_labels:
+            defect_labels = [d.detection_class.value for d in detection.detected_defects]
+            self.logger.info(
+                "Vision detections for asset %s: %s (defects: %s, max_conf=%.2f, max_sev=%.2f)",
+                asset_id,
+                ", ".join(detected_labels),
+                ", ".join(defect_labels) if defect_labels else "none",
+                detection.max_confidence,
+                detection.max_severity,
+            )
+
         # Check if we should create an anomaly
         if self._should_create_anomaly(detection):
             anomaly = await self._create_anomaly(asset_id, detection, observation)
@@ -198,6 +221,66 @@ class VisionService:
                 self.logger.info(f"✨ Anomaly created: {anomaly.anomaly_id} for asset {asset_id}")
 
         return observation
+
+    def _apply_splat_change_detection(
+        self,
+        detection: DetectionResult,
+        image_path: Path | None,
+    ) -> DetectionResult:
+        if not self.config.enable_splat_change_detection:
+            return detection
+
+        if not image_path:
+            return detection
+
+        if not self.splat_scene_provider:
+            return detection
+
+        splat_scene = self.splat_scene_provider()
+        if not splat_scene:
+            return detection
+
+        change_result = detect_splat_change(
+            image_path,
+            splat_scene,
+            SplatChangeConfig(
+                enabled=True,
+                min_age_s=self.config.splat_change_min_age_s,
+                max_age_s=self.config.splat_change_max_age_s,
+            ),
+        )
+
+        metadata = dict(detection.metadata)
+        metadata["splat_change"] = change_result.to_dict()
+
+        detections = list(detection.detections)
+        if change_result.available and change_result.change_score >= self.config.splat_change_threshold:
+            detections.append(
+                Detection(
+                    detection_class=DetectionClass.SCENE_CHANGE,
+                    confidence=change_result.confidence,
+                    severity=change_result.change_score,
+                    bounding_box=BoundingBox(
+                        x_min=0.0,
+                        y_min=0.0,
+                        x_max=1.0,
+                        y_max=1.0,
+                    ),
+                    metadata={
+                        "source": "splat_change_detection",
+                        "scene_path": change_result.scene_path,
+                    },
+                )
+            )
+
+        return DetectionResult(
+            timestamp=detection.timestamp,
+            detections=detections,
+            image_path=detection.image_path,
+            model_name=detection.model_name,
+            inference_time_ms=detection.inference_time_ms,
+            metadata=metadata,
+        )
 
     async def simulate_inspection_result(self, asset_id: str) -> DetectionResult:
         """Simulate inspection result without actual image.

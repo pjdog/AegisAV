@@ -14,7 +14,7 @@ from fastapi import FastAPI
 
 from agent.api_models import ActionType, VehicleStateRequest
 from agent.server.auth import AuthConfig
-from agent.server.config_manager import ConfigManager
+from agent.server.config_manager import ConfigManager, DEFAULT_SERVER_PORT
 from agent.server.persistence import InMemoryStore
 
 # Fixtures for server testing
@@ -115,7 +115,7 @@ class TestConfigManagerIntegration:
         config = manager.load()
 
         assert config is not None
-        assert config.server.port == 8080
+        assert config.server.port == DEFAULT_SERVER_PORT
         assert config.redis.enabled is True
 
     def test_config_manager_save_load_roundtrip(self, temp_config_dir):

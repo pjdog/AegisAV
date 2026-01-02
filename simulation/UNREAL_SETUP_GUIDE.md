@@ -1,12 +1,12 @@
 # AegisAV Unreal Engine Setup Guide
 
-Complete guide for setting up high-fidelity infrastructure inspection environments in Unreal Engine with AirSim integration.
+Complete guide for setting up high-fidelity infrastructure inspection environments in Unreal Engine with Cosys-AirSim integration.
 
 ## Table of Contents
 
 1. [Prerequisites](#prerequisites)
 2. [Unreal Engine Installation](#unreal-engine-installation)
-3. [AirSim Plugin Setup](#airsim-plugin-setup)
+3. [Cosys-AirSim Plugin Setup](#cosys-airsim-plugin-setup)
 4. [Project Creation](#project-creation)
 5. [Building Infrastructure Environments](#building-infrastructure-environments)
 6. [Defect Injection System](#defect-injection-system)
@@ -26,8 +26,8 @@ Complete guide for setting up high-fidelity infrastructure inspection environmen
 
 ### Software Requirements
 - Ubuntu 22.04 LTS (or Windows 11)
-- Unreal Engine 4.27 (Required for AirSim compatibility)
-- Visual Studio 2022 (Windows) or clang (Linux)
+- Unreal Engine 5.5 (Recommended for Cosys-AirSim v3.3) or UE 5.2 (LTS)
+- Visual Studio 2022/2026 (Windows) or clang (Linux)
 - Git, CMake, Python 3.10+
 
 ---
@@ -40,9 +40,9 @@ Complete guide for setting up high-fidelity infrastructure inspection environmen
 # 1. Register for Epic Games account and link to GitHub
 # Visit: https://www.unrealengine.com/en-US/ue-on-github
 
-# 2. Clone Unreal Engine 4.27
+# 2. Clone Unreal Engine 5.5 (recommended for Cosys-AirSim)
 cd ~
-git clone -b 4.27 git@github.com:EpicGames/UnrealEngine.git
+git clone -b 5.5 git@github.com:EpicGames/UnrealEngine.git
 cd UnrealEngine
 
 # 3. Run setup scripts
@@ -53,12 +53,12 @@ cd UnrealEngine
 make
 
 # 5. Verify installation
-./Engine/Binaries/Linux/UE4Editor
+./Engine/Binaries/Linux/UnrealEditor
 ```
 
 ### AMD GPU Optimization
 
-Create `~/.config/UnrealEngine/4.27/Engine.ini`:
+Create `~/.config/UnrealEngine/5.5/Engine.ini`:
 
 ```ini
 [/Script/Engine.RendererSettings]
@@ -83,27 +83,32 @@ r.Vulkan.EnableValidation=0
 
 ---
 
-## AirSim Plugin Setup
+## Cosys-AirSim Plugin Setup
 
-### Clone and Build AirSim
+Cosys-AirSim is the actively maintained fork of Microsoft AirSim with UE 5.5 support.
+
+### Clone and Build Cosys-AirSim
 
 ```bash
-# 1. Clone AirSim
+# 1. Clone Cosys-AirSim
 cd ~
-git clone https://github.com/Microsoft/AirSim.git
-cd AirSim
+git clone https://github.com/Cosys-Lab/Cosys-AirSim.git
+cd Cosys-AirSim
 
 # 2. Run setup (installs dependencies)
 ./setup.sh
 
-# 3. Build AirSim
+# 3. Build Cosys-AirSim
 ./build.sh
 
 # 4. Copy plugin to Unreal Engine
 # This step is done per-project (see Project Creation)
 ```
 
-### AirSim Settings Configuration
+**Or download pre-built binaries from:**
+https://github.com/Cosys-Lab/Cosys-AirSim/releases
+
+### Cosys-AirSim Settings Configuration
 
 Create `~/Documents/AirSim/settings.json`:
 
@@ -209,7 +214,7 @@ Create `~/Documents/AirSim/settings.json`:
 ```bash
 # Launch Unreal Editor
 cd ~/UnrealEngine
-./Engine/Binaries/Linux/UE4Editor
+./Engine/Binaries/Linux/UnrealEditor
 
 # In Editor:
 # 1. File → New Project
@@ -223,12 +228,12 @@ cd ~/UnrealEngine
 # 5. Location: ~/UnrealProjects/
 ```
 
-### Step 2: Add AirSim Plugin
+### Step 2: Add Cosys-AirSim Plugin
 
 ```bash
-# Copy AirSim plugin to project
+# Copy Cosys-AirSim plugin to project
 mkdir -p ~/UnrealProjects/AegisAVSim/Plugins
-cp -r ~/AirSim/Unreal/Plugins/AirSim ~/UnrealProjects/AegisAVSim/Plugins/
+cp -r ~/Cosys-AirSim/Unreal/Plugins/AirSim ~/UnrealProjects/AegisAVSim/Plugins/
 
 # Edit project settings
 cat >> ~/UnrealProjects/AegisAVSim/Config/DefaultGame.ini << 'EOF'
@@ -581,9 +586,9 @@ Timeline:
 ### Launch Sequence
 
 ```bash
-# Terminal 1: Start Unreal/AirSim
+# Terminal 1: Start Unreal/Cosys-AirSim
 cd ~/UnrealProjects/AegisAVSim
-~/UnrealEngine/Engine/Binaries/Linux/UE4Editor \
+~/UnrealEngine/Engine/Binaries/Linux/UnrealEditor \
     AegisAVSim.uproject \
     -game \
     -ResX=1920 -ResY=1080 \
@@ -636,8 +641,8 @@ MNT_ANGMAX_TIL = 0      # 0 degrees (forward)
 ### Validation Checklist
 
 ```
-□ AirSim connects and shows drone in Unreal viewport
-□ ArduPilot SITL connects to AirSim (check console)
+□ Cosys-AirSim connects and shows drone in Unreal viewport
+□ ArduPilot SITL connects to Cosys-AirSim (check console)
 □ Drone arms and takes off when commanded
 □ Camera captures are saved to data/vision/airsim/
 □ Defects are visible in captured images
@@ -654,7 +659,7 @@ Create: `simulation/validate_setup.py`
 
 ```python
 #!/usr/bin/env python3
-"""Validate AirSim + ArduPilot integration."""
+"""Validate Cosys-AirSim + ArduPilot integration."""
 
 import asyncio
 import sys
@@ -669,14 +674,14 @@ async def validate():
     print("  AegisAV Simulation Validation")
     print("=" * 60)
 
-    # Test AirSim connection
-    print("\n[1] Testing AirSim connection...")
+    # Test Cosys-AirSim connection
+    print("\n[1] Testing Cosys-AirSim connection...")
     bridge = AirSimBridge(AirSimCameraConfig(
         output_dir=Path("data/validation")
     ))
 
     if await bridge.connect():
-        print("  ✓ AirSim connected")
+        print("  ✓ Cosys-AirSim connected")
 
         # Capture test frame
         result = await bridge.capture_frame({"test": True})
@@ -694,8 +699,8 @@ async def validate():
 
         await bridge.disconnect()
     else:
-        print("  ✗ AirSim connection failed")
-        print("    Make sure Unreal/AirSim is running!")
+        print("  ✗ Cosys-AirSim connection failed")
+        print("    Make sure Unreal/Cosys-AirSim is running!")
         return False
 
     # Test SITL (if installed)
@@ -749,13 +754,13 @@ if __name__ == "__main__":
 If you want to test immediately without building custom environments:
 
 ```bash
-# 1. Download pre-built AirSim environment
-cd ~/AirSimEnv
-wget https://github.com/Microsoft/AirSim/releases/download/v1.8.1/AirSimNH.zip
-unzip AirSimNH.zip
+# 1. Download pre-built Cosys-AirSim environment
+# Visit: https://github.com/Cosys-Lab/Cosys-AirSim/releases
+# Download the latest Blocks environment for your UE version
 
-# 2. Run the neighborhood environment
-./AirSimNH.sh -ResX=1920 -ResY=1080 -windowed
+# 2. Extract and run
+cd ~/Cosys-AirSim
+./Blocks.sh -ResX=1920 -ResY=1080 -windowed
 
 # 3. In another terminal, start SITL
 cd ~/ardupilot/ArduCopter
@@ -766,7 +771,7 @@ cd ~/code/AegisAV
 python simulation/run_simulation.py --airsim --sitl
 ```
 
-This uses a pre-built neighborhood environment. It won't have infrastructure assets but allows immediate flight testing while you build custom environments.
+This uses a pre-built Blocks environment. It won't have infrastructure assets but allows immediate flight testing while you build custom environments.
 
 ---
 

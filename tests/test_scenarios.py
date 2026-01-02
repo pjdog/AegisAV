@@ -38,7 +38,7 @@ class TestSimulatedDrone:
         assert drone.name == "Test Drone"
         assert drone.battery_percent == 100.0
         assert drone.gps_fix_type == 3
-        assert drone.state == DroneState.IDLE
+        assert drone.state == DroneState.DOCKED
         assert drone.armed is False
 
     def test_create_drone_custom_values(self):

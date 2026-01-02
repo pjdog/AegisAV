@@ -6,9 +6,16 @@ and environmental sources.
 """
 
 from datetime import datetime, timedelta
+import logging
 from enum import Enum
 
 from pydantic import BaseModel, ConfigDict, Field
+
+from mapping.decision_context import MapContext
+
+logger = logging.getLogger(__name__)
+
+from mapping.decision_context import MapContext
 
 from autonomy.vehicle_state import Position, VehicleState
 
@@ -196,6 +203,8 @@ class WorldSnapshot(BaseModel):
 
     # Computed
     overall_confidence: float = 1.0
+    map_context: MapContext | None = None
+    map_context: MapContext | None = None
 
     def get_asset(self, asset_id: str) -> Asset | None:
         """Get asset by ID.
@@ -217,7 +226,17 @@ class WorldSnapshot(BaseModel):
         Returns:
             List of assets needing inspection, sorted by priority.
         """
-        pending = [a for a in self.assets if a.needs_inspection]
+        pending: list[Asset] = []
+        now = datetime.now()
+        for asset in self.assets:
+            if asset.next_scheduled is None or now >= asset.next_scheduled:
+                pending.append(asset)
+
+        logger.debug(
+            "[WORLD MODEL] %d/%d assets pending",
+            len(pending),
+            len(self.assets),
+        )
         return sorted(pending, key=lambda a: a.priority)
 
     def get_anomaly_assets(self) -> list[Asset]:
@@ -303,6 +322,11 @@ class WorldModel:
         # Replace if exists
         self._assets = [a for a in self._assets if a.asset_id != asset.asset_id]
         self._assets.append(asset)
+
+    def reset_assets(self) -> None:
+        """Clear assets and anomalies for a new mission."""
+        self._assets = []
+        self._anomalies = []
 
     def load_assets_from_config(self, config: dict) -> None:
         """Load assets from mission configuration.
@@ -417,7 +441,7 @@ class WorldModel:
         """
         return [a.asset_id for a in self._anomalies if not a.resolved]
 
-    def get_snapshot(self) -> WorldSnapshot | None:
+    def get_snapshot(self, map_context: MapContext | None = None) -> WorldSnapshot | None:
         """Get an immutable snapshot of current world state.
 
         Returns:
@@ -434,6 +458,7 @@ class WorldModel:
             dock=self._dock,
             environment=self._environment,
             mission=self._mission,
+            map_context=map_context,
         )
 
     def time_since_update(self) -> timedelta | None:

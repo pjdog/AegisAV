@@ -23,6 +23,8 @@ from agent.server.unreal_stream import (
 )
 from autonomy.vehicle_state import Position
 from metrics.logger import DecisionLogContext
+from mapping.decision_context import MapContext, map_decision_logger
+from mapping.safety_gates import PlannerSafetyGate, SafetyGateResult
 from vision.data_models import DetectionResult
 
 logger = structlog.get_logger(__name__)
@@ -128,7 +130,18 @@ async def _process_state(state: VehicleStateRequest, *, source: str) -> Decision
 
     server_state.world_model.update_vehicle(vehicle_state)
 
-    snapshot = server_state.world_model.get_snapshot()
+    planner_gate = server_state.planner_safety_gate or PlannerSafetyGate()
+    if server_state.planner_safety_gate is None:
+        server_state.planner_safety_gate = planner_gate
+    gate_config = planner_gate.config
+    map_context = MapContext.from_navigation_map(
+        server_state.navigation_map,
+        stale_threshold_s=gate_config.max_map_age_s,
+        min_quality_score=gate_config.min_map_confidence,
+    )
+    gate_result = planner_gate.check_planning_allowed(map_context)
+
+    snapshot = server_state.world_model.get_snapshot(map_context=map_context)
     if snapshot is None:
         raise HTTPException(status_code=500, detail="World model not initialized")
 
@@ -140,7 +153,6 @@ async def _process_state(state: VehicleStateRequest, *, source: str) -> Decision
         )
 
     risk = server_state.risk_evaluator.evaluate(snapshot)
-
     await connection_manager.broadcast(
         Event(
             event_type=EventType.RISK_UPDATE,
@@ -176,6 +188,9 @@ async def _process_state(state: VehicleStateRequest, *, source: str) -> Decision
         )
 
     decision, goal = await _make_decision(snapshot, risk)
+    if gate_result.result == SafetyGateResult.FREEZE and decision.is_movement:
+        decision = Decision.wait(reason=f"Planner frozen: {gate_result.reason}")
+        goal = None
 
     if goal:
         await connection_manager.broadcast(
@@ -202,9 +217,14 @@ async def _process_state(state: VehicleStateRequest, *, source: str) -> Decision
             event_type=EventType.CRITIC_VALIDATION,
             timestamp=datetime.now(),
             data={
+                "agent_label": "Orchestration AG",
+                "drone_id": drone_id,
+                "drone_name": drone_id,
                 "approved": approved,
                 "decision_id": decision.decision_id,
                 "action": decision.action.value,
+                "risk_level": risk.overall_level.value,
+                "risk_score": risk.overall_score,
                 "escalation": (
                     {
                         "reason": escalation.reason,
@@ -248,6 +268,19 @@ async def _process_state(state: VehicleStateRequest, *, source: str) -> Decision
     server_state.last_decision = decision
     server_state.decisions_made += 1
 
+    map_decision_logger.log_planner_gate(
+        map_context,
+        decision.decision_id,
+        decision.action.value,
+        gate_result,
+    )
+    if map_context.map_available:
+        map_decision_logger.log_map_decision(
+            map_context,
+            decision.decision_id,
+            decision.action.value,
+        )
+
     server_state.decision_logger.log_decision(
         DecisionLogContext(
             decision=decision,
@@ -255,6 +288,7 @@ async def _process_state(state: VehicleStateRequest, *, source: str) -> Decision
             world=snapshot,
             goal=goal,
             escalation=escalation,
+            map_context=map_context,
         )
     )
 
@@ -272,11 +306,25 @@ async def _process_state(state: VehicleStateRequest, *, source: str) -> Decision
             event_type=EventType.SERVER_DECISION,
             timestamp=datetime.now(),
             data={
+                "agent_label": "Drone AG",
+                "drone_id": drone_id,
+                "drone_name": drone_id,
                 "decision_id": decision.decision_id,
                 "action": decision.action.value,
                 "parameters": decision.parameters,
                 "confidence": decision.confidence,
                 "reasoning": decision.reasoning,
+                "risk_level": risk.overall_level.value,
+                "risk_score": risk.overall_score,
+                "battery_percent": snapshot.vehicle.battery.remaining_percent,
+                "target_asset": (
+                    {
+                        "asset_id": goal.target_asset.asset_id,
+                        "name": goal.target_asset.name,
+                    }
+                    if goal and goal.target_asset
+                    else None
+                ),
             },
             severity=EventSeverity.INFO,
         )
@@ -299,6 +347,7 @@ async def _process_state(state: VehicleStateRequest, *, source: str) -> Decision
         reasoning=decision.reasoning,
         risk_assessment={name: f.value for name, f in risk.factors.items()},
         timestamp=decision.timestamp,
+        map_context=map_context.to_dict() if map_context else None,
     )
 
 
@@ -333,7 +382,9 @@ def register_decision_routes(app: FastAPI) -> None:
         await persist_feedback(server_state.store, feedback, outcome)
 
         vision_observation = None
-        if feedback.anomaly_detected and server_state.vision_enabled and server_state.vision_service:
+        # Record vision captures for all inspections, not just anomaly detections
+        # This ensures coverage and captures stay in sync
+        if feedback.asset_inspected and server_state.vision_enabled and server_state.vision_service:
             try:
                 client_detection: DetectionResult | None = None
                 image_path: Path | None = None

@@ -20,6 +20,7 @@ class EventType(str, Enum):
     CRITIC_VALIDATION = "critic_validation"
     VISION_DETECTION = "vision_detection"
     ANOMALY_CREATED = "anomaly_created"
+    PREFLIGHT_STATUS = "preflight_status"
 
 
 class EventSeverity(str, Enum):
@@ -38,3 +39,7 @@ class Event(BaseModel):
     timestamp: datetime
     data: dict[str, Any]
     severity: EventSeverity = EventSeverity.INFO
+
+
+class ServerEvent(Event):
+    """Backward-compatible alias for Event."""

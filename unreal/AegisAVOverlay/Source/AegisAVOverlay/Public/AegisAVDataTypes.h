@@ -251,6 +251,87 @@ struct AEGISAVOVERLAY_API FAegisAnomaly
 };
 
 /**
+ * Asset spawn data for world placement
+ */
+USTRUCT(BlueprintType)
+struct AEGISAVOVERLAY_API FAegisAssetSpawn
+{
+    GENERATED_BODY()
+
+    UPROPERTY(BlueprintReadOnly, Category = "AegisAV|Assets")
+    FString AssetId;
+
+    UPROPERTY(BlueprintReadOnly, Category = "AegisAV|Assets")
+    FString AssetType;
+
+    UPROPERTY(BlueprintReadOnly, Category = "AegisAV|Assets")
+    FString Name;
+
+    UPROPERTY(BlueprintReadOnly, Category = "AegisAV|Assets")
+    double Latitude = 0.0;
+
+    UPROPERTY(BlueprintReadOnly, Category = "AegisAV|Assets")
+    double Longitude = 0.0;
+
+    UPROPERTY(BlueprintReadOnly, Category = "AegisAV|Assets")
+    double AltitudeM = 0.0;
+
+    UPROPERTY(BlueprintReadOnly, Category = "AegisAV|Assets")
+    int32 Priority = 1;
+
+    UPROPERTY(BlueprintReadOnly, Category = "AegisAV|Assets")
+    bool bHasAnomaly = false;
+
+    UPROPERTY(BlueprintReadOnly, Category = "AegisAV|Assets")
+    float AnomalySeverity = 0.0f;
+
+    UPROPERTY(BlueprintReadOnly, Category = "AegisAV|Assets")
+    float Scale = 1.0f;
+
+    UPROPERTY(BlueprintReadOnly, Category = "AegisAV|Assets")
+    float RotationDeg = 0.0f;
+};
+
+/**
+ * Anomaly marker spawn data for world placement
+ */
+USTRUCT(BlueprintType)
+struct AEGISAVOVERLAY_API FAegisAnomalyMarker
+{
+    GENERATED_BODY()
+
+    UPROPERTY(BlueprintReadOnly, Category = "AegisAV|Assets")
+    FString AnomalyId;
+
+    UPROPERTY(BlueprintReadOnly, Category = "AegisAV|Assets")
+    FString AssetId;
+
+    UPROPERTY(BlueprintReadOnly, Category = "AegisAV|Assets")
+    float Severity = 0.0f;
+
+    UPROPERTY(BlueprintReadOnly, Category = "AegisAV|Assets")
+    double Latitude = 0.0;
+
+    UPROPERTY(BlueprintReadOnly, Category = "AegisAV|Assets")
+    double Longitude = 0.0;
+
+    UPROPERTY(BlueprintReadOnly, Category = "AegisAV|Assets")
+    double AltitudeM = 0.0;
+
+    UPROPERTY(BlueprintReadOnly, Category = "AegisAV|Assets")
+    FString MarkerType;
+
+    UPROPERTY(BlueprintReadOnly, Category = "AegisAV|Assets")
+    FLinearColor Color = FLinearColor::Red;
+
+    UPROPERTY(BlueprintReadOnly, Category = "AegisAV|Assets")
+    bool bPulse = false;
+
+    UPROPERTY(BlueprintReadOnly, Category = "AegisAV|Assets")
+    FString Label;
+};
+
+/**
  * Camera frame data (base64 decoded separately)
  */
 USTRUCT(BlueprintType)
@@ -285,5 +366,9 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnAegisAgentThoughtReceived, const 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnAegisCriticEvaluationReceived, const FAegisCriticEvaluation&, Evaluation);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnAegisBatteryStatusReceived, const FAegisBatteryStatus&, BatteryStatus);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnAegisAnomalyReceived, const FAegisAnomaly&, Anomaly);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnAegisAssetSpawnReceived, const FAegisAssetSpawn&, Asset);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnAegisAssetsCleared);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnAegisAnomalyMarkerReceived, const FAegisAnomalyMarker&, Marker);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnAegisAnomalyMarkersCleared);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnAegisCameraFrameReceived, const FString&, DroneId, UTexture2D*, Frame);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnAegisConnectionStateChanged, bool, bIsConnected);

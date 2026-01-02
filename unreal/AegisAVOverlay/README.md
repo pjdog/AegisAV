@@ -8,6 +8,7 @@ Native UMG overlay widgets for the AegisAV drone simulation system. Displays age
 - **Collapsible**: Click the collapse button to minimize panels
 - **Real-time Updates**: WebSocket connection to AegisAV backend for live data
 - **Auto-reconnect**: Automatically reconnects if connection is lost
+- **Scenario Asset Spawning**: Places solar panels, wind turbines, substations, and power lines from backend events
 
 ### Panels
 
@@ -101,6 +102,16 @@ bAutoShowOverlay = true;
 DefaultServerURL = "ws://localhost:8080/ws/unreal";
 ```
 
+### Asset Spawning (Solar Panels, Wind Turbines, Substations, Power Lines)
+
+The overlay can spawn world assets based on backend scenario messages. Assets are placed by converting latitude/longitude/altitude into Unreal world space using a geo origin.
+
+- By default, the first received asset becomes the origin (`UseFirstAssetAsOrigin=true`).
+- To set a fixed origin, configure `OriginLatitude`, `OriginLongitude`, and `OriginAltitude` in `Config/AegisAV.ini`.
+- Customize meshes and scale in `Config/AegisAV.ini` using the `AssetMesh.*` and `AssetScale.*` keys.
+
+Anomaly markers are spawned as spheres when `spawn_anomaly_marker` messages arrive.
+
 ## Creating Custom Panels
 
 1. Create a new Blueprint widget inheriting from `UAegisAVBasePanel`
@@ -127,6 +138,10 @@ The plugin connects to `/ws/unreal` and receives these message types:
 | `battery_update` | Detailed battery status |
 | `camera_frame` | Base64-encoded PNG image |
 | `anomaly_detected` | Anomaly alerts |
+| `spawn_asset` | Spawn a world asset (solar panel, wind turbine, etc.) |
+| `clear_assets` | Remove all spawned assets |
+| `spawn_anomaly_marker` | Spawn an anomaly marker |
+| `clear_anomaly_markers` | Remove all anomaly markers |
 
 ## File Structure
 

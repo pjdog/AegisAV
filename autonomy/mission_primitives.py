@@ -4,14 +4,20 @@ High-level mission actions built on top of MAVLink commands.
 These primitives provide reliable, monitored execution of common flight operations.
 """
 
+from __future__ import annotations
+
 import asyncio
 import logging
 import math
 from dataclasses import dataclass
 from enum import Enum
 
-from autonomy.mavlink_interface import MAVLinkInterface
 from autonomy.vehicle_state import Position
+
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from autonomy.mavlink_interface import MAVLinkInterface
 
 logger = logging.getLogger(__name__)
 

@@ -1,7 +1,9 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import SettingsPanel from "./SettingsPanel";
 import SpatialView from "./SpatialView";
 import DroneCameraPanel from "./DroneCameraPanel";
+import SplatMapViewer from "./SplatMapViewer";
+import ReasoningFeed, { DecisionEntry } from "./ReasoningFeed";
 import logo from "../assets/aegis_logo.svg";
 
 type RunSummary = {
@@ -80,6 +82,104 @@ type AirSimStatus = {
   connecting: boolean;
   launch_supported: boolean;
   last_error: string | null;
+};
+
+type VisionDetection = {
+  detection_class?: string;
+  confidence?: number;
+  severity?: number;
+};
+
+type VisionObservationSummary = {
+  asset_id?: string;
+  timestamp?: string;
+  observation_id?: string;
+  defect_detected?: boolean;
+  anomaly_created?: boolean;
+  max_confidence?: number;
+  max_severity?: number;
+  detections?: VisionDetection[];
+  defect_classes?: string[];
+};
+
+type MissionMetrics = {
+  total_assets: number;
+  assets_inspected: number;
+  inspection_coverage_percent: number;
+  assets_in_progress: string[];
+  total_anomalies_detected: number;
+  total_anomalies_expected?: number;
+  anomalies_resolved: number;
+  anomalies_pending: number;
+  defects_by_type: Record<string, number>;
+  decisions_total: number;
+  decisions_successful: number;
+  success_rate_percent: number;
+  decision_quality_percent?: number;
+  execution_success_percent?: number;
+  anomaly_handling_percent?: number;
+  resource_use_percent?: number;
+  resource_use_available?: boolean;
+  battery_consumed?: number;
+  battery_budget?: number;
+  mission_success_score?: number;
+  mission_success_grade?: string;
+  mission_success_components?: Record<string, number>;
+  mission_completion_percent: number;
+  recent_captures_count: number;
+  recent_defects_count: number;
+};
+
+type MissionSuccessWeights = {
+  coverage: number;
+  anomaly: number;
+  decision_quality: number;
+  execution: number;
+  resource_use: number;
+};
+
+type MissionSuccessThresholds = {
+  excellent: number;
+  good: number;
+  fair: number;
+};
+
+type MissionSuccessConfig = {
+  weights: MissionSuccessWeights;
+  thresholds: MissionSuccessThresholds;
+};
+
+const normalizeMetrics = (data: Partial<MissionMetrics> | null | undefined): MissionMetrics => ({
+  total_assets: data?.total_assets ?? 0,
+  assets_inspected: data?.assets_inspected ?? 0,
+  inspection_coverage_percent: data?.inspection_coverage_percent ?? 0,
+  assets_in_progress: data?.assets_in_progress ?? [],
+  total_anomalies_detected: data?.total_anomalies_detected ?? 0,
+  anomalies_resolved: data?.anomalies_resolved ?? 0,
+  anomalies_pending: data?.anomalies_pending ?? 0,
+  defects_by_type: data?.defects_by_type ?? {},
+  decisions_total: data?.decisions_total ?? 0,
+  decisions_successful: data?.decisions_successful ?? 0,
+  success_rate_percent: data?.success_rate_percent ?? 0,
+  mission_completion_percent: data?.mission_completion_percent ?? 0,
+  recent_captures_count: data?.recent_captures_count ?? 0,
+  recent_defects_count: data?.recent_defects_count ?? 0,
+});
+
+type RecentCapture = {
+  observation_id: string;
+  asset_id: string;
+  asset_name: string;
+  timestamp: string;
+  image_url: string | null;
+  thumbnail_url: string | null;
+  defect_detected: boolean;
+  detections: Array<{ class: string; confidence: number; severity: number }>;
+  detection_count: number;
+  max_confidence: number;
+  max_severity: number;
+  anomaly_created: boolean;
+  anomaly_id: string | null;
 };
 
 type RunData = {
@@ -304,6 +404,161 @@ const FleetTelemetry = ({ telemetry }: { telemetry: TelemetryEntry[] }) => {
   );
 };
 
+// Success Metrics Section - displays inspection coverage, anomaly detection, success rates
+const SuccessMetricsSection = ({ metrics }: { metrics: MissionMetrics | null }) => {
+  if (!metrics) {
+    return (
+      <section className="grid metrics-section">
+        <article className="card">
+          <h2>Mission Metrics</h2>
+          <p className="note">Loading metrics...</p>
+        </article>
+      </section>
+    );
+  }
+
+  const safeMetrics = normalizeMetrics(metrics);
+  const coveragePercent = safeMetrics.inspection_coverage_percent;
+  const coverageColor = coveragePercent >= 80
+    ? 'var(--accent-security)'
+    : coveragePercent >= 50
+      ? 'var(--accent-warning)'
+      : 'var(--text-primary)';
+
+  const decisionSuccess = safeMetrics.success_rate_percent;
+  const missionSuccess = metrics.mission_success_score ?? decisionSuccess;
+  const missionGrade = metrics.mission_success_grade ?? "UNKNOWN";
+  const resourceUseAvailable = Boolean(metrics.resource_use_available);
+  const resourceUse = metrics.resource_use_percent ?? 0;
+  const anomalyHandling = metrics.anomaly_handling_percent ?? 0;
+
+  const missionColor = missionSuccess >= 85
+    ? 'var(--accent-security)'
+    : missionSuccess >= 70
+      ? 'var(--accent-warning)'
+      : 'var(--accent-alert)';
+
+
+  return (
+    <section className="grid metrics-section">
+      <article className="card primary">
+        <h2>Inspection Coverage</h2>
+        <p className="stat" style={{ color: coverageColor }}>
+          {coveragePercent.toFixed(0)}%
+        </p>
+        <p className="note">
+          {safeMetrics.assets_inspected} / {safeMetrics.total_assets} assets inspected
+        </p>
+        <div className="progress-bar">
+          <div
+            className="progress-fill"
+            style={{
+              width: `${Math.min(100, coveragePercent)}%`,
+              background: 'linear-gradient(90deg, var(--accent-cyber), var(--accent-security))',
+            }}
+          />
+        </div>
+      </article>
+
+      <article className="card">
+        <h2>Anomaly Detection</h2>
+        <p className="stat">{safeMetrics.total_anomalies_detected}</p>
+        <p className="note">
+          {safeMetrics.anomalies_resolved} resolved · {safeMetrics.anomalies_pending} pending
+        </p>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginTop: '8px' }}>
+          {Object.entries(safeMetrics.defects_by_type).slice(0, 4).map(([type, count]) => (
+            <span key={type} className="pill defect-pill">
+              {type}: {count}
+            </span>
+          ))}
+        </div>
+      </article>
+
+      <article className="card">
+        <h2>Mission Success</h2>
+        <p className="stat" style={{ color: missionColor }}>
+          {missionSuccess.toFixed(0)}%
+        </p>
+        <p className="note">
+          {missionGrade} · Decision {decisionSuccess.toFixed(0)}%
+        </p>
+        <p className="note" style={{ marginTop: '4px' }}>
+          Anomaly handling {anomalyHandling.toFixed(0)}% ·
+          {resourceUseAvailable ? ` Resource ${resourceUse.toFixed(0)}%` : " Resource --"}
+        </p>
+      </article>
+
+      <article className="card">
+        <h2>Mission Progress</h2>
+        <p className="stat">{safeMetrics.mission_completion_percent.toFixed(0)}%</p>
+        <p className="note">Overall completion</p>
+        {safeMetrics.assets_in_progress.length > 0 && (
+          <p className="note" style={{ marginTop: '4px', color: 'var(--accent-cyber)' }}>
+            {safeMetrics.assets_in_progress.length} in progress
+          </p>
+        )}
+      </article>
+    </section>
+  );
+};
+
+// Recent Captures Section - displays captured images with detection info
+const RecentCapturesSection = ({ captures }: { captures: RecentCapture[] }) => {
+  if (captures.length === 0) {
+    return (
+      <section className="card captures-section">
+        <div className="card-header">
+          <h2>Recent Captures</h2>
+          <span className="pill">0 captures</span>
+        </div>
+        <p className="note">No captures yet. Start a scenario to begin inspections.</p>
+      </section>
+    );
+  }
+
+  return (
+    <section className="card captures-section">
+      <div className="card-header">
+        <h2>Recent Captures</h2>
+        <span className="pill">{captures.length} captures</span>
+      </div>
+      <div className="captures-grid">
+        {captures.map((capture) => (
+          <div
+            key={capture.observation_id}
+            className={`capture-card ${capture.defect_detected ? 'has-defect' : ''}`}
+          >
+            <div className="capture-thumbnail">
+              {capture.thumbnail_url ? (
+                <img src={capture.thumbnail_url} alt={`Capture of ${capture.asset_name}`} />
+              ) : (
+                <div className="capture-placeholder">No Image</div>
+              )}
+              {capture.defect_detected && (
+                <span className="defect-badge">!</span>
+              )}
+            </div>
+            <div className="capture-info">
+              <span className="capture-asset">{capture.asset_name}</span>
+              <span className="capture-time">{formatTime(capture.timestamp)}</span>
+              {capture.detections.length > 0 && (
+                <div className="capture-detections">
+                  {capture.detections.slice(0, 2).map((det, i) => (
+                    <span key={i} className="detection-pill">
+                      {det.class} ({(det.confidence * 100).toFixed(0)}%)
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+};
+
 // Compute budget score (0-100) based on config complexity
 const computeBudgetScore = (config: EdgeComputeConfig | null): number => {
   if (!config) return 0;
@@ -341,6 +596,9 @@ const bandwidthBudgetScore = (config: EdgeComputeConfig | null): number => {
 
   return Math.min(100, Math.round(imageCost + delayCost + dropCost + summaryCost));
 };
+
+const toPercent = (value: number) => Math.round(value * 100);
+const toRatio = (value: number) => value / 100;
 
 type AdvancedOverridesProps = {
   config: EdgeComputeConfig | null;
@@ -575,6 +833,196 @@ const AdvancedOverrides = ({ config, onUpdate, isExpanded, onToggle }: AdvancedO
   );
 };
 
+type MissionSuccessControlsProps = {
+  config: MissionSuccessConfig | null;
+  onChange: (config: MissionSuccessConfig) => void;
+  onApply: () => void;
+  onReload: () => void;
+  saving: boolean;
+  message: string | null;
+  isExpanded: boolean;
+  onToggle: () => void;
+};
+
+const MissionSuccessControls = ({
+  config,
+  onChange,
+  onApply,
+  onReload,
+  saving,
+  message,
+  isExpanded,
+  onToggle,
+}: MissionSuccessControlsProps) => {
+  if (!config) return null;
+
+  const weightSum = Object.values(config.weights).reduce((sum, value) => sum + value, 0);
+  const sumLabel = `${weightSum.toFixed(0)}%`;
+  const sumClass = Math.abs(weightSum - 100) < 1 ? "ok" : "warn";
+
+  const updateWeight = (key: keyof MissionSuccessWeights, value: number) => {
+    onChange({
+      ...config,
+      weights: {
+        ...config.weights,
+        [key]: value,
+      },
+    });
+  };
+
+  const updateThreshold = (key: keyof MissionSuccessThresholds, value: number) => {
+    onChange({
+      ...config,
+      thresholds: {
+        ...config.thresholds,
+        [key]: value,
+      },
+    });
+  };
+
+  return (
+    <div className="mission-controls">
+      <div className="advanced-header" onClick={onToggle}>
+        <span className="advanced-title">Mission Success Tuning</span>
+        <span className={`weight-sum ${sumClass}`}>Weights {sumLabel}</span>
+        <span className="advanced-chevron">{isExpanded ? "−" : "+"}</span>
+      </div>
+
+      {isExpanded && (
+        <>
+          <div className="advanced-content">
+            <div className="override-section">
+              <h4>Weights</h4>
+              <div className="override-row">
+                <span>Coverage</span>
+                <input
+                  type="range"
+                  min="0"
+                  max="100"
+                  step="1"
+                  value={config.weights.coverage}
+                  onChange={(e) => updateWeight("coverage", parseFloat(e.target.value))}
+                />
+                <span className="override-value">{config.weights.coverage.toFixed(0)}%</span>
+              </div>
+              <div className="override-row">
+                <span>Anomaly Handling</span>
+                <input
+                  type="range"
+                  min="0"
+                  max="100"
+                  step="1"
+                  value={config.weights.anomaly}
+                  onChange={(e) => updateWeight("anomaly", parseFloat(e.target.value))}
+                />
+                <span className="override-value">{config.weights.anomaly.toFixed(0)}%</span>
+              </div>
+              <div className="override-row">
+                <span>Decision Quality</span>
+                <input
+                  type="range"
+                  min="0"
+                  max="100"
+                  step="1"
+                  value={config.weights.decision_quality}
+                  onChange={(e) => updateWeight("decision_quality", parseFloat(e.target.value))}
+                />
+                <span className="override-value">{config.weights.decision_quality.toFixed(0)}%</span>
+              </div>
+              <div className="override-row">
+                <span>Execution</span>
+                <input
+                  type="range"
+                  min="0"
+                  max="100"
+                  step="1"
+                  value={config.weights.execution}
+                  onChange={(e) => updateWeight("execution", parseFloat(e.target.value))}
+                />
+                <span className="override-value">{config.weights.execution.toFixed(0)}%</span>
+              </div>
+              <div className="override-row">
+                <span>Resource Use</span>
+                <input
+                  type="range"
+                  min="0"
+                  max="100"
+                  step="1"
+                  value={config.weights.resource_use}
+                  onChange={(e) => updateWeight("resource_use", parseFloat(e.target.value))}
+                />
+                <span className="override-value">{config.weights.resource_use.toFixed(0)}%</span>
+              </div>
+            </div>
+
+            <div className="override-section">
+              <h4>Grades</h4>
+              <div className="override-row">
+                <span>Excellent ≥</span>
+                <input
+                  type="range"
+                  min="0"
+                  max="100"
+                  step="1"
+                  value={config.thresholds.excellent}
+                  onChange={(e) => updateThreshold("excellent", parseFloat(e.target.value))}
+                />
+                <span className="override-value">{config.thresholds.excellent.toFixed(0)}%</span>
+              </div>
+              <div className="override-row">
+                <span>Good ≥</span>
+                <input
+                  type="range"
+                  min="0"
+                  max="100"
+                  step="1"
+                  value={config.thresholds.good}
+                  onChange={(e) => updateThreshold("good", parseFloat(e.target.value))}
+                />
+                <span className="override-value">{config.thresholds.good.toFixed(0)}%</span>
+              </div>
+              <div className="override-row">
+                <span>Fair ≥</span>
+                <input
+                  type="range"
+                  min="0"
+                  max="100"
+                  step="1"
+                  value={config.thresholds.fair}
+                  onChange={(e) => updateThreshold("fair", parseFloat(e.target.value))}
+                />
+                <span className="override-value">{config.thresholds.fair.toFixed(0)}%</span>
+              </div>
+            </div>
+          </div>
+
+          <div className="mission-actions">
+            <span className="mission-status">{message ?? ""}</span>
+            <div className="mission-buttons">
+              <button
+                className="btn secondary"
+                type="button"
+                onClick={onReload}
+                disabled={saving}
+              >
+                Reset
+              </button>
+              <button
+                className="btn primary"
+                type="button"
+                onClick={onApply}
+                disabled={saving}
+              >
+                {saving ? "Applying..." : "Apply"}
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+};
+
 const Dashboard = () => {
   const [runId, setRunId] = useState<string | null>(null);
   const [runData, setRunData] = useState<RunData | null>(null);
@@ -589,6 +1037,7 @@ const Dashboard = () => {
   const [fleetTelemetry, setFleetTelemetry] = useState<TelemetryEntry[]>([]);
   const [airsimStatus, setAirsimStatus] = useState<AirSimStatus | null>(null);
   const [airsimLaunching, setAirsimLaunching] = useState<boolean>(false);
+  const [lastVision, setLastVision] = useState<VisionObservationSummary | null>(null);
   const [scenarioDrones, setScenarioDrones] = useState<Array<{
     drone_id: string;
     name: string;
@@ -596,6 +1045,26 @@ const Dashboard = () => {
     state: string;
     is_streaming: boolean;
   }>>([]);
+  const [liveRunnerStatus, setLiveRunnerStatus] = useState<{
+    is_running: boolean;
+    run_id: string | null;
+    scenario_id: string | null;
+    scenario_name: string | null;
+    decision_count: number;
+    elapsed_seconds: number;
+  } | null>(null);
+  const [spatialAssets, setSpatialAssets] = useState<SpatialAsset[]>([]);
+  const [missionMetrics, setMissionMetrics] = useState<MissionMetrics | null>(null);
+  const [recentCaptures, setRecentCaptures] = useState<RecentCapture[]>([]);
+  const [missionConfigDraft, setMissionConfigDraft] = useState<MissionSuccessConfig | null>(null);
+  const [missionConfigSaving, setMissionConfigSaving] = useState<boolean>(false);
+  const [missionConfigMessage, setMissionConfigMessage] = useState<string | null>(null);
+  const [missionConfigExpanded, setMissionConfigExpanded] = useState<boolean>(false);
+  // Live decisions from WebSocket
+  const [liveDecisions, setLiveDecisions] = useState<DecisionEntry[]>([]);
+  const [runnerDecisions, setRunnerDecisions] = useState<DecisionEntry[]>([]);
+  const [wsConnected, setWsConnected] = useState<boolean>(false);
+  const wsRef = useRef<WebSocket | null>(null);
 
   const loadRun = useCallback(async () => {
     try {
@@ -640,6 +1109,12 @@ const Dashboard = () => {
         setAirsimStatus(airsimData);
       }
 
+      const visionResp = await fetch("/api/vision/last");
+      if (visionResp.ok) {
+        const visionData = await visionResp.json();
+        setLastVision(visionData?.observation ?? null);
+      }
+
       // Load scenario drones for camera panel
       const scenarioResp = await fetch("/api/scenarios/status");
       if (scenarioResp.ok) {
@@ -676,12 +1151,154 @@ const Dashboard = () => {
         }
       }
 
+      // Fetch live runner status for real-time decision counts
+      const runnerResp = await fetch("/api/dashboard/runner/status");
+      if (runnerResp.ok) {
+        const runnerData = await runnerResp.json();
+        setLiveRunnerStatus({
+          is_running: runnerData.is_running ?? false,
+          run_id: runnerData.run_id ?? null,
+          scenario_id: runnerData.scenario_id ?? null,
+          scenario_name: runnerData.scenario_name ?? null,
+          decision_count: runnerData.decision_count ?? 0,
+          elapsed_seconds: runnerData.elapsed_seconds ?? 0,
+        });
+        // If runner is active, update status to show it's running
+        if (runnerData.is_running) {
+          setStatus("Live Scenario");
+        }
+        if (runnerData.is_running) {
+          const runnerDecisionsResp = await fetch("/api/dashboard/runner/decisions?limit=20");
+          if (runnerDecisionsResp.ok) {
+            const runnerDecisionsData = await runnerDecisionsResp.json();
+            const decisions = (runnerDecisionsData.decisions || []).map((entry: any) => ({
+              timestamp: entry.timestamp,
+              elapsed_s: entry.elapsed_s,
+              drone_id: entry.drone_id,
+              drone_name: entry.drone_name || entry.drone_id,
+              agent_label: entry.agent_label || "Drone AG",
+              action: entry.action,
+              reason: entry.reason || entry.reasoning,
+              confidence: entry.confidence ?? 0,
+              risk_level: entry.risk_level || "LOW",
+              battery_percent: entry.battery_percent,
+              reasoning_context: entry.reasoning_context,
+              alternatives: entry.alternatives,
+              critic_validation: entry.critic_validation,
+              target_asset: entry.target_asset,
+            }));
+            setRunnerDecisions(decisions);
+          } else {
+            setRunnerDecisions([]);
+          }
+        } else {
+          setRunnerDecisions([]);
+        }
+      } else {
+        setLiveRunnerStatus(null);
+        setRunnerDecisions([]);
+      }
+
+      // Fetch real-time spatial context for radar widget
+      const spatialResp = await fetch("/api/dashboard/spatial");
+      if (spatialResp.ok) {
+        const spatialData = await spatialResp.json();
+        setSpatialAssets(spatialData.assets ?? []);
+      }
+
+      // Fetch mission success metrics
+      const metricsResp = await fetch("/api/dashboard/metrics");
+      if (metricsResp.ok) {
+        const metricsData = await metricsResp.json();
+        setMissionMetrics(normalizeMetrics(metricsData));
+      }
+
+      // Fetch recent captures for image gallery
+      const capturesResp = await fetch("/api/vision/captures?limit=12");
+      if (capturesResp.ok) {
+        const capturesData = await capturesResp.json();
+        setRecentCaptures(capturesData.captures ?? []);
+      }
+
       setLastUpdated(new Date().toLocaleTimeString());
     } catch (error) {
       console.error("Failed to load dashboard data", error);
       setStatus("Offline");
     }
   }, []);
+
+  const loadMissionConfig = useCallback(async () => {
+    try {
+      const resp = await fetch("/api/config/mission-success");
+      if (!resp.ok) {
+        return;
+      }
+      const data = (await resp.json()) as MissionSuccessConfig;
+      const displayConfig: MissionSuccessConfig = {
+        weights: {
+          coverage: toPercent(data.weights.coverage),
+          anomaly: toPercent(data.weights.anomaly),
+          decision_quality: toPercent(data.weights.decision_quality),
+          execution: toPercent(data.weights.execution),
+          resource_use: toPercent(data.weights.resource_use),
+        },
+        thresholds: data.thresholds,
+      };
+      setMissionConfigDraft(displayConfig);
+    } catch (error) {
+      console.error("Failed to load mission success config", error);
+    }
+  }, []);
+
+  const applyMissionConfig = async () => {
+    if (!missionConfigDraft) return;
+    try {
+      setMissionConfigSaving(true);
+      setMissionConfigMessage(null);
+      const payload = {
+        weights: {
+          coverage: toRatio(missionConfigDraft.weights.coverage),
+          anomaly: toRatio(missionConfigDraft.weights.anomaly),
+          decision_quality: toRatio(missionConfigDraft.weights.decision_quality),
+          execution: toRatio(missionConfigDraft.weights.execution),
+          resource_use: toRatio(missionConfigDraft.weights.resource_use),
+        },
+        thresholds: missionConfigDraft.thresholds,
+      };
+      const resp = await fetch("/api/config/mission-success", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (!resp.ok) {
+        const error = await resp.json().catch(() => ({}));
+        throw new Error(error.detail || "Update failed");
+      }
+      const updated = (await resp.json()) as {
+        mission_success?: MissionSuccessConfig;
+        note?: string;
+      };
+      if (updated.mission_success) {
+        const displayConfig: MissionSuccessConfig = {
+          weights: {
+            coverage: toPercent(updated.mission_success.weights.coverage),
+            anomaly: toPercent(updated.mission_success.weights.anomaly),
+            decision_quality: toPercent(updated.mission_success.weights.decision_quality),
+            execution: toPercent(updated.mission_success.weights.execution),
+            resource_use: toPercent(updated.mission_success.weights.resource_use),
+          },
+          thresholds: updated.mission_success.thresholds,
+        };
+        setMissionConfigDraft(displayConfig);
+      }
+      setMissionConfigMessage(updated.note || "Mission success settings updated");
+    } catch (error) {
+      console.error("Failed to update mission success config", error);
+      setMissionConfigMessage("Failed to update mission success settings");
+    } finally {
+      setMissionConfigSaving(false);
+    }
+  };
 
   const launchAirSim = async () => {
     if (airsimLaunching) return;
@@ -752,11 +1369,111 @@ const Dashboard = () => {
     }
   };
 
+  // WebSocket connection for live decision updates
+  useEffect(() => {
+    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+    const ws = new WebSocket(`${protocol}//${window.location.host}/ws`);
+    wsRef.current = ws;
+
+    ws.onopen = () => {
+      console.log("[Dashboard] WebSocket connected");
+      setWsConnected(true);
+    };
+
+    ws.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        const eventType = data.event_type || data.event;
+        const payload = data.data || data.payload || {};
+        const eventTimestamp = data.timestamp || payload.timestamp || new Date().toISOString();
+        const normalizedEvent = String(eventType || "").toLowerCase();
+
+        // Handle live decision events
+        if (normalizedEvent === "server_decision") {
+          const entry: DecisionEntry = {
+            timestamp: eventTimestamp,
+            elapsed_s: payload.elapsed_s,
+            drone_id: payload.drone_id,
+            drone_name: payload.drone_name || payload.drone_id,
+            action: payload.action,
+            reason: payload.reasoning || payload.reason,
+            confidence: payload.confidence,
+            risk_level: payload.risk_level || "LOW",
+            battery_percent: payload.battery_percent,
+            reasoning_context: payload.reasoning_context,
+            alternatives: payload.alternatives,
+            critic_validation: payload.critic_validation,
+            target_asset: payload.target_asset,
+            agent_label: payload.agent_label || "Drone AG",
+          };
+          setLiveDecisions((prev) => [entry, ...prev].slice(0, 20));
+        }
+
+        // Handle critic validation events (update most recent decision)
+        if (normalizedEvent === "critic_validation") {
+          setLiveDecisions((prev) => {
+            if (prev.length === 0) return prev;
+            const updated = [...prev];
+            if (updated[0].drone_id === payload.drone_id) {
+              updated[0] = {
+                ...updated[0],
+                critic_validation: {
+                  approved: payload.approved,
+                  escalation: payload.escalation,
+                },
+              };
+            }
+            return updated;
+          });
+
+          const criticEntry: DecisionEntry = {
+            timestamp: eventTimestamp,
+            drone_id: payload.drone_id,
+            drone_name: payload.drone_name || payload.drone_id,
+            action: "critic_validation",
+            reason: payload.escalation?.reason
+              ? `Critic escalation: ${payload.escalation.reason}`
+              : payload.approved
+                ? "Critics approved decision"
+                : "Critics rejected decision",
+            confidence: 1,
+            risk_level: payload.risk_level || "LOW",
+            critic_validation: {
+              approved: payload.approved,
+              escalation: payload.escalation,
+            },
+            agent_label: payload.agent_label || "Orchestration AG",
+          };
+          setLiveDecisions((prev) => [criticEntry, ...prev].slice(0, 20));
+        }
+      } catch (e) {
+        // Ignore parse errors for non-JSON messages
+      }
+    };
+
+    ws.onerror = () => {
+      console.error("[Dashboard] WebSocket error");
+    };
+
+    ws.onclose = () => {
+      console.log("[Dashboard] WebSocket closed");
+      setWsConnected(false);
+    };
+
+    return () => {
+      ws.close();
+    };
+  }, []);
+
   useEffect(() => {
     loadRun();
     const timer = window.setInterval(loadRun, 5000);
     return () => window.clearInterval(timer);
   }, [loadRun]);
+
+  useEffect(() => {
+    loadMissionConfig();
+  }, [loadMissionConfig]);
 
   return (
     <main className="dashboard-shell">
@@ -852,6 +1569,9 @@ const Dashboard = () => {
           <a className="btn secondary hero-link" href="/overlay" target="_blank" rel="noreferrer">
             Overlay
           </a>
+          <a className="btn secondary hero-link" href="/dashboard/maps">
+            Maps
+          </a>
           <a className="btn secondary hero-link" href="/api/scenarios" target="_blank" rel="noreferrer">
             Scenarios
           </a>
@@ -881,12 +1601,30 @@ const Dashboard = () => {
         isExpanded={showAdvanced}
         onToggle={() => setShowAdvanced(!showAdvanced)}
       />
+      <MissionSuccessControls
+        config={missionConfigDraft}
+        onChange={(next) => setMissionConfigDraft(next)}
+        onApply={applyMissionConfig}
+        onReload={loadMissionConfig}
+        saving={missionConfigSaving}
+        message={missionConfigMessage}
+        isExpanded={missionConfigExpanded}
+        onToggle={() => setMissionConfigExpanded(!missionConfigExpanded)}
+      />
 
       <section className="grid">
         <article className="card primary">
           <h2>Mission Integrity</h2>
-          <p className="stat">{runData?.summary.total ?? "0"}</p>
-          <p className="note">Total autonomous decisions evaluated.</p>
+          <p className="stat" style={{ color: liveRunnerStatus?.is_running ? 'var(--accent-cyber)' : undefined }}>
+            {liveRunnerStatus?.is_running
+              ? liveRunnerStatus.decision_count
+              : runData?.summary.total ?? "0"}
+          </p>
+          <p className="note">
+            {liveRunnerStatus?.is_running
+              ? `Live: ${liveRunnerStatus.scenario_name ?? liveRunnerStatus.scenario_id ?? "Running"}`
+              : "Total autonomous decisions evaluated."}
+          </p>
         </article>
         <article className="card">
           <h2>Risk Baseline</h2>
@@ -909,12 +1647,51 @@ const Dashboard = () => {
 
       <FleetTelemetry telemetry={fleetTelemetry} />
 
+      {/* Mission Success Metrics */}
+      <SuccessMetricsSection metrics={missionMetrics} />
+
+      {/* Recent Captures Gallery */}
+      <RecentCapturesSection captures={recentCaptures} />
+
       {/* Drone Camera Panel - only show when AirSim connected and drones available */}
       {airsimStatus?.bridge_connected && scenarioDrones.length > 0 && (
         <section className="grid" style={{ gridTemplateColumns: '1fr' }}>
           <DroneCameraPanel drones={scenarioDrones} />
         </section>
       )}
+
+      {/* 3D Map Reconstruction - Splat Viewer */}
+      <section className="grid" style={{ gridTemplateColumns: '1fr 1fr' }}>
+        <SplatMapViewer />
+        <article className="card">
+          <div className="card-header">
+            <h2>Vision Detections</h2>
+            <span className="pill">Live</span>
+          </div>
+          <p className="stat small">{lastVision?.asset_id ?? "No captures yet"}</p>
+          <p className="note">
+            {lastVision?.timestamp
+              ? `Last capture at ${formatTime(lastVision.timestamp)}`
+              : "Waiting for inspection imagery."}
+          </p>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", marginTop: "12px" }}>
+            {(lastVision?.detections ?? []).length ? (
+              (lastVision?.detections ?? []).map((det, idx) => (
+                <span key={`${det.detection_class ?? "det"}-${idx}`} className="pill">
+                  {det.detection_class ?? "unknown"}
+                </span>
+              ))
+            ) : (
+              <span className="meta-sub">No detections reported.</span>
+            )}
+          </div>
+          <p className="note" style={{ marginTop: "12px" }}>
+            Max confidence {formatNumber(lastVision?.max_confidence, 2)} ·
+            Max severity {formatNumber(lastVision?.max_severity, 2)} ·
+            Anomaly {lastVision?.anomaly_created ? "created" : "not created"}
+          </p>
+        </article>
+      </section>
 
       <section className="split">
         <LineChart
@@ -931,23 +1708,43 @@ const Dashboard = () => {
 
       <section className="split">
         <SpatialView
-          assets={runData?.recent[0]?.spatial_context || []}
+          assets={spatialAssets.length > 0 ? spatialAssets : (runData?.recent[0]?.spatial_context || [])}
         />
-        <article className="card">
-          <div className="card-header">
+        <article className="card reasoning-card">
+          <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <h2>Reasoning Feed</h2>
-            <span className="pill">Live Timeline</span>
+            <span className="pill" style={{
+              background: wsConnected ? 'rgba(16, 185, 129, 0.2)' : 'rgba(255,255,255,0.1)',
+              color: wsConnected ? 'var(--accent-security)' : 'var(--text-muted)'
+            }}>
+              {wsConnected ? 'Live' : 'Polling'}
+            </span>
           </div>
-          <div className="feed">
-            {(runData?.recent ?? []).slice(0, 6).map((entry: RecentEntry, i: number) => (
-              <div key={i} className="feed-item" style={{ borderColor: i === 0 ? 'var(--accent-cyber)' : 'rgba(255,255,255,0.1)' }}>
-                <span className="feed-time">{formatTime(entry.timestamp)}</span>
-                <div className="feed-content">
-                  <h4>{entry.action}</h4>
-                  <p className="feed-reason">{entry.reason || "Autonomous adjustment based on current mission parameters."}</p>
-                </div>
-              </div>
-            ))}
+          <div className="feed-container">
+            <ReasoningFeed
+              decisions={
+                liveDecisions.length > 0
+                  ? liveDecisions
+                  : runnerDecisions.length > 0
+                    ? runnerDecisions
+                    : (runData?.recent ?? []).map((entry) => ({
+                        timestamp: entry.timestamp,
+                        action: entry.action,
+                        reason: entry.reason,
+                        confidence: entry.confidence,
+                        risk_level: entry.risk_level || "LOW",
+                        battery_percent: entry.battery_percent,
+                        reasoning_context: (entry as any).reasoning_context,
+                        alternatives: (entry as any).alternatives,
+                        critic_validation: (entry as any).critic_validation,
+                        drone_name: (entry as any).drone_name,
+                        drone_id: (entry as any).drone_id,
+                        agent_label: (entry as any).agent_label || "Drone AG",
+                        elapsed_s: (entry as any).elapsed_s,
+                        target_asset: (entry as any).target_asset,
+                    }))
+              }
+            />
           </div>
         </article>
       </section>

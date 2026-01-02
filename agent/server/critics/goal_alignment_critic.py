@@ -88,6 +88,7 @@ class GoalAlignmentCritic(BaseCritic):
             (self._check_asset_priorities, (decision, world)),
             (self._check_anomaly_followup, (decision, world)),
             (self._check_strategic_consistency, (decision, world, risk)),
+            (self._check_map_context, (decision, world)),
         ):
             check_concerns, check_alternatives, check_risk = check(*args)
             if check_concerns:
@@ -159,6 +160,25 @@ class GoalAlignmentCritic(BaseCritic):
 
         return concerns, alternatives, risk_score
 
+    def _check_map_context(
+        self, decision: Decision, world: WorldSnapshot
+    ) -> tuple[list[str], list[str], float]:
+        """Check goal alignment against map availability."""
+        concerns = []
+        alternatives = []
+        risk_score = 0.0
+
+        map_context = getattr(world, "map_context", None)
+        if not map_context:
+            return concerns, alternatives, risk_score
+
+        if decision.action.value in {"INSPECT", "GOTO"} and not map_context.map_valid:
+            concerns.append("Navigation map is stale; inspection path may be suboptimal")
+            alternatives.append("Run a map refresh pass before inspection")
+            risk_score = max(risk_score, 0.3)
+
+        return concerns, alternatives, risk_score
+
     def _check_asset_priorities(
         self, decision: Decision, world: WorldSnapshot
     ) -> tuple[list[str], list[str], float]:
@@ -226,18 +246,17 @@ class GoalAlignmentCritic(BaseCritic):
             return concerns, alternatives, risk_score
 
         # Check if there are unresolved anomalies
-        anomaly_assets = world.get_anomaly_assets()
-        unresolved = [a for a in anomaly_assets if not a.anomaly_resolved]
+        unresolved = [a for a in world.anomalies if not a.resolved]
+        unresolved_asset_ids = {a.asset_id for a in unresolved}
 
-        if unresolved and decision.action.value in {"INSPECT", "GOTO"}:
+        action = decision.action.value.lower()
+        if unresolved and action in {"inspect", "goto"}:
             target_asset_id = decision.parameters.get("asset_id")
 
             # If inspecting asset without anomaly while anomalies exist
-            if target_asset_id and target_asset_id not in [a.asset_id for a in unresolved]:
+            if target_asset_id and target_asset_id not in unresolved_asset_ids:
                 # Check severity - only concerned about high-severity anomalies
-                high_severity = [
-                    a for a in unresolved if a.anomaly_severity and a.anomaly_severity >= 7
-                ]
+                high_severity = [a for a in unresolved if a.severity >= 0.7]
                 if high_severity:
                     concerns.append(
                         f"{len(high_severity)} high-severity anomalies unresolved, "

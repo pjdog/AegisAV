@@ -42,7 +42,7 @@ def _dummy_manager(enabled: bool = True) -> SimpleNamespace:
 async def test_apply_airsim_environment_calls_bridge(monkeypatch: pytest.MonkeyPatch) -> None:
     bridge = DummyBridge()
     monkeypatch.setattr(main_module.server_state, "airsim_bridge", bridge)
-    monkeypatch.setattr(main_module.unreal_manager, "active_connections", 0)
+    monkeypatch.setattr(main_module.unreal_manager, "connections", {})
 
     mapped = {
         "rain": 0.25,

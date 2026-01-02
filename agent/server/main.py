@@ -26,6 +26,7 @@ except ImportError:  # pragma: no cover - optional dependency
 from agent.server.api_airsim import register_airsim_routes
 from agent.server.api_config import register_config_routes
 from agent.server.api_decision import register_decision_routes
+from agent.server.api_navigation import register_navigation_routes
 from agent.server.api_scenarios import register_scenario_routes
 from agent.server.api_telemetry import register_telemetry_routes
 from agent.server.api_vision import register_vision_routes
@@ -132,6 +133,7 @@ add_unreal_routes(app)
 register_airsim_routes(app)
 register_config_routes(app)
 register_decision_routes(app)
+register_navigation_routes(app)
 register_scenario_routes(app)
 register_telemetry_routes(app)
 register_vision_routes(app)

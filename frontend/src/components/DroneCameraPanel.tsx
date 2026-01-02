@@ -17,6 +17,10 @@ type DroneInfo = {
   battery_percent: number;
   state: string;
   is_streaming: boolean;
+  // Per-drone mission metrics (optional - may not be provided)
+  inspections_completed?: number;
+  anomalies_found?: number;
+  inspection_progress_percent?: number;
 };
 
 type CameraFrame = {
@@ -254,6 +258,32 @@ const DroneCameraPanel = ({
               <span className="drone-state">{selectedDrone.state}</span>
               <span className="drone-battery">{selectedDrone.battery_percent.toFixed(0)}%</span>
             </div>
+            {/* Per-drone mission metrics overlay */}
+            {(selectedDrone.inspections_completed !== undefined ||
+              selectedDrone.anomalies_found !== undefined) && (
+              <div className="camera-metrics-overlay">
+                {selectedDrone.inspections_completed !== undefined && (
+                  <span className="metric-item inspections">
+                    <span className="metric-value">{selectedDrone.inspections_completed}</span>
+                    <span className="metric-label">inspections</span>
+                  </span>
+                )}
+                {selectedDrone.anomalies_found !== undefined && (
+                  <span className="metric-item anomalies">
+                    <span className="metric-value">{selectedDrone.anomalies_found}</span>
+                    <span className="metric-label">anomalies</span>
+                  </span>
+                )}
+                {selectedDrone.inspection_progress_percent !== undefined && (
+                  <div className="metric-progress">
+                    <div
+                      className="metric-progress-bar"
+                      style={{ width: `${selectedDrone.inspection_progress_percent}%` }}
+                    />
+                  </div>
+                )}
+              </div>
+            )}
             {selectedFrame ? (
               <img
                 src={`data:image/png;base64,${selectedFrame.image_base64}`}
@@ -315,6 +345,9 @@ const DroneCameraPanel = ({
               >
                 <div className="thumbnail-overlay">
                   <span className="drone-name">{drone.name}</span>
+                  {drone.anomalies_found !== undefined && drone.anomalies_found > 0 && (
+                    <span className="thumbnail-anomaly-badge">{drone.anomalies_found}</span>
+                  )}
                 </div>
                 {frame ? (
                   <img
@@ -347,11 +380,28 @@ const DroneCameraPanel = ({
               role="button"
               tabIndex={0}
             >
-              <span className="drone-name">{drone.name}</span>
-              <span className="drone-state">{drone.state}</span>
-              <span className="drone-battery">{drone.battery_percent.toFixed(0)}%</span>
-              {streamingDrones.has(drone.drone_id) && (
-                <span className="streaming-indicator">LIVE</span>
+              <div className="drone-list-info">
+                <span className="drone-name">{drone.name}</span>
+                <span className="drone-state">{drone.state}</span>
+                <span className="drone-battery">{drone.battery_percent.toFixed(0)}%</span>
+                {streamingDrones.has(drone.drone_id) && (
+                  <span className="streaming-indicator">LIVE</span>
+                )}
+              </div>
+              {(drone.inspections_completed !== undefined ||
+                drone.anomalies_found !== undefined) && (
+                <div className="drone-list-metrics">
+                  {drone.inspections_completed !== undefined && (
+                    <span className="drone-metric">
+                      {drone.inspections_completed} inspections
+                    </span>
+                  )}
+                  {drone.anomalies_found !== undefined && (
+                    <span className="drone-metric anomalies">
+                      {drone.anomalies_found} anomalies
+                    </span>
+                  )}
+                </div>
               )}
             </div>
           ))}

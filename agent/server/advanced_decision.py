@@ -204,6 +204,95 @@ def _create_mission_planner() -> Agent[WorldSnapshot, MissionDecision]:
         next_asset = ranked[0]["asset_id"] if ranked else None
         return {"current_id": current_id, "next_asset_id": next_asset, "ranked": ranked}
 
+    @agent.tool
+    def get_mission_metrics(ctx: RunContext[WorldSnapshot]) -> dict[str, Any]:
+        """Get current mission success metrics for optimization decisions.
+
+        Returns metrics about inspection coverage, anomaly detection rate,
+        and success rate to help optimize goal selection and prioritization.
+
+        Use this tool to:
+        - Check current mission progress before deciding on next action
+        - Identify coverage gaps (uninspected high-priority assets)
+        - Balance between coverage completion and anomaly investigation
+        """
+        world = ctx.deps
+        metrics: dict[str, Any] = {
+            "inspection_coverage_percent": 0.0,
+            "anomaly_detection_rate": 0.0,
+            "success_rate": 0.0,
+            "assets_remaining": [],
+            "high_priority_anomalies": [],
+            "optimization_hints": [],
+        }
+
+        # Calculate inspection coverage
+        if world.mission:
+            total = world.mission.assets_total
+            inspected = world.mission.assets_inspected
+            metrics["inspection_coverage_percent"] = (
+                (inspected / total * 100) if total > 0 else 0.0
+            )
+
+            # Find remaining uninspected assets
+            inspected_ids = {a.asset_id for a in world.assets if a.last_inspected}
+            remaining = []
+            for asset in world.assets:
+                if asset.asset_id not in inspected_ids:
+                    remaining.append({
+                        "asset_id": asset.asset_id,
+                        "name": asset.name,
+                        "priority": asset.priority,
+                    })
+            # Sort by priority (highest first)
+            remaining.sort(key=lambda x: x.get("priority", 0), reverse=True)
+            metrics["assets_remaining"] = remaining[:10]  # Top 10
+
+        # Calculate anomaly detection metrics
+        total_anomalies = len(world.anomalies)
+        if total_anomalies > 0:
+            resolved = sum(1 for a in world.anomalies if a.resolved)
+            metrics["anomaly_detection_rate"] = total_anomalies
+            metrics["anomalies_resolved"] = resolved
+            metrics["anomalies_pending"] = total_anomalies - resolved
+
+            # Find high-priority unresolved anomalies
+            high_priority = []
+            for anomaly in world.anomalies:
+                if not anomaly.resolved and anomaly.severity >= 0.7:
+                    high_priority.append({
+                        "anomaly_id": anomaly.anomaly_id,
+                        "asset_id": anomaly.asset_id,
+                        "severity": anomaly.severity,
+                        "anomaly_type": anomaly.anomaly_type,
+                    })
+            high_priority.sort(key=lambda x: x.get("severity", 0), reverse=True)
+            metrics["high_priority_anomalies"] = high_priority[:5]  # Top 5
+
+        # Generate optimization hints
+        hints = []
+        coverage = metrics["inspection_coverage_percent"]
+        if coverage < 50:
+            hints.append("Low coverage - prioritize uninspected assets")
+        elif coverage < 80:
+            hints.append("Good progress - continue systematic inspection")
+        else:
+            hints.append("High coverage - focus on anomaly investigation")
+
+        if metrics.get("high_priority_anomalies"):
+            hints.append(f"{len(metrics['high_priority_anomalies'])} high-severity anomalies need attention")
+
+        if world.vehicle and world.vehicle.battery:
+            battery = world.vehicle.battery.remaining_percent
+            if battery < 30:
+                hints.append("Low battery - prioritize nearby assets or return")
+            elif battery < 50:
+                hints.append("Moderate battery - plan efficient route")
+
+        metrics["optimization_hints"] = hints
+
+        return metrics
+
     return agent
 
 

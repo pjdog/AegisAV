@@ -7,10 +7,11 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+from agent.server.config_manager import get_config_manager
 from agent.server.feedback_store import (
     get_anomalies_for_run,
     get_feedback_for_run,
@@ -24,6 +25,7 @@ from agent.server.scenarios import (
     get_scenarios_by_category,
     get_scenarios_by_difficulty,
 )
+from agent.server.state import scenario_runner_state, server_state
 
 
 class RunnerStartRequest(BaseModel):
@@ -165,29 +167,52 @@ def _action_counts(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 
 def _recent(entries: list[dict[str, Any]], limit: int = 12) -> list[dict[str, Any]]:
-    """Return the most recent decision entries for the table.
+    """Return the most recent decision entries with full context.
 
     Args:
         entries: List of decision log entries.
         limit: Maximum number of entries to return.
 
     Returns:
-        List of recent decision entries with spatial context.
+        List of recent decision entries with reasoning context.
     """
     recent_entries = entries[-limit:]
     items = []
     for entry in recent_entries[::-1]:
+        critic_validation = entry.get("critic_validation")
+        if not critic_validation and "critic_approved" in entry:
+            critic_validation = {
+                "approved": entry.get("critic_approved", True),
+                "escalation": {
+                    "reason": entry.get("escalation_reason"),
+                    "required_action": entry.get("escalation_level"),
+                }
+                if entry.get("escalation_reason")
+                else None,
+            }
+
         item = {
             "timestamp": entry.get("timestamp"),
+            "elapsed_s": entry.get("elapsed_s"),
+            "drone_id": entry.get("drone_id") or entry.get("vehicle_id"),
+            "drone_name": entry.get("drone_name") or entry.get("vehicle_id"),
+            "agent_label": entry.get("agent_label"),
             "action": entry.get("action"),
+            "reason": entry.get("reason") or entry.get("reasoning"),
             "confidence": entry.get("confidence"),
-            "risk_level": entry.get("risk_level"),
             "battery_percent": entry.get("battery_percent"),
-            "reason": entry.get("reason"),
+            "risk_level": entry.get("risk_level"),
             "vehicle_state": {
                 "armed": entry.get("armed", False),
                 "mode": entry.get("mode", "UNKNOWN"),
             },
+            # Rich reasoning context
+            "reasoning_context": entry.get("reasoning_context", {}),
+            "alternatives": entry.get("alternatives", []),
+            "critic_validation": critic_validation,
+            "explanation": entry.get("explanation"),
+            # Target info if present
+            "target_asset": entry.get("target_asset"),
         }
 
         # Calculate spatial context if available
@@ -239,29 +264,26 @@ def add_dashboard_routes(app: FastAPI, log_dir: Path, store: Any = None) -> None
             return public_favicon
         return None
 
-    @app.get("/dashboard/aegis_logo.svg")
-    async def dashboard_favicon() -> FileResponse:
-        """Serve dashboard favicon."""
+    def _favicon_response() -> Response:
         favicon = _resolve_favicon()
         if favicon:
-            return FileResponse(favicon, media_type="image/svg+xml")
+            return Response(content=favicon.read_bytes(), media_type="image/svg+xml")
         raise HTTPException(status_code=404, detail="Favicon not found")
+
+    @app.get("/dashboard/aegis_logo.svg")
+    async def dashboard_favicon() -> Response:
+        """Serve dashboard favicon."""
+        return _favicon_response()
 
     @app.get("/aegis_logo.svg")
-    async def root_favicon() -> FileResponse:
+    async def root_favicon() -> Response:
         """Serve root favicon for non-dashboard pages."""
-        favicon = _resolve_favicon()
-        if favicon:
-            return FileResponse(favicon, media_type="image/svg+xml")
-        raise HTTPException(status_code=404, detail="Favicon not found")
+        return _favicon_response()
 
     @app.get("/favicon.ico")
-    async def legacy_favicon() -> FileResponse:
+    async def legacy_favicon() -> Response:
         """Serve a legacy favicon path (serves SVG, browsers handle it)."""
-        favicon = _resolve_favicon()
-        if favicon:
-            return FileResponse(favicon, media_type="image/svg+xml")
-        raise HTTPException(status_code=404, detail="Favicon not found")
+        return _favicon_response()
 
     def _serve_dashboard_html() -> HTMLResponse:
         """Serve the dashboard index.html."""
@@ -281,6 +303,16 @@ def add_dashboard_routes(app: FastAPI, log_dir: Path, store: Any = None) -> None
     @app.get("/dashboard/", response_class=HTMLResponse)
     async def dashboard_trailing() -> HTMLResponse:
         """Serve the dashboard HTML page (with trailing slash)."""
+        return _serve_dashboard_html()
+
+    @app.get("/dashboard/maps", response_class=HTMLResponse)
+    async def dashboard_maps() -> HTMLResponse:
+        """Serve the dashboard map page (SPA entry)."""
+        return _serve_dashboard_html()
+
+    @app.get("/dashboard/maps/", response_class=HTMLResponse)
+    async def dashboard_maps_trailing() -> HTMLResponse:
+        """Serve the dashboard map page (with trailing slash)."""
         return _serve_dashboard_html()
 
     @app.get("/api/dashboard/runs", response_class=JSONResponse)
@@ -377,6 +409,12 @@ def add_dashboard_routes(app: FastAPI, log_dir: Path, store: Any = None) -> None
                     "has_anomaly": a.has_anomaly,
                     "anomaly_severity": a.anomaly_severity,
                     "priority": a.priority,
+                    "altitude_m": a.altitude_m,
+                    "inspection_altitude_agl": a.inspection_altitude_agl,
+                    "orbit_radius_m": a.orbit_radius_m,
+                    "dwell_time_s": a.dwell_time_s,
+                    "scale": a.scale,
+                    "rotation_deg": a.rotation_deg,
                 }
                 for a in scenario.assets
             ],
@@ -492,6 +530,50 @@ def add_dashboard_routes(app: FastAPI, log_dir: Path, store: Any = None) -> None
         """
         global _runner_state
 
+        # Check the shared scenario_runner_state first (used by /api/scenarios API)
+        shared_runner = scenario_runner_state.runner
+        if shared_runner and shared_runner.run_state:
+            run_state = shared_runner.run_state
+            # Build drone status list
+            drones = []
+            for drone_id, ds in run_state.drone_states.items():
+                drones.append({
+                    "drone_id": drone_id,
+                    "name": ds.drone.name,
+                    "battery_percent": ds.drone.battery_percent,
+                    "state": ds.drone.state.value,
+                    "in_air": ds.drone.in_air,
+                    "latitude": ds.drone.latitude,
+                    "longitude": ds.drone.longitude,
+                    "current_goal": ds.current_goal.goal_type.value if ds.current_goal else None,
+                    "decisions_made": ds.decisions_made,
+                    "inspections_completed": ds.inspections_completed,
+                    "sensors_healthy": ds.drone.sensors_healthy,
+                    "gps_healthy": ds.drone.gps_healthy,
+                    "motors_healthy": ds.drone.motors_healthy,
+                })
+            return JSONResponse({
+                "is_running": scenario_runner_state.is_running,
+                "run_id": run_state.run_id,
+                "scenario_id": run_state.scenario.scenario_id,
+                "scenario_name": run_state.scenario.name,
+                "elapsed_seconds": run_state.elapsed_seconds,
+                "is_complete": run_state.is_complete,
+                "decision_count": len(run_state.decision_log),
+                "drones": drones,
+                "environment": {
+                    "wind_speed_ms": run_state.environment.wind_speed_ms
+                    if run_state.environment
+                    else 0,
+                    "visibility_m": run_state.environment.visibility_m
+                    if run_state.environment
+                    else 10000,
+                },
+                "last_error": scenario_runner_state.last_error,
+                "preflight_status": server_state.preflight_status,
+            })
+
+        # Fall back to local _runner_state (used by /api/dashboard/runner API)
         if not _runner_state.runner or not _runner_state.runner.run_state:
             return JSONResponse({
                 "is_running": _runner_state.is_running,
@@ -500,6 +582,7 @@ def add_dashboard_routes(app: FastAPI, log_dir: Path, store: Any = None) -> None
                 "elapsed_seconds": 0,
                 "drones": [],
                 "last_error": _runner_state.last_error,
+                "preflight_status": server_state.preflight_status,
             })
 
         run_state = _runner_state.runner.run_state
@@ -541,6 +624,7 @@ def add_dashboard_routes(app: FastAPI, log_dir: Path, store: Any = None) -> None
                 else 10000,
             },
             "last_error": _runner_state.last_error,
+            "preflight_status": server_state.preflight_status,
         })
 
     @app.get("/api/dashboard/runner/decisions", response_class=JSONResponse)
@@ -659,3 +743,360 @@ def add_dashboard_routes(app: FastAPI, log_dir: Path, store: Any = None) -> None
             raise HTTPException(status_code=404, detail=f"No feedback found for run: {run_id}")
 
         return JSONResponse(summary.to_dict())
+
+    # ========================================================================
+    # Real-time spatial context API
+    # ========================================================================
+
+    @app.get("/api/dashboard/spatial", response_class=JSONResponse)
+    async def get_spatial_context() -> JSONResponse:
+        """Get real-time spatial context from running scenario or world model.
+
+        Returns assets and drone positions relative to the primary drone for
+        the Spatial Awareness radar widget.
+
+        Returns:
+            JSON response with assets in relative coordinates.
+        """
+        from agent.server.scenarios import DOCK_LATITUDE, DOCK_LONGITUDE
+
+        spatial_assets = []
+        drone_position = None
+
+        # Try to get from running scenario first
+        shared_runner = scenario_runner_state.runner
+        if shared_runner and shared_runner.run_state and shared_runner.run_state.is_running:
+            run_state = shared_runner.run_state
+
+            # Get first drone as reference point
+            if run_state.drone_states:
+                first_drone = list(run_state.drone_states.values())[0]
+                drone_position = {
+                    "lat": first_drone.drone.latitude,
+                    "lon": first_drone.drone.longitude,
+                    "alt": first_drone.drone.altitude_agl,
+                }
+
+                # Get assets from scenario
+                for asset in run_state.scenario.assets:
+                    rel = _calculate_relative_pos(
+                        drone_position["lat"],
+                        drone_position["lon"],
+                        asset.latitude,
+                        asset.longitude,
+                    )
+                    spatial_assets.append({
+                        "id": asset.asset_id,
+                        "type": asset.asset_type,
+                        "x": rel["x"],
+                        "y": rel["y"],
+                        "name": asset.name,
+                        "has_anomaly": asset.has_anomaly,
+                    })
+
+        # Fallback to world model
+        elif server_state.world_model:
+            world_snap = server_state.world_model.get_snapshot()
+            if world_snap is None:
+                return JSONResponse({"assets": []})
+
+            # Use vehicle position if available, otherwise dock
+            if world_snap.vehicle and world_snap.vehicle.position:
+                drone_position = {
+                    "lat": world_snap.vehicle.position.latitude,
+                    "lon": world_snap.vehicle.position.longitude,
+                    "alt": world_snap.vehicle.position.altitude_agl or 0,
+                }
+            else:
+                drone_position = {
+                    "lat": DOCK_LATITUDE,
+                    "lon": DOCK_LONGITUDE,
+                    "alt": 0,
+                }
+
+            # Get assets from world model
+            for asset in world_snap.assets:
+                rel = _calculate_relative_pos(
+                    drone_position["lat"],
+                    drone_position["lon"],
+                    asset.position.latitude,
+                    asset.position.longitude,
+                )
+                spatial_assets.append({
+                    "id": asset.asset_id,
+                    "type": asset.asset_type.value if hasattr(asset.asset_type, 'value') else str(asset.asset_type),
+                    "x": rel["x"],
+                    "y": rel["y"],
+                    "name": asset.name,
+                    "has_anomaly": asset.asset_id in [a.asset_id for a in world_snap.get_anomaly_assets()],
+                })
+
+        return JSONResponse({
+            "assets": spatial_assets,
+            "drone_position": drone_position,
+            "asset_count": len(spatial_assets),
+        })
+
+    # ========================================================================
+    # Mission Metrics API - Success tracking for dashboard
+    # ========================================================================
+
+    @app.get("/api/dashboard/metrics", response_class=JSONResponse)
+    async def get_mission_metrics() -> JSONResponse:
+        """Get aggregated mission success metrics.
+
+        Returns comprehensive metrics including:
+        - Inspection coverage (assets inspected / total)
+        - Anomaly detection counts by type
+        - Decision success rate
+        - Mission completion percentage
+
+        Returns:
+            JSON response with mission metrics.
+        """
+        metrics: dict[str, Any] = {
+            "total_assets": 0,
+            "assets_inspected": 0,
+            "inspection_coverage_percent": 0.0,
+            "assets_in_progress": [],
+            "total_anomalies_detected": 0,
+            "total_anomalies_expected": 0,
+            "anomalies_resolved": 0,
+            "anomalies_pending": 0,
+            "defects_by_type": {},
+            "decisions_total": 0,
+            "decisions_successful": 0,
+            "success_rate_percent": 0.0,
+            "decision_quality_percent": 0.0,
+            "execution_success_percent": 0.0,
+            "anomaly_handling_percent": 0.0,
+            "resource_use_percent": 0.0,
+            "resource_use_available": False,
+            "battery_consumed": 0.0,
+            "battery_budget": 0.0,
+            "mission_success_score": 0.0,
+            "mission_success_grade": "UNKNOWN",
+            "mission_success_components": {},
+            "mission_completion_percent": 0.0,
+            "recent_captures_count": 0,
+            "recent_defects_count": 0,
+        }
+
+        # Try to get from running scenario first
+        shared_runner = scenario_runner_state.runner
+        if shared_runner and shared_runner.run_state:
+            run_state = shared_runner.run_state
+
+            # Inspection coverage from scenario
+            total_assets = len(run_state.scenario.assets)
+            assets_inspected = len(run_state.assets_inspected)
+            metrics["total_assets"] = total_assets
+            metrics["assets_inspected"] = assets_inspected
+            metrics["inspection_coverage_percent"] = (
+                (assets_inspected / total_assets * 100) if total_assets > 0 else 0.0
+            )
+            metrics["assets_in_progress"] = list(run_state.assets_in_progress.keys())
+
+            # Decision counts from drone states
+            total_decisions = 0
+            total_inspections = 0
+            for drone_state in run_state.drone_states.values():
+                total_decisions += drone_state.decisions_made
+                total_inspections += drone_state.inspections_completed
+
+            metrics["decisions_total"] = total_decisions
+
+            # Estimate decision success for simulated runs
+            if run_state.decision_log:
+                successful = 0
+                for entry in run_state.decision_log:
+                    action = str(entry.get("action", "")).lower()
+                    critic = entry.get("critic_validation") or {}
+                    approved = critic.get("approved", True)
+                    if action != "abort" and approved:
+                        successful += 1
+                metrics["decisions_successful"] = successful
+                if total_decisions > 0:
+                    metrics["success_rate_percent"] = successful / total_decisions * 100
+            elif total_decisions > 0:
+                metrics["decisions_successful"] = total_decisions
+                metrics["success_rate_percent"] = 100.0
+
+            # Count anomalies from scenario assets
+            anomalies_detected = 0
+            anomalies_expected = 0
+            defects_by_type: dict[str, int] = {}
+            for asset in run_state.scenario.assets:
+                if asset.has_anomaly:
+                    anomalies_expected += 1
+                if asset.has_anomaly and asset.asset_id in run_state.assets_inspected:
+                    anomalies_detected += 1
+                    # Use asset type as defect type for now
+                    defect_type = asset.asset_type or "unknown"
+                    defects_by_type[defect_type] = defects_by_type.get(defect_type, 0) + 1
+
+            metrics["total_anomalies_detected"] = anomalies_detected
+            metrics["total_anomalies_expected"] = anomalies_expected
+            metrics["defects_by_type"] = defects_by_type
+            metrics["anomalies_pending"] = anomalies_detected  # All detected are pending until resolved
+
+            # Mission completion based on inspection progress
+            metrics["mission_completion_percent"] = metrics["inspection_coverage_percent"]
+
+            # Resource use from scenario battery consumption
+            drone_count = len(run_state.drone_states)
+            metrics["battery_consumed"] = float(getattr(run_state, "total_battery_consumed", 0.0))
+            metrics["battery_budget"] = float(drone_count * 100.0)
+            if metrics["battery_budget"] > 0:
+                efficiency = 1.0 - (metrics["battery_consumed"] / metrics["battery_budget"])
+                metrics["resource_use_percent"] = max(0.0, min(100.0, efficiency * 100.0))
+                metrics["resource_use_available"] = True
+
+        # Fallback to world model if no scenario running
+        elif server_state.world_model:
+            world_snap = server_state.world_model.get_snapshot()
+            if world_snap is None:
+                return JSONResponse(metrics)
+
+            if world_snap.mission:
+                metrics["total_assets"] = world_snap.mission.assets_total
+                metrics["assets_inspected"] = world_snap.mission.assets_inspected
+                metrics["inspection_coverage_percent"] = world_snap.mission.progress_percent
+
+            # Count anomalies from world model
+            anomalies = world_snap.anomalies
+            metrics["total_anomalies_detected"] = len(anomalies)
+            metrics["total_anomalies_expected"] = len(anomalies)
+
+            defects_by_type: dict[str, int] = {}
+            anomalies_resolved = 0
+            for anomaly in anomalies:
+                if anomaly.resolved:
+                    anomalies_resolved += 1
+                defect_type = anomaly.anomaly_type or "unknown"
+                defects_by_type[defect_type] = defects_by_type.get(defect_type, 0) + 1
+
+            metrics["defects_by_type"] = defects_by_type
+            metrics["anomalies_resolved"] = anomalies_resolved
+            metrics["anomalies_pending"] = len(anomalies) - anomalies_resolved
+            metrics["mission_completion_percent"] = metrics["inspection_coverage_percent"]
+
+        # Get vision service statistics if available
+        if server_state.vision_service:
+            observations = server_state.vision_service.observations
+            metrics["recent_captures_count"] = len(observations)
+
+            # Count defects from observations
+            defects_count = 0
+            for obs in observations.values():
+                if obs.defect_detected:
+                    defects_count += 1
+                    # Update defects_by_type from detections
+                    for det in obs.detections:
+                        det_class = det.get("class", det.get("detection_class", "unknown"))
+                        if det_class:
+                            metrics["defects_by_type"][det_class] = (
+                                metrics["defects_by_type"].get(det_class, 0) + 1
+                            )
+            metrics["recent_defects_count"] = defects_count
+
+        # Only use outcome tracker as fallback if no scenario decision data
+        # This prevents mixing scenario counts with stale tracker state
+        if metrics["decisions_total"] == 0 and server_state.outcome_tracker:
+            tracker = server_state.outcome_tracker
+            if tracker.total_outcomes_tracked > 0:
+                metrics["decisions_total"] = tracker.total_outcomes_tracked
+                metrics["decisions_successful"] = tracker.successful_outcomes
+                metrics["success_rate_percent"] = (
+                    tracker.successful_outcomes / tracker.total_outcomes_tracked * 100
+                )
+
+        # Derive decision quality and execution success
+        if metrics["decisions_total"] > 0:
+            metrics["execution_success_percent"] = metrics["success_rate_percent"]
+
+        # Scenario decision quality based on critic approvals
+        if shared_runner and shared_runner.run_state and shared_runner.run_state.decision_log:
+            approvals = 0
+            total = 0
+            for entry in shared_runner.run_state.decision_log:
+                if entry.get("type") != "decision":
+                    continue
+                total += 1
+                critic = entry.get("critic_validation") or {}
+                if critic.get("approved", True):
+                    approvals += 1
+            if total > 0:
+                metrics["decision_quality_percent"] = approvals / total * 100
+
+        if metrics["decision_quality_percent"] == 0.0 and metrics["decisions_total"] > 0:
+            metrics["decision_quality_percent"] = metrics["success_rate_percent"]
+
+        # Anomaly handling score
+        if metrics["total_anomalies_expected"] > 0:
+            if shared_runner and shared_runner.run_state:
+                metrics["anomaly_handling_percent"] = (
+                    metrics["total_anomalies_detected"] / metrics["total_anomalies_expected"] * 100
+                )
+            else:
+                metrics["anomaly_handling_percent"] = (
+                    metrics["anomalies_resolved"] / metrics["total_anomalies_detected"] * 100
+                    if metrics["total_anomalies_detected"] > 0
+                    else 100.0
+                )
+        else:
+            metrics["anomaly_handling_percent"] = 100.0
+
+        # Mission success score: weighted blend of key components
+        config = get_config_manager().config
+        dashboard_cfg = getattr(config, "dashboard", None)
+        weights_cfg = getattr(dashboard_cfg, "mission_success_weights", None)
+        thresholds_cfg = getattr(dashboard_cfg, "mission_success_thresholds", None)
+
+        weights = {
+            "coverage": float(getattr(weights_cfg, "coverage", 0.30)),
+            "anomaly": float(getattr(weights_cfg, "anomaly", 0.25)),
+            "decision_quality": float(getattr(weights_cfg, "decision_quality", 0.20)),
+            "execution": float(getattr(weights_cfg, "execution", 0.15)),
+            "resource_use": float(getattr(weights_cfg, "resource_use", 0.10)),
+        }
+        components: dict[str, float] = {}
+
+        if metrics["total_assets"] > 0:
+            components["coverage"] = metrics["inspection_coverage_percent"]
+        if metrics["decisions_total"] > 0:
+            components["decision_quality"] = metrics["decision_quality_percent"]
+            components["execution"] = metrics["execution_success_percent"]
+        if metrics["anomaly_handling_percent"] > 0 or metrics["total_anomalies_expected"] == 0:
+            components["anomaly"] = metrics["anomaly_handling_percent"]
+        if metrics["resource_use_available"]:
+            components["resource_use"] = metrics["resource_use_percent"]
+
+        if components:
+            total_weight = sum(weights[key] for key in components)
+            mission_score = 0.0
+            for key, value in components.items():
+                mission_score += value * weights[key]
+            if total_weight > 0:
+                mission_score = mission_score / total_weight
+            metrics["mission_success_score"] = max(0.0, min(100.0, mission_score))
+            metrics["mission_success_components"] = components
+
+        score = metrics["mission_success_score"]
+        excellent_threshold = float(getattr(thresholds_cfg, "excellent", 85.0))
+        good_threshold = float(getattr(thresholds_cfg, "good", 70.0))
+        fair_threshold = float(getattr(thresholds_cfg, "fair", 55.0))
+
+        if score >= excellent_threshold:
+            metrics["mission_success_grade"] = "EXCELLENT"
+        elif score >= good_threshold:
+            metrics["mission_success_grade"] = "GOOD"
+        elif score >= fair_threshold:
+            metrics["mission_success_grade"] = "FAIR"
+        elif score > 0:
+            metrics["mission_success_grade"] = "POOR"
+
+        # Clamp success rate to valid range [0, 100]
+        metrics["success_rate_percent"] = max(0.0, min(100.0, metrics["success_rate_percent"]))
+
+        return JSONResponse(metrics)

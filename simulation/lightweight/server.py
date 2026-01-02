@@ -25,6 +25,7 @@ from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnec
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
+from agent.server.config_manager import get_default_websocket_url
 from simulation.lightweight.demo_recorder import DemoPlayer, DemoRecorder, list_demos
 from simulation.lightweight.physics import DroneConfig, EnvironmentConfig
 from simulation.lightweight.simulator import LightweightSim
@@ -374,7 +375,9 @@ simulator: LightweightSim | None = None
 class AgentBridge:
     """Bridge between lightweight sim and agent server for live reasoning."""
 
-    def __init__(self, agent_url: str = "ws://localhost:8080/ws/unreal") -> None:
+    def __init__(self, agent_url: str | None = None) -> None:
+        if agent_url is None:
+            agent_url = get_default_websocket_url()
         self.agent_url = agent_url
         self.ws: websockets.WebSocketClientProtocol | None = None
         self.connected = False

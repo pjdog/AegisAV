@@ -557,7 +557,7 @@ class TestCreateAnomaly:
         # Should return None (no new anomaly created)
         assert anomaly is None
 
-    async def test_anomaly_description_includes_defect_types(self, vision_service, _world_model):
+    async def test_anomaly_description_includes_defect_types(self, vision_service, world_model):
         """Test that anomaly description includes detected defect types."""
         detection = DetectionResult(
             detections=[
@@ -748,7 +748,7 @@ class TestShutdown:
 class TestWorldModelIntegration:
     """Tests for integration with WorldModel."""
 
-    async def test_anomaly_updates_asset_in_world_model(self, world_model, _detector, image_manager):
+    async def test_anomaly_updates_asset_in_world_model(self, world_model, detector, image_manager):
         """Test that creating anomaly updates asset status."""
         # Create service with high probability detector
         high_prob_detector = SimulatedDetector(
@@ -780,7 +780,7 @@ class TestWorldModelIntegration:
 
         await service.shutdown()
 
-    async def test_observation_links_to_anomaly(self, vision_service, _world_model):
+    async def test_observation_links_to_anomaly(self, vision_service, world_model):
         """Test that observation correctly links to created anomaly."""
         # Create with high probability detection
         with patch.object(vision_service, "_should_create_anomaly", return_value=True):

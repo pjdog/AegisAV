@@ -12,6 +12,7 @@ from typing import Any
 
 import httpx
 
+from agent.server.config_manager import get_default_server_url
 from autonomy.mavlink_interface import MAVLinkInterface
 from autonomy.vehicle_state import VehicleState
 
@@ -22,7 +23,7 @@ logger = logging.getLogger(__name__)
 class CollectorConfig:
     """State collector configuration."""
 
-    server_url: str = "http://localhost:8080"
+    server_url: str = get_default_server_url()
     update_interval_s: float = 0.1
     http_timeout_s: float = 5.0
     retry_delay_s: float = 1.0

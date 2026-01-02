@@ -115,6 +115,12 @@ class RiskThresholds(BaseModel):
     data_stale_warning_s: float = 5.0
     data_stale_critical_s: float = 30.0
 
+    # Map quality/staleness
+    map_quality_warning: float = 0.4
+    map_quality_critical: float = 0.2
+    map_stale_warning_s: float = 60.0
+    map_stale_critical_s: float = 180.0
+
 
 class RiskEvaluator:
     """Evaluates operational risks based on world state.
@@ -150,11 +156,12 @@ class RiskEvaluator:
 
         # Factor weights for overall score
         self.weights = {
-            "battery": 0.25,
-            "wind": 0.15,
-            "gps": 0.20,
-            "health": 0.25,
-            "distance": 0.15,
+            "battery": 0.23,
+            "wind": 0.13,
+            "gps": 0.18,
+            "health": 0.23,
+            "distance": 0.13,
+            "map": 0.10,
         }
 
     def evaluate(self, world: WorldSnapshot) -> RiskAssessment:
@@ -176,6 +183,7 @@ class RiskEvaluator:
             ("gps", self._assess_gps),
             ("health", self._assess_health),
             ("distance", self._assess_distance),
+            ("map", self._assess_map),
         ):
             factor = assessor(world)
             factors[name] = factor
@@ -405,4 +413,41 @@ class RiskEvaluator:
             threshold=0.6,
             critical=0.9,
             description=desc,
+        )
+
+    def _assess_map(self, world: WorldSnapshot) -> RiskFactor:
+        """Assess navigation map reliability."""
+        map_context = getattr(world, "map_context", None)
+        if not map_context or not map_context.map_available:
+            return RiskFactor(
+                name="map",
+                value=0.2,
+                threshold=0.6,
+                critical=0.85,
+                description="Navigation map unavailable",
+            )
+
+        risk = 0.0
+        description = "Navigation map healthy"
+
+        if map_context.map_age_s > self.thresholds.map_stale_critical_s:
+            risk = max(risk, 0.9)
+            description = f"Navigation map very stale ({map_context.map_age_s:.0f}s)"
+        elif map_context.map_age_s > self.thresholds.map_stale_warning_s:
+            risk = max(risk, 0.6)
+            description = f"Navigation map stale ({map_context.map_age_s:.0f}s)"
+
+        if map_context.map_quality_score < self.thresholds.map_quality_critical:
+            risk = max(risk, 0.9)
+            description = f"Navigation map quality low ({map_context.map_quality_score:.2f})"
+        elif map_context.map_quality_score < self.thresholds.map_quality_warning:
+            risk = max(risk, 0.6)
+            description = f"Navigation map quality degraded ({map_context.map_quality_score:.2f})"
+
+        return RiskFactor(
+            name="map",
+            value=min(1.0, risk),
+            threshold=0.6,
+            critical=0.85,
+            description=description,
         )

@@ -310,7 +310,7 @@ class PathPlanner:
             radius = obs.get("radius_m", 20.0)
             height = obs.get("height_m", 30.0)
 
-            if lat and lon:
+            if lat is not None and lon is not None:
                 self.add_obstacle_gps(
                     latitude=lat,
                     longitude=lon,
@@ -318,6 +318,22 @@ class PathPlanner:
                     height_m=height,
                     obstacle_id=obs.get("asset_id", ""),
                     name=obs.get("name", ""),
+                )
+                count += 1
+                continue
+
+            x_ned = obs.get("x_ned")
+            y_ned = obs.get("y_ned")
+            if x_ned is not None and y_ned is not None:
+                self.add_obstacle(
+                    Obstacle(
+                        north=float(x_ned),
+                        east=float(y_ned),
+                        radius_m=float(radius),
+                        height_m=float(height),
+                        obstacle_id=obs.get("obstacle_id") or obs.get("asset_id", ""),
+                        name=obs.get("name", ""),
+                    )
                 )
                 count += 1
 

@@ -9,7 +9,7 @@ config_version: "1.0.0"
 # Server Settings (production hardened)
 server:
   host: "0.0.0.0"
-  port: 8080
+  port: 8090
   log_level: "WARNING"  # Reduce logging in production
   cors_origins:
     - "https://your-domain.com"  # Restrict CORS to your domain
@@ -60,6 +60,21 @@ simulation:
   enabled: false
   airsim_enabled: false
   sitl_enabled: false
+  airsim_host: "127.0.0.1"
+  airsim_vehicle_name: "Drone1"
+  sitl_speedup: 1.0
+  home_latitude: 37.7749
+  home_longitude: -122.4194
+  home_altitude: 0.0
+  battery_sim_enabled: true
+  battery_initial_percent: 100.0
+  battery_min_percent: 5.0
+  battery_max_percent: 100.0
+  battery_drain_hover_percent_per_min: 6.0
+  battery_drain_move_percent_per_m: 0.015
+  battery_charge_percent_per_min: 25.0
+  battery_aggressive_multiplier: 1.2
+  battery_low_speed_threshold_ms: 0.5
 
 # Agent Decision-Making
 agent:
@@ -83,3 +98,33 @@ dashboard:
   show_vision: true
   show_reasoning: true
   theme: "dark"
+
+# Mapping Pipeline Settings
+mapping:
+  enabled: true
+  update_interval_s: 5.0
+  prefer_splat: false
+  max_map_age_s: 120.0
+  min_quality_score: 0.4
+  slam_dir: "/data/slam_runs"
+  splat_dir: "/data/splats"
+  map_resolution_m: 2.0
+  tile_size_cells: 120
+  voxel_size_m: null
+  max_points: 200000
+  min_points: 50
+  fused_map_dir: "/data/maps/fused"
+  fused_map_max_versions: 20
+  fused_map_max_age_days: 30
+  fused_map_keep_last: 5
+  preflight_enabled: true
+  preflight_altitude_agl: 20.0
+  preflight_step_m: 15.0
+  preflight_velocity_ms: 4.0
+  preflight_capture_interval_s: 0.4
+  preflight_timeout_s: 240.0
+  preflight_retry_count: 1
+  preflight_retry_delay_s: 8.0
+  preflight_move_timeout_s: 45.0
+  proxy_regen_interval_s: 180.0
+  proxy_max_points: 150000

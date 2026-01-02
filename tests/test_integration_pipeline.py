@@ -167,7 +167,7 @@ def high_risk():
 async def test_normal_decision_approved_by_critics(good_world_snapshot, low_risk):
     """Test that a normal decision flows through critics and gets approved."""
     # Setup
-    orchestrator = CriticOrchestrator(authority_model=AuthorityModel.ESCALATION)
+    orchestrator = CriticOrchestrator(authority_model=AuthorityModel.ESCALATION, enable_llm=False)
     outcome_tracker = OutcomeTracker(log_dir="logs/test_outcomes")
 
     # Create a normal inspection decision
@@ -203,7 +203,7 @@ async def test_normal_decision_approved_by_critics(good_world_snapshot, low_risk
 async def test_decision_blocked_by_low_battery(low_battery_vehicle_state, high_risk):
     """Test that critics block unsafe decision with low battery."""
     # Setup
-    orchestrator = CriticOrchestrator(authority_model=AuthorityModel.ESCALATION)
+    orchestrator = CriticOrchestrator(authority_model=AuthorityModel.ESCALATION, enable_llm=False)
 
     world = WorldSnapshot(
         timestamp=datetime.now(),
@@ -369,7 +369,7 @@ async def test_feedback_for_unknown_decision():
 @pytest.mark.allow_error_logs
 async def test_advisory_mode_always_approves():
     """Test that ADVISORY mode never blocks decisions."""
-    orchestrator = CriticOrchestrator(authority_model=AuthorityModel.ADVISORY)
+    orchestrator = CriticOrchestrator(authority_model=AuthorityModel.ADVISORY, enable_llm=False)
 
     # Even with high risk, should approve
     high_risk = RiskAssessment(
@@ -426,7 +426,7 @@ async def test_advisory_mode_always_approves():
 @pytest.mark.asyncio
 async def test_concurrent_decision_validation():
     """Test that multiple decisions can be validated concurrently."""
-    orchestrator = CriticOrchestrator(authority_model=AuthorityModel.ESCALATION)
+    orchestrator = CriticOrchestrator(authority_model=AuthorityModel.ESCALATION, enable_llm=False)
 
     # Create multiple decisions
     decisions = [
@@ -526,7 +526,7 @@ async def test_outcome_statistics_tracking():
 
 def test_orchestrator_statistics():
     """Test that critic orchestrator provides statistics."""
-    orchestrator = CriticOrchestrator(authority_model=AuthorityModel.ESCALATION)
+    orchestrator = CriticOrchestrator(authority_model=AuthorityModel.ESCALATION, enable_llm=False)
 
     stats = orchestrator.get_stats()
 

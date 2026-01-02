@@ -3,8 +3,9 @@
 AegisAV reads configuration from:
 
 1) `configs/aegis_config.yaml`
-2) Environment variables (`AEGIS_*`)
-3) Defaults in `agent/server/config_manager.py`
+2) Optional profiles like `configs/aegis_config.real_sensor.yaml`
+3) Environment variables (`AEGIS_*`)
+4) Defaults in `agent/server/config_manager.py`
 
 Environment variables override the config file.
 
@@ -17,6 +18,7 @@ Environment variables override the config file.
 - `simulation` - AirSim and SITL integration
 - `agent` - decision model and thresholds
 - `dashboard` - UI refresh and theme
+- `mapping` - SLAM/splat pipeline configuration
 
 ## Environment Variable Mapping
 

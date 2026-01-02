@@ -10,6 +10,8 @@ from typing import Any
 
 from pydantic import BaseModel, Field, field_validator
 
+from agent.server.config_manager import DEFAULT_SERVER_PORT
+
 from autonomy.vehicle_state import (
     Attitude,
     BatteryState,
@@ -304,7 +306,11 @@ class DecisionResponse(BaseModel):
     confidence: float = Field(..., ge=0.0, le=1.0)
     reasoning: str = Field(..., min_length=1, max_length=1000)
     risk_assessment: dict[str, float] = Field(default_factory=dict)
+    map_context: dict[str, Any] | None = Field(
+        None, description="Map context summary used for this decision"
+    )
     timestamp: datetime
+    map_context: dict[str, Any] | None = None
 
     # Optional execution info
     execution_time_s: float | None = None
@@ -342,7 +348,7 @@ class ServerConfig(BaseModel):
     """Server configuration model."""
 
     host: str = Field("127.0.0.1", description="Server host address")
-    port: int = Field(8080, ge=1024, le=65535, description="Server port")
+    port: int = Field(DEFAULT_SERVER_PORT, ge=1024, le=65535, description="Server port")
     workers: int = Field(1, ge=1, le=10, description="Number of worker processes")
     log_level: str = Field("INFO", description="Logging level")
 

@@ -143,7 +143,7 @@ class TestSaveImageWithMetadata:
         assert saved_path.exists()
         assert saved_path != sample_image
 
-    def test_save_same_location_no_copy(self, manager, sample_image, _temp_dir):
+    def test_save_same_location_no_copy(self, manager, sample_image):
         """Test that no copy occurs if image already in destination."""
         # Move sample image into the manager's directory
         date_str = datetime.now().strftime("%Y-%m-%d")
@@ -236,7 +236,7 @@ class TestCleanupOldImages:
         """Create ImageManager with short retention."""
         return ImageManager(base_dir=temp_dir / "images", retention_days=7)
 
-    def test_cleanup_removes_old_directories(self, manager, _temp_dir):
+    def test_cleanup_removes_old_directories(self, manager):
         """Test that cleanup removes directories older than retention period."""
         # Create old directory (10 days ago)
         old_date = datetime.now() - timedelta(days=10)

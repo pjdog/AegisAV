@@ -93,6 +93,8 @@ class FlightConfig:
     inspection_dwell_time: float = 30.0  # seconds
     anomaly_dwell_multiplier: float = 2.0  # longer inspection for anomalies
     orbit_velocity: float = 3.0  # m/s tangential
+    inspection_altitude_agl_cap: float | None = None  # Clamp to get closer inspections
+    inspection_orbit_radius_cap: float | None = None  # Clamp to tighter orbits
 
 
 class AirSimActionExecutor:
@@ -180,10 +182,33 @@ class AirSimActionExecutor:
         """Get currently executing action."""
         return self._current_action
 
-    def set_avoid_zones(self, zones: list[dict[str, Any]]) -> None:
+    def set_avoid_zones(
+        self,
+        zones: list[dict[str, Any]],
+        buffer_m: float | None = None,
+    ) -> None:
         """Set avoidance zones for simple collision avoidance."""
         self._avoid_zones = list(zones or [])
+        if buffer_m is not None:
+            self._avoidance_buffer_m = max(0.0, float(buffer_m))
         logger.info("avoid_zones_updated", count=len(self._avoid_zones))
+
+    def set_navigation_map(self, navigation_map: dict[str, Any]) -> None:
+        """Update avoidance zones using map-derived buffers."""
+        metadata = navigation_map.get("metadata", {}) if navigation_map else {}
+        resolution = float(metadata.get("resolution_m", 0.0) or 0.0)
+        voxel_size = metadata.get("voxel_size_m")
+
+        buffer_m = self._avoidance_buffer_m
+        if resolution > 0.0:
+            buffer_m = max(buffer_m, resolution * 2.0)
+        if voxel_size:
+            try:
+                buffer_m = max(buffer_m, float(voxel_size) * 2.0)
+            except (TypeError, ValueError):
+                pass
+
+        self.set_avoid_zones(navigation_map.get("obstacles", []), buffer_m=buffer_m)
 
     async def execute(self, decision: dict) -> ExecutionResult:
         """
@@ -314,14 +339,17 @@ class AirSimActionExecutor:
             self._is_flying = True
             self._is_armed = True
 
-            # Store home position using direct API call
+            # Store home position using bridge's async method
             try:
-                state = self.bridge.client.getMultirotorState(
-                    vehicle_name=self.bridge.config.vehicle_name
-                )
-                pos = state.kinematics_estimated.position
-                self._home_ned = (pos.x_val, pos.y_val, pos.z_val)
-                logger.info(f"Home position set: NED({pos.x_val:.1f}, {pos.y_val:.1f}, {pos.z_val:.1f})")
+                if self.bridge.client:
+                    pos = await self.bridge.get_position()
+                    if pos:
+                        self._home_ned = (pos.x_val, pos.y_val, pos.z_val)
+                        logger.info(f"Home position set: NED({pos.x_val:.1f}, {pos.y_val:.1f}, {pos.z_val:.1f})")
+                    else:
+                        self._home_ned = (0, 0, 0)
+                else:
+                    self._home_ned = (0, 0, 0)
             except Exception as e:
                 logger.warning(f"Could not store home position: {e}")
                 self._home_ned = (0, 0, 0)  # Default to origin
@@ -356,6 +384,24 @@ class AirSimActionExecutor:
                 action="inspect_asset",
                 error="No target position provided in decision"
             )
+
+        if self.config.inspection_altitude_agl_cap is not None and alt > self.config.inspection_altitude_agl_cap:
+            logger.info(
+                "inspection_altitude_clamped",
+                asset_id=asset_id,
+                requested=alt,
+                capped=self.config.inspection_altitude_agl_cap,
+            )
+            alt = self.config.inspection_altitude_agl_cap
+
+        if self.config.inspection_orbit_radius_cap is not None and orbit_radius > self.config.inspection_orbit_radius_cap:
+            logger.info(
+                "inspection_orbit_radius_clamped",
+                asset_id=asset_id,
+                requested=orbit_radius,
+                capped=self.config.inspection_orbit_radius_cap,
+            )
+            orbit_radius = self.config.inspection_orbit_radius_cap
 
         lat, lon, alt, avoidance = self._apply_avoidance(lat, lon, alt, asset_id)
 
@@ -731,16 +777,30 @@ class AirSimActionExecutor:
             zone_lon = zone.get("longitude")
             radius = float(zone.get("radius_m", 0.0))
             height = float(zone.get("height_m", 0.0))
-            if zone_lat is None or zone_lon is None or radius <= 0:
+            if height <= 0 and isinstance(zone.get("bbox"), dict):
+                bbox = zone.get("bbox") or {}
+                height = abs(float(bbox.get("max_z", 0.0)) - float(bbox.get("min_z", 0.0)))
+            if radius <= 0:
                 continue
 
-            zone_n, zone_e, _ = self.geo_ref.gps_to_ned(
-                zone_lat, zone_lon, self.geo_ref.altitude + height
-            )
+            zone_n = None
+            zone_e = None
+            if zone_lat is not None and zone_lon is not None:
+                zone_n, zone_e, _ = self.geo_ref.gps_to_ned(
+                    zone_lat, zone_lon, self.geo_ref.altitude + height
+                )
+            elif zone.get("x_ned") is not None and zone.get("y_ned") is not None:
+                zone_n = float(zone.get("x_ned", 0.0))
+                zone_e = float(zone.get("y_ned", 0.0))
+
+            if zone_n is None or zone_e is None:
+                continue
+
             dx = target_n - zone_n
             dy = target_e - zone_e
             dist = math.hypot(dx, dy)
-            min_clearance = radius + self._avoidance_buffer_m
+            buffer_m = float(zone.get("buffer_m", self._avoidance_buffer_m))
+            min_clearance = radius + buffer_m
             if dist < min_clearance:
                 if dist < 0.1:
                     dx, dy, dist = 1.0, 0.0, 1.0
@@ -752,10 +812,10 @@ class AirSimActionExecutor:
                     "zone_id": zone.get("asset_id"),
                     "asset_type": zone.get("asset_type"),
                     "radius_m": radius,
-                    "buffer_m": self._avoidance_buffer_m,
+                    "buffer_m": buffer_m,
                 })
 
-            required_alt = height + self._avoidance_buffer_m
+            required_alt = height + buffer_m
             if alt < required_alt:
                 alt = required_alt
                 adjusted = True

@@ -52,6 +52,19 @@ class DecisionLogEntry:
     # Visualization
     assets: list[dict] = None
 
+    # Mapping context
+    map_version: int | None = None
+    map_id: str | None = None
+    map_source: str | None = None
+    map_available: bool | None = None
+    map_age_s: float | None = None
+    obstacle_count: int | None = None
+    map_quality_score: float | None = None
+    map_valid: bool | None = None
+    map_stale: bool | None = None
+    slam_confidence: float | None = None
+    splat_quality: float | None = None
+
     def to_dict(self) -> dict:
         """Convert to dictionary."""
         return asdict(self)
@@ -70,6 +83,7 @@ class DecisionLogContext:
     world: Any
     goal: Any | None
     escalation: Any | None = None
+    map_context: Any | None = None
 
 
 class DecisionLogger:
@@ -147,6 +161,8 @@ class DecisionLogger:
         world = context.world
         goal = context.goal
         escalation = context.escalation
+        map_context = context.map_context
+        map_data = map_context.to_dict() if map_context and hasattr(map_context, "to_dict") else {}
 
         # Extract critic concerns if escalation exists
         critic_concerns = []
@@ -193,6 +209,17 @@ class DecisionLogger:
                 }
                 for a in world.assets
             ],
+            map_version=map_data.get("map_version"),
+            map_id=map_data.get("map_id"),
+            map_source=map_data.get("map_source"),
+            map_available=map_data.get("map_available"),
+            map_age_s=map_data.get("map_age_s"),
+            obstacle_count=map_data.get("obstacle_count"),
+            map_quality_score=map_data.get("map_quality_score"),
+            map_valid=map_data.get("map_valid"),
+            map_stale=map_data.get("map_stale"),
+            slam_confidence=map_data.get("slam_confidence"),
+            splat_quality=map_data.get("splat_quality"),
         )
 
         self._entries.append(entry)

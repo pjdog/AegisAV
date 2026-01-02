@@ -4,7 +4,7 @@
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                        UNREAL ENGINE + AirSim                                │
+│                     UNREAL ENGINE + Cosys-AirSim                            │
 │  ┌─────────────────────────────────────────────────────────────────────┐    │
 │  │  Photorealistic 3D Environment                                      │    │
 │  │  • Infrastructure assets (solar farms, wind turbines, substations)  │    │
@@ -12,9 +12,10 @@
 │  │  • Terrain, vegetation, buildings                                   │    │
 │  └─────────────────────────────────────────────────────────────────────┘    │
 │  ┌─────────────────────────────────────────────────────────────────────┐    │
-│  │  AirSim Plugin                                                       │    │
+│  │  Cosys-AirSim Plugin                                                │    │
 │  │  • Drone physics simulation                                          │    │
-│  │  • Camera sensors (RGB, Depth, Segmentation)                         │    │
+│  │  • Camera sensors (RGB, Depth, Segmentation, Infrared)              │    │
+│  │  • GPU LiDAR, Echo sensors (radar/sonar)                            │    │
 │  │  • IMU, GPS, Barometer simulation                                    │    │
 │  │  • MAVLink/ArduPilot integration                                     │    │
 │  └─────────────────────────────────────────────────────────────────────┘    │
@@ -50,7 +51,7 @@
 │  │  • Goal selector │  │  • Image analysis│  │  • Mission primitives    │   │
 │  └──────────────────┘  └──────────────────┘  └──────────────────────────┘   │
 │  ┌──────────────────────────────────────────────────────────────────────┐   │
-│  │  AirSim Bridge                                                        │   │
+│  │  Cosys-AirSim Bridge                                                 │   │
 │  │  • Camera feed capture (RGB frames from Unreal)                       │   │
 │  │  • Pose/telemetry sync                                                │   │
 │  │  • Environment control (weather, time)                                │   │
@@ -66,10 +67,11 @@
 
 ## Components
 
-### 1. Unreal Engine + AirSim (Rendering & Physics)
-- **Version**: Unreal Engine 4.27 (AirSim compatible)
+### 1. Unreal Engine + Cosys-AirSim (Rendering & Physics)
+- **Version**: Unreal Engine 5.5 (Cosys-AirSim compatible)
 - **Purpose**: Photorealistic environment rendering, camera simulation
 - **Output**: RGB camera frames, depth maps, segmentation masks
+- **Extras**: GPU LiDAR, Echo sensors, Infrared camera, Instance segmentation
 
 ### 2. ArduPilot SITL (Flight Control)
 - **Version**: ArduCopter 4.4+ (latest stable)
@@ -78,7 +80,17 @@
 
 ### 3. AegisAV Agent (Intelligence)
 - **Purpose**: High-level decision making, vision processing
-- **Integration**: MAVLink for flight control, AirSim API for camera
+- **Integration**: MAVLink for flight control, Cosys-AirSim API for camera
+
+## Why Cosys-AirSim?
+
+[Cosys-AirSim](https://github.com/Cosys-Lab/Cosys-AirSim) is the actively maintained fork of Microsoft AirSim (which was deprecated in 2022). Key advantages:
+
+- **UE 5.5 Support**: Works with the latest stable Unreal Engine
+- **Active Development**: Regular updates and bug fixes
+- **Enhanced Sensors**: GPU LiDAR, Echo sensors, Infrared camera
+- **Better Python API**: `cosysairsim` package with cleaner dependencies
+- **Instance Segmentation**: Multi-layer annotation for groundtruth labels
 
 ## Setup Instructions
 
@@ -91,17 +103,17 @@
 
 ### Installation Steps
 
-#### Step 1: Install Unreal Engine 4.27
+#### Step 1: Install Unreal Engine 5.5
 ```bash
 # Via Epic Games Launcher (Windows) or build from source (Linux)
-# AirSim requires UE 4.27 specifically
+# Cosys-AirSim v3.3 supports UE 5.5
 ```
 
-#### Step 2: Install AirSim
+#### Step 2: Install Cosys-AirSim
 ```bash
-# Clone AirSim
-git clone https://github.com/Microsoft/AirSim.git
-cd AirSim
+# Clone Cosys-AirSim
+git clone https://github.com/Cosys-Lab/Cosys-AirSim.git
+cd Cosys-AirSim
 
 # Build (Windows)
 build.cmd
@@ -110,6 +122,9 @@ build.cmd
 ./setup.sh
 ./build.sh
 ```
+
+Or download pre-built binaries from:
+https://github.com/Cosys-Lab/Cosys-AirSim/releases
 
 #### Step 3: Install ArduPilot SITL
 ```bash
@@ -126,7 +141,7 @@ Tools/environment_install/install-prereqs-ubuntu.sh -y
 ./waf copter
 ```
 
-#### Step 4: Configure AirSim for ArduPilot
+#### Step 4: Configure Cosys-AirSim for ArduPilot
 Create `~/Documents/AirSim/settings.json`:
 ```json
 {
@@ -165,7 +180,7 @@ Create `~/Documents/AirSim/settings.json`:
 #### Step 5: Install AegisAV Simulation Dependencies
 ```bash
 cd /path/to/AegisAV
-pip install airsim msgpack-rpc-python
+pip install cosysairsim
 ```
 
 ## Running the Full Simulation
@@ -176,11 +191,11 @@ cd ardupilot/ArduCopter
 ../Tools/autotest/sim_vehicle.py -v ArduCopter -f airsim-copter --console --map
 ```
 
-### Terminal 2: Start Unreal/AirSim
+### Terminal 2: Start Unreal/Cosys-AirSim
 ```bash
-# Launch your AirSim Unreal project
-# Or use pre-built AirSim binaries
-./AirSimNH.sh -ResX=1920 -ResY=1080 -windowed
+# Launch your Cosys-AirSim Unreal project
+# Or use pre-built binaries from releases
+./Blocks.sh -ResX=1920 -ResY=1080 -windowed
 ```
 On Windows (with the installer), run `start_airsim.bat` from the project root.
 
@@ -214,7 +229,7 @@ For AirSim/Scenario environment synchronization details, see `docs/AIRSIM_SCENAR
 ## Data Flow
 
 ```
-AirSim Camera → PNG/JPEG frames → AegisAV Vision Pipeline
+Cosys-AirSim Camera → PNG/JPEG frames → AegisAV Vision Pipeline
      ↓                                      ↓
   1920x1080                           YOLO Detection
   60 FPS                                    ↓
@@ -226,13 +241,20 @@ AirSim Camera → PNG/JPEG frames → AegisAV Vision Pipeline
                                            ↓
                                     ArduPilot SITL
                                            ↓
-                                    AirSim Physics
+                                    Cosys-AirSim Physics
 ```
+
+## Resources
+
+- [Cosys-AirSim GitHub](https://github.com/Cosys-Lab/Cosys-AirSim)
+- [Cosys-AirSim Documentation](https://cosys-lab.github.io/Cosys-AirSim/)
+- [Cosys-AirSim Releases](https://github.com/Cosys-Lab/Cosys-AirSim/releases)
+- [Python API (cosysairsim)](https://pypi.org/project/cosysairsim/)
 
 ## Next Steps
 
-1. [ ] Set up AirSim + ArduPilot SITL on desktop
+1. [ ] Set up Cosys-AirSim + ArduPilot SITL on desktop
 2. [ ] Create basic infrastructure environment in Unreal
-3. [ ] Implement AirSim camera bridge in AegisAV
+3. [ ] Implement Cosys-AirSim camera bridge in AegisAV
 4. [ ] Test flight + vision integration
 5. [ ] Build production-quality asset scenes

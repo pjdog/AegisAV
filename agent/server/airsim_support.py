@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import math
 import platform
 import subprocess
@@ -14,7 +15,13 @@ import structlog
 
 from agent.server.config_manager import get_config_manager
 from agent.server.navigation_map import build_navigation_map
-from agent.server.scenarios import DOCK_ALTITUDE, DOCK_LATITUDE, DOCK_LONGITUDE, Scenario
+from agent.server.scenarios import (
+    DOCK_ALTITUDE,
+    DOCK_LATITUDE,
+    DOCK_LONGITUDE,
+    DroneState,
+    Scenario,
+)
 from agent.server.state import server_state
 from agent.server.unreal_stream import (
     BatteryUpdateMessage,
@@ -27,7 +34,27 @@ from agent.server.unreal_stream import (
     unreal_manager,
 )
 
+# Multi-drone support (optional)
+try:
+    from simulation.drone_coordinator import (
+        DroneCoordinator,
+        get_drone_coordinator,
+    )
+    from agent.server.fleet_bridge import (
+        AgentFleetBridge,
+        get_fleet_bridge,
+    )
+    MULTI_DRONE_AVAILABLE = True
+except ImportError:
+    MULTI_DRONE_AVAILABLE = False
+
 logger = structlog.get_logger(__name__)
+
+# AirSim spawn safety offsets to avoid docking mesh overlap
+DOCK_SPAWN_CLEARANCE_M = 6.0
+DOCK_SPAWN_OFFSET_M = 6.0
+DEPTH_MAPPING_BUFFER_FRAMES = 6
+DEPTH_MAPPING_SUBSAMPLE = 6
 
 # Precipitation type to AirSim weather parameter mapping
 PRECIPITATION_MAP: dict[str, dict[str, float]] = {
@@ -209,11 +236,12 @@ async def _sync_airsim_scene(
         await _ensure_airsim_bridge()
 
     bridge = server_state.airsim_bridge
+    bridge_config = getattr(bridge, "config", None)
     logger.info(
         "airsim_scene_sync_start",
         scenario_id=scenario.scenario_id,
         bridge_connected=bool(bridge and getattr(bridge, "connected", False)),
-        vehicle_name=getattr(bridge, "config", None).vehicle_name if bridge else None,
+        vehicle_name=getattr(bridge_config, "vehicle_name", None),
         vehicles=getattr(bridge, "vehicle_names", []),
     )
     if not bridge or not getattr(bridge, "connected", False):
@@ -235,8 +263,33 @@ async def _sync_airsim_scene(
     _update_airsim_georef_for_scenario(scenario)
 
     first_drone = scenario.drones[0]
-    altitude = float(first_drone.altitude_agl or 0.0)
-    pose_ok = await bridge.set_vehicle_pose(0.0, 0.0, -altitude)
+    altitude = float(getattr(first_drone, "altitude_agl", 0.0) or 0.0)
+    drone_state = getattr(first_drone, "state", None)
+    is_docked = False
+    if drone_state is not None:
+        if isinstance(drone_state, str):
+            is_docked = drone_state == DroneState.DOCKED.value
+        else:
+            is_docked = drone_state == DroneState.DOCKED
+
+    if is_docked or altitude <= 0.5:
+        spawn_altitude = max(altitude, DOCK_SPAWN_CLEARANCE_M)
+        spawn_n = DOCK_SPAWN_OFFSET_M
+        spawn_e = 0.0
+        logger.info(
+            "airsim_spawn_offset_applied",
+            scenario_id=scenario.scenario_id,
+            spawn_n=spawn_n,
+            spawn_e=spawn_e,
+            spawn_altitude=spawn_altitude,
+            drone_state=getattr(drone_state, "value", drone_state),
+        )
+    else:
+        spawn_altitude = altitude
+        spawn_n = 0.0
+        spawn_e = 0.0
+
+    pose_ok = await bridge.set_vehicle_pose(spawn_n, spawn_e, -spawn_altitude)
     if not pose_ok:
         logger.warning(
             "airsim_scene_sync_failed",
@@ -255,16 +308,178 @@ async def _sync_airsim_scene(
                 scenario_name=scenario.name,
             )
 
+    # Spawn dock and asset markers in AirSim
+    spawn_results = {"dock": False, "assets": 0}
+    geo_ref = server_state.airsim_geo_ref
+    if geo_ref and hasattr(bridge, 'spawn_scene_objects'):
+        try:
+            # Convert assets to dict format for spawning
+            asset_dicts = [
+                {
+                    "latitude": a.latitude,
+                    "longitude": a.longitude,
+                    "name": a.name,
+                    "asset_id": a.asset_id,
+                    "asset_type": a.asset_type,
+                }
+                for a in scenario.assets
+            ]
+            results = await bridge.spawn_scene_objects(
+                dock_ned=(0.0, 0.0, 0.0),  # Dock at origin
+                assets=asset_dicts,
+                geo_ref=geo_ref,
+            )
+            spawn_results["dock"] = results.get("dock", False)
+            spawn_results["assets"] = len([a for a in results.get("assets", []) if a.get("success")])
+            logger.info(
+                "airsim_objects_spawned",
+                dock=spawn_results["dock"],
+                assets=spawn_results["assets"],
+            )
+        except Exception as exc:
+            logger.warning("airsim_spawn_objects_failed", error=str(exc))
+
     logger.info(
         "airsim_scene_sync_complete",
         scenario_id=scenario.scenario_id,
         vehicle_name=config.simulation.airsim_vehicle_name,
+        spawned_dock=spawn_results["dock"],
+        spawned_assets=spawn_results["assets"],
     )
     return {
         "synced": True,
         "scenario_id": scenario.scenario_id,
         "vehicle_name": config.simulation.airsim_vehicle_name,
+        "spawned": spawn_results,
     }
+
+
+async def sync_multi_drone_scenario(
+    scenario: Scenario,
+    config_override=None,
+) -> dict[str, object]:
+    """Sync all drones in a multi-drone scenario to AirSim.
+
+    This uses the DroneCoordinator to:
+    1. Map all scenario drones to available AirSim vehicles
+    2. Position each drone at its scenario-defined location
+    3. Initialize the fleet bridge for per-drone execution
+
+    Args:
+        scenario: The scenario with multiple drones
+        config_override: Optional config override
+
+    Returns:
+        Dict with sync status for each drone
+    """
+    if not MULTI_DRONE_AVAILABLE:
+        logger.warning("multi_drone_sync_skipped", reason="multi_drone_not_available")
+        # Fall back to single-drone sync
+        return await _sync_airsim_scene(scenario, config_override=config_override)
+
+    config = config_override or get_config_manager().config
+    if not config.simulation.airsim_enabled:
+        logger.info("multi_drone_sync_skipped", reason="airsim_disabled")
+        return {"synced": False, "reason": "airsim_disabled"}
+
+    if len(scenario.drones) <= 1:
+        # Single drone - use regular sync
+        logger.info("multi_drone_sync_fallback", reason="single_drone")
+        return await _sync_airsim_scene(scenario, config_override=config_override)
+
+    logger.info(
+        "multi_drone_sync_start",
+        scenario_id=scenario.scenario_id,
+        drone_count=len(scenario.drones),
+    )
+
+    try:
+        # Get or create the fleet bridge
+        fleet_bridge = get_fleet_bridge(
+            host=config.simulation.airsim_host,
+            vehicle_mapping=config.simulation.airsim_vehicle_mapping,
+        )
+
+        # Connect if not already connected
+        if not server_state.fleet_bridge_enabled:
+            connected = await fleet_bridge.connect()
+            if not connected:
+                logger.warning("multi_drone_sync_failed", reason="fleet_bridge_connect_failed")
+                # Fall back to single-drone
+                return await _sync_airsim_scene(scenario, config_override=config_override)
+            server_state.fleet_bridge = fleet_bridge
+            server_state.fleet_bridge_enabled = True
+
+        # Setup scenario drones
+        setup_results = await fleet_bridge.setup_scenario(scenario)
+
+        # Update geo reference
+        _update_airsim_georef_for_scenario(scenario)
+
+        # Apply environment
+        if scenario.environment:
+            mapped = _map_scenario_environment(scenario.environment)
+            if _env_changed(server_state.airsim_env_last, mapped):
+                server_state.airsim_env_last = mapped
+                await _apply_airsim_environment(
+                    mapped,
+                    scenario_id=scenario.scenario_id,
+                    scenario_name=scenario.name,
+                )
+
+        # Spawn scene objects (dock, assets) - same as single-drone
+        spawn_results = {"dock": False, "assets": 0}
+        geo_ref = server_state.airsim_geo_ref
+        bridge = server_state.airsim_bridge
+        if geo_ref and bridge and hasattr(bridge, 'spawn_scene_objects'):
+            try:
+                asset_dicts = [
+                    {
+                        "latitude": a.latitude,
+                        "longitude": a.longitude,
+                        "name": a.name,
+                        "asset_id": a.asset_id,
+                        "asset_type": a.asset_type,
+                    }
+                    for a in scenario.assets
+                ]
+                results = await bridge.spawn_scene_objects(
+                    dock_ned=(0.0, 0.0, 0.0),
+                    assets=asset_dicts,
+                    geo_ref=geo_ref,
+                )
+                spawn_results["dock"] = results.get("dock", False)
+                spawn_results["assets"] = len([a for a in results.get("assets", []) if a.get("success")])
+            except Exception as exc:
+                logger.warning("multi_drone_spawn_objects_failed", error=str(exc))
+
+        # Build response
+        synced_drones = [drone_id for drone_id, ok in setup_results.items() if ok]
+        failed_drones = [drone_id for drone_id, ok in setup_results.items() if not ok]
+
+        logger.info(
+            "multi_drone_sync_complete",
+            scenario_id=scenario.scenario_id,
+            synced_drones=synced_drones,
+            failed_drones=failed_drones,
+            spawned=spawn_results,
+        )
+
+        return {
+            "synced": True,
+            "multi_drone": True,
+            "scenario_id": scenario.scenario_id,
+            "drone_count": len(scenario.drones),
+            "synced_drones": synced_drones,
+            "failed_drones": failed_drones,
+            "spawned": spawn_results,
+            "fleet_status": fleet_bridge.get_status().to_dict(),
+        }
+
+    except Exception as exc:
+        logger.error("multi_drone_sync_error", error=str(exc))
+        # Fall back to single-drone sync
+        return await _sync_airsim_scene(scenario, config_override=config_override)
 
 
 def _schedule_airsim_environment(env) -> None:
@@ -387,6 +602,8 @@ async def broadcast_spawn_asset(
     priority: int = 1,
     has_anomaly: bool = False,
     anomaly_severity: float = 0.0,
+    scale: float = 1.0,
+    rotation_deg: float = 0.0,
 ) -> None:
     """Broadcast asset spawn to Unreal clients."""
     if unreal_manager.active_connections == 0:
@@ -402,6 +619,8 @@ async def broadcast_spawn_asset(
         priority=priority,
         has_anomaly=has_anomaly,
         anomaly_severity=anomaly_severity,
+        scale=scale,
+        rotation_deg=rotation_deg,
     )
     await unreal_manager.broadcast({
         "type": UnrealMessageType.SPAWN_ASSET.value,
@@ -494,9 +713,12 @@ async def broadcast_scenario_scene(scenario: Scenario, include_defects: bool = T
             name=asset.name,
             latitude=asset.latitude,
             longitude=asset.longitude,
+            altitude_m=asset.altitude_m,
             priority=asset.priority,
             has_anomaly=asset.has_anomaly,
             anomaly_severity=asset.anomaly_severity,
+            scale=asset.scale,
+            rotation_deg=asset.rotation_deg,
         )
 
     if include_defects and scenario.defects:
@@ -553,24 +775,88 @@ def _airsim_launch_script() -> Path:
     return Path(__file__).resolve().parents[2] / "start_airsim.bat"
 
 
+def _is_wsl() -> bool:
+    """Check if running inside Windows Subsystem for Linux."""
+    try:
+        with open("/proc/version", encoding="utf-8") as f:
+            return "microsoft" in f.read().lower()
+    except Exception:
+        return False
+
+
+def _wsl_to_windows_path(linux_path: Path) -> str:
+    """Convert a WSL path to a Windows path using wslpath."""
+    try:
+        result = subprocess.run(
+            ["wslpath", "-w", str(linux_path)],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if result.returncode == 0:
+            return result.stdout.strip()
+    except Exception:
+        pass
+    # Fallback: manual conversion for /home/... paths
+    # This won't work for all paths but handles common cases
+    path_str = str(linux_path)
+    if path_str.startswith("/mnt/"):
+        # /mnt/c/... -> C:\...
+        parts = path_str[5:].split("/", 1)
+        if len(parts) == 2:
+            drive = parts[0].upper()
+            tail = parts[1].replace("/", "\\")
+            return f"{drive}:\\{tail}"
+    return path_str
+
+
 def _airsim_launch_supported() -> bool:
+    """Check if AirSim launch is supported on this platform."""
     script_path = _airsim_launch_script()
-    return script_path.exists() and platform.system().lower() == "windows"
+    if not script_path.exists():
+        return False
+    # Supported on native Windows or WSL (can call Windows executables)
+    return platform.system().lower() == "windows" or _is_wsl()
 
 
 def _launch_airsim_process() -> tuple[bool, bool, str]:
+    """Launch the AirSim process using the start_airsim.bat script.
+
+    Returns:
+        Tuple of (launch_supported, launch_started, message)
+    """
     script_path = _airsim_launch_script()
     if not script_path.exists():
         return False, False, f"AirSim launch script not found: {script_path}"
-    if platform.system().lower() != "windows":
-        return False, False, "AirSim launch is only supported when running on Windows."
+
+    is_windows = platform.system().lower() == "windows"
+    is_wsl = _is_wsl()
+
+    if not is_windows and not is_wsl:
+        return False, False, "AirSim launch is only supported on Windows or WSL."
+
     try:
-        subprocess.Popen(  # noqa: S603
-            ["cmd", "/c", str(script_path)],
-            cwd=str(script_path.parent),
-        )
-        return True, True, "AirSim launch initiated."
+        if is_wsl:
+            # In WSL, use cmd.exe to run the Windows batch file
+            # Convert the Linux path to Windows path
+            win_path = _wsl_to_windows_path(script_path)
+            logger.info("launching_airsim_from_wsl", windows_path=win_path)
+            # Use 'start' to open in a visible console window so user can see errors
+            subprocess.Popen(  # noqa: S603, S607
+                ["cmd.exe", "/c", "start", "AegisAV AirSim Launcher", "cmd", "/c", win_path],
+                cwd=str(script_path.parent),
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+        else:
+            # Native Windows - open in a visible console window
+            subprocess.Popen(  # noqa: S603
+                ["cmd", "/c", "start", "AegisAV AirSim Launcher", "cmd", "/c", str(script_path)],
+                cwd=str(script_path.parent),
+            )
+        return True, True, "AirSim launch initiated. Check the console window for status."
     except Exception as exc:
+        logger.exception("airsim_launch_failed", error=str(exc))
         return True, False, f"AirSim launch failed: {exc}"
 
 
@@ -604,7 +890,8 @@ def _schedule_airsim_connect() -> bool:
 
 
 async def _start_airsim_bridge() -> bool:
-    config = get_config_manager().config
+    config_mgr = get_config_manager()
+    config = config_mgr.config
     if not config.simulation.airsim_enabled:
         logger.info("airsim_bridge_disabled")
         server_state.airsim_last_error = "AirSim integration is disabled."
@@ -630,11 +917,25 @@ async def _start_airsim_bridge() -> bool:
         server_state.airsim_last_error = f"AirSim bridge unavailable: {exc}"
         return False
 
+    # Resolve output_dir relative to project root (handles relative paths on Windows)
+    output_dir = config_mgr.resolve_path(config.vision.image_output_dir)
+    mapping_output_dir = config_mgr.resolve_path("data/maps")
+
     bridge_config = RealtimeBridgeConfig(
         host=config.simulation.airsim_host,
         vehicle_name=config.simulation.airsim_vehicle_name or "Drone1",
         save_images=config.vision.save_images,
-        output_dir=Path(config.vision.image_output_dir),
+        output_dir=output_dir,
+        mapping_output_dir=mapping_output_dir,
+        battery_sim_enabled=config.simulation.battery_sim_enabled,
+        battery_initial_percent=config.simulation.battery_initial_percent,
+        battery_min_percent=config.simulation.battery_min_percent,
+        battery_max_percent=config.simulation.battery_max_percent,
+        battery_drain_hover_percent_per_min=config.simulation.battery_drain_hover_percent_per_min,
+        battery_drain_move_percent_per_m=config.simulation.battery_drain_move_percent_per_m,
+        battery_charge_percent_per_min=config.simulation.battery_charge_percent_per_min,
+        battery_aggressive_multiplier=config.simulation.battery_aggressive_multiplier,
+        battery_low_speed_threshold_ms=config.simulation.battery_low_speed_threshold_ms,
     )
     if bridge_config.save_images:
         bridge_config.output_dir.mkdir(parents=True, exist_ok=True)
@@ -657,9 +958,11 @@ async def _start_airsim_bridge() -> bool:
         from simulation.airsim_action_executor import AirSimActionExecutor, FlightConfig
         from simulation.coordinate_utils import GeoReference
 
-        default_lat = 47.641468
-        default_lon = -122.140165
-        default_alt = 0.0
+        # Use scenario dock coordinates as the geo reference origin
+        # This ensures assets (which are defined relative to dock) are reachable
+        default_lat = DOCK_LATITUDE  # 37.7749 (San Francisco)
+        default_lon = DOCK_LONGITUDE  # -122.4194
+        default_alt = DOCK_ALTITUDE  # 0.0
 
         geo_ref = GeoReference(default_lat, default_lon, default_alt)
         flight_config = FlightConfig(
@@ -667,6 +970,8 @@ async def _start_airsim_bridge() -> bool:
             default_velocity=5.0,
             inspection_orbit_radius=20.0,
             inspection_dwell_time=30.0,
+            inspection_altitude_agl_cap=12.0,
+            inspection_orbit_radius_cap=8.0,
         )
 
         executor = AirSimActionExecutor(
@@ -698,7 +1003,152 @@ async def _start_airsim_bridge() -> bool:
     logger.info("airsim_bridge_started", vehicle=bridge_config.vehicle_name)
 
     asyncio.create_task(_flush_pending_airsim())
+    _start_airsim_depth_mapping()
     return True
+
+
+def _start_airsim_depth_mapping() -> None:
+    config = get_config_manager().config
+    if not config.mapping.enabled:
+        return
+    task = server_state.airsim_depth_mapping_task
+    if task and not task.done():
+        return
+    server_state.airsim_depth_mapping_task = asyncio.create_task(_airsim_depth_mapping_loop())
+
+
+async def _airsim_depth_mapping_loop() -> None:
+    config_mgr = get_config_manager()
+    config = config_mgr.config
+    mapping_cfg = config.mapping
+    if not mapping_cfg.enabled:
+        return
+
+    try:
+        import numpy as np
+        from mapping.map_fusion import MapFusion, MapFusionConfig
+        from mapping.point_cloud import apply_pose, depth_to_points
+    except Exception as exc:
+        logger.warning("airsim_depth_mapping_unavailable", error=str(exc))
+        return
+
+    max_points = mapping_cfg.max_points or 200000
+    fusion = MapFusion(
+        MapFusionConfig(
+            resolution_m=mapping_cfg.map_resolution_m,
+            voxel_size_m=mapping_cfg.voxel_size_m,
+            min_points=mapping_cfg.min_points,
+            max_points=max_points,
+        )
+    )
+
+    run_dir = config_mgr.resolve_path(mapping_cfg.slam_dir) / "run_depth_live"
+    run_dir.mkdir(parents=True, exist_ok=True)
+    points_path = run_dir / "map_points.npy"
+    pose_graph_path = run_dir / "pose_graph.json"
+    slam_status_path = run_dir / "slam_status.json"
+
+    buffer: list[np.ndarray] = []
+
+    while True:
+        try:
+            bridge = server_state.airsim_bridge
+            if not bridge or not getattr(bridge, "connected", False):
+                break
+
+            depth_result = await bridge.capture_depth(include_frame=True)
+            if not depth_result.get("success"):
+                await asyncio.sleep(mapping_cfg.update_interval_s)
+                continue
+
+            depth = depth_result.get("depth")
+            intrinsics = depth_result.get("intrinsics") or {}
+            camera_pose = depth_result.get("camera_pose") or {}
+
+            position = camera_pose.get("position")
+            orientation = camera_pose.get("orientation")
+            if depth is None or not position or not orientation:
+                await asyncio.sleep(mapping_cfg.update_interval_s)
+                continue
+
+            points = depth_to_points(
+                depth,
+                intrinsics,
+                subsample=DEPTH_MAPPING_SUBSAMPLE,
+                max_points=max_points,
+            )
+            if points.size == 0:
+                await asyncio.sleep(mapping_cfg.update_interval_s)
+                continue
+
+            world_points = apply_pose(points, position, orientation)
+            buffer.append(world_points)
+            if len(buffer) > DEPTH_MAPPING_BUFFER_FRAMES:
+                buffer.pop(0)
+
+            combined = np.vstack(buffer)
+            if combined.shape[0] > max_points:
+                step = int(math.ceil(combined.shape[0] / max_points))
+                combined = combined[::step]
+
+            np.save(points_path, combined)
+
+            result = fusion.build_navigation_map(
+                point_cloud_path=points_path,
+                map_id="airsim_depth_live",
+                source="airsim_depth",
+                slam_confidence=1.0,
+                splat_quality=0.0,
+            )
+            nav_map = result.navigation_map
+            if nav_map:
+                nav_map["last_updated"] = datetime.now().isoformat()
+                server_state.navigation_map = nav_map
+                if hasattr(server_state, "last_valid_navigation_map"):
+                    server_state.last_valid_navigation_map = nav_map
+                if server_state.airsim_action_executor:
+                    executor = server_state.airsim_action_executor
+                    if hasattr(executor, "set_navigation_map"):
+                        executor.set_navigation_map(nav_map)
+                    else:
+                        executor.set_avoid_zones(nav_map.get("obstacles", []))
+
+            slam_status = {
+                "enabled": True,
+                "running": True,
+                "backend": "airsim_depth",
+                "tracking_state": "live",
+                "keyframe_count": 0,
+                "map_point_count": int(combined.shape[0]),
+                "loop_closure_count": 0,
+                "pose_confidence": 1.0,
+                "reprojection_error": 0.0,
+                "drift_estimate_m": 0.0,
+                "last_frame_ms": 0.0,
+                "avg_frame_ms": 0.0,
+                "last_update": datetime.now().isoformat(),
+            }
+            server_state.slam_status = slam_status
+
+            pose_graph = {
+                "format_version": 1,
+                "backend": "airsim_depth",
+                "generated_at": datetime.now().isoformat(),
+                "sequence_id": "airsim_depth_live",
+                "frame_count": 0,
+                "keyframe_count": 0,
+                "keyframes": [],
+                "frames": [],
+                "point_cloud": str(points_path),
+            }
+            pose_graph_path.write_text(json.dumps(pose_graph, indent=2))
+            slam_status_path.write_text(json.dumps(slam_status, indent=2))
+        except asyncio.CancelledError:
+            break
+        except Exception as exc:
+            logger.warning("airsim_depth_mapping_failed", error=str(exc))
+
+        await asyncio.sleep(mapping_cfg.update_interval_s)
 
 
 async def _flush_pending_airsim() -> None:
@@ -728,6 +1178,14 @@ async def _flush_pending_airsim() -> None:
 
 
 async def _stop_airsim_bridge() -> None:
+    if server_state.airsim_depth_mapping_task:
+        server_state.airsim_depth_mapping_task.cancel()
+        try:
+            await server_state.airsim_depth_mapping_task
+        except asyncio.CancelledError:
+            pass
+        server_state.airsim_depth_mapping_task = None
+
     broadcaster = server_state.airsim_broadcaster
     bridge = server_state.airsim_bridge
     executor = server_state.airsim_action_executor
@@ -874,7 +1332,7 @@ async def _capture_airsim_depth_obstacles(
 
     try:
         import numpy as np
-        import airsim  # type: ignore
+        import cosysairsim as airsim  # type: ignore
     except Exception as exc:
         return {"success": False, "error": f"depth_dependencies_unavailable: {exc}"}
 
@@ -963,10 +1421,14 @@ async def _capture_airsim_depth_obstacles(
 
 async def _capture_airsim_vision(decision: dict, result) -> None:
     if not server_state.vision_enabled or not server_state.vision_service:
+        logger.debug(
+            "vision_capture_skipped",
+            reason="vision_disabled",
+        )
         return
     bridge = server_state.airsim_bridge
     if not bridge or not getattr(bridge, "connected", False):
-        logger.warning(
+        logger.debug(
             "vision_capture_skipped",
             reason="airsim_not_connected",
         )
@@ -1002,13 +1464,31 @@ async def _capture_airsim_vision(decision: dict, result) -> None:
             image_path=capture.image_path,
             vehicle_state=vehicle_state,
         )
+        detection_count = len(observation.detections)
+        defect_classes = [
+            d.get("detection_class")
+            for d in observation.detections
+            if d.get("detection_class")
+        ]
         logger.info(
             "vision_observation_created",
             asset_id=asset_id,
             observation_id=observation.observation_id,
             defect_detected=observation.defect_detected,
             anomaly_created=observation.anomaly_created,
+            detection_count=detection_count,
         )
+        server_state.last_vision_observation = {
+            "asset_id": asset_id,
+            "timestamp": observation.timestamp.isoformat(),
+            "observation_id": observation.observation_id,
+            "defect_detected": observation.defect_detected,
+            "anomaly_created": observation.anomaly_created,
+            "max_confidence": observation.max_confidence,
+            "max_severity": observation.max_severity,
+            "detections": observation.detections,
+            "defect_classes": defect_classes,
+        }
         if server_state.store:
             await server_state.store.add_detection(
                 asset_id,
@@ -1035,6 +1515,8 @@ async def _capture_airsim_vision(decision: dict, result) -> None:
                     "timestamp": observation.timestamp.isoformat(),
                     "defect_detected": observation.defect_detected,
                     "anomaly_created": observation.anomaly_created,
+                    "detections": observation.detections,
+                    "defect_classes": defect_classes,
                 },
             )
 
@@ -1045,16 +1527,6 @@ async def _capture_airsim_vision(decision: dict, result) -> None:
             )
             server_state.last_depth_capture = depth_result
             if depth_result.get("obstacles"):
-                server_state.navigation_map = _merge_navigation_obstacles(
-                    server_state.navigation_map,
-                    depth_result["obstacles"],
-                    source="airsim_depth",
-                    scenario_id=decision.get("scenario_id"),
-                )
-                if server_state.airsim_action_executor:
-                    server_state.airsim_action_executor.set_avoid_zones(
-                        server_state.navigation_map.get("obstacles", [])
-                    )
                 logger.info(
                     "vision_depth_obstacles",
                     count=len(depth_result["obstacles"]),
@@ -1064,10 +1536,6 @@ async def _capture_airsim_vision(decision: dict, result) -> None:
                     await server_state.store.set_state(
                         "navigation:depth_obstacles:latest",
                         depth_result,
-                    )
-                    await server_state.store.set_state(
-                        "navigation:map:latest",
-                        server_state.navigation_map,
                     )
     except Exception as exc:
         logger.warning(

@@ -24,3 +24,4 @@ See `guide/getting-started.md` for full steps.
 - API overview: `reference/api.md`
 - Overlay troubleshooting: `OVERLAY_TROUBLESHOOTING.md`
 - AirSim environment sync: `AIRSIM_SCENARIO_SYNC.md`
+- Real sensor mode: `REAL_SENSOR_MODE.md`

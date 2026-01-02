@@ -108,15 +108,41 @@ class ServerState:
         self.airsim_action_executor = None
         self.airsim_geo_ref = None  # GeoReference for coordinate conversion
 
+        # Multi-drone fleet bridge (optional, for multi-drone scenarios)
+        self.fleet_bridge = None  # AgentFleetBridge instance
+        self.fleet_bridge_enabled = False
+
         # Camera streaming state
         self.camera_streaming: dict[str, asyncio.Task] = {}  # drone_id -> streaming task
         self.camera_stream_sequence: dict[str, int] = {}  # drone_id -> frame sequence
+
+        # Map update service
+        self.map_update_service = None
+        self.map_update_task: asyncio.Task | None = None
+        self.slam_status: dict[str, object] | None = None
+        self.splat_artifacts: dict[str, object] | None = None
+        self.slam_pose_graph_summary: dict[str, object] | None = None
+        self.map_update_last_error: str | None = None
+        self.map_update_last_error_at: str | None = None
+        self.planner_safety_gate = None
+        self.flight_controller = None
+        self.autonomy_pipeline = None
 
         # Pending AirSim actions queue (for when bridge not connected)
         self.airsim_pending_actions: list[dict] = []
         self.airsim_pending_env: dict[str, object] | None = None
         self.navigation_map: dict[str, object] | None = None
+
+        # Preflight mapping status tracking
+        self.preflight_status: dict[str, object] | None = None
+        self.last_valid_navigation_map: dict[str, object] | None = None
+        self.fused_map_artifact: dict[str, object] | None = None
         self.last_depth_capture: dict[str, object] | None = None
+        self.last_vision_observation: dict[str, object] | None = None
+        self.airsim_depth_mapping_task: asyncio.Task | None = None
+
+        # Map gate history (Agent B Phase 6)
+        self.map_gate_history: list[dict] = []  # Recent gate check results
 
     def load_config(self, config_path: Path) -> None:
         """Load configuration from YAML file.

@@ -3,7 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+import logging
+import math
 from datetime import datetime
+from pathlib import Path
+from types import SimpleNamespace
 
 import structlog
 from fastapi import FastAPI, HTTPException
@@ -50,9 +54,54 @@ from agent.server.unreal_stream import (
     unreal_manager,
 )
 from autonomy.vehicle_state import Position
-from agent.server.world_model import DockStatus
+from agent.server.world_model import Anomaly, Asset, AssetType, DockStatus
+from mapping.map_fusion import MapFusion, MapFusionConfig
+from mapping.manifest import ManifestBuilder, SensorCalibration
+from mapping.slam_runner import run as run_slam_runner
 
 logger = structlog.get_logger(__name__)
+log = logging.getLogger(__name__)
+
+
+async def _broadcast_preflight_status(
+    scenario_id: str,
+    status: str,
+    message: str,
+    severity: EventSeverity = EventSeverity.INFO,
+    details: dict | None = None,
+) -> None:
+    payload = {
+        "type": "preflight_status",
+        "scenario_id": scenario_id,
+        "status": status,
+        "message": message,
+        "details": details or {},
+        "timestamp": datetime.now().isoformat(),
+    }
+
+    # Update server_state for dashboard polling
+    server_state.preflight_status = {
+        "scenario_id": scenario_id,
+        "status": status,
+        "message": message,
+        "timestamp": datetime.now().isoformat(),
+        **(details or {}),
+    }
+
+    try:
+        await unreal_manager.broadcast(payload)
+    except Exception as exc:
+        logger.warning("preflight_status_unreal_failed", error=str(exc))
+
+    await connection_manager.broadcast(
+        Event(
+            event_type=EventType.PREFLIGHT_STATUS,
+            timestamp=datetime.now(),
+            data=payload,
+            severity=severity,
+        )
+    )
+    log.info("Preflight %s: %s", status, message)
 
 
 async def _broadcast_scenario_decision(drone_id: str, decision: dict) -> None:
@@ -96,6 +145,7 @@ async def _broadcast_scenario_decision(drone_id: str, decision: dict) -> None:
             event_type=EventType.SERVER_DECISION,
             timestamp=datetime.now(),
             data={
+                "agent_label": decision.get("agent_label") or "Drone AG",
                 "decision_id": decision.get("decision_id"),
                 "action": action,
                 "confidence": confidence,
@@ -104,10 +154,28 @@ async def _broadcast_scenario_decision(drone_id: str, decision: dict) -> None:
                 "risk_score": decision.get("risk_score"),
                 "battery_percent": decision.get("battery_percent"),
                 "drone_id": drone_id,
+                "drone_name": decision.get("drone_name"),
+                "elapsed_s": decision.get("elapsed_s"),
+                "reasoning_context": decision.get("reasoning_context"),
+                "alternatives": decision.get("alternatives"),
+                "critic_validation": decision.get("critic_validation"),
+                "target_asset": decision.get("target_asset"),
             },
             severity=EventSeverity.INFO,
         )
     )
+
+    # Also broadcast to Unreal clients (overlay connects to /ws/unreal, not /ws)
+    await unreal_manager.broadcast({
+        "type": "server_decision",
+        "drone_id": drone_id,
+        "action": action,
+        "confidence": confidence,
+        "reasoning": reason,
+        "risk_level": decision.get("risk_level"),
+        "risk_score": decision.get("risk_score"),
+        "battery_percent": decision.get("battery_percent"),
+    })
 
     executor = server_state.airsim_action_executor
     if action.lower() not in ("none", "wait"):
@@ -149,6 +217,668 @@ async def _broadcast_scenario_decision(drone_id: str, decision: dict) -> None:
                     action=action,
                     error=str(exc),
                 )
+
+
+async def _run_preflight_slam_mapping(scenario, executor) -> None:
+    """Capture a short SLAM mapping pass between dock and first target."""
+    config = get_config_manager().config
+    mapping_cfg = config.mapping
+    if not mapping_cfg.enabled or not mapping_cfg.preflight_enabled:
+        return
+    if not scenario.assets:
+        return
+
+    bridge = server_state.airsim_bridge
+    if not bridge or not getattr(bridge, "connected", False):
+        logger.info("preflight_mapping_skipped", reason="airsim_not_connected")
+        await _broadcast_preflight_status(
+            scenario.scenario_id,
+            "skipped",
+            "Preflight mapping skipped (AirSim not connected).",
+            severity=EventSeverity.WARNING,
+        )
+        return
+
+    geo_ref = getattr(executor, "geo_ref", None) or server_state.airsim_geo_ref
+    if not geo_ref:
+        logger.info("preflight_mapping_skipped", reason="missing_geo_ref")
+        await _broadcast_preflight_status(
+            scenario.scenario_id,
+            "skipped",
+            "Preflight mapping skipped (missing geo reference).",
+            severity=EventSeverity.WARNING,
+        )
+        return
+
+    altitude_agl = float(mapping_cfg.preflight_altitude_agl)
+    timeout_s = float(getattr(mapping_cfg, "preflight_timeout_s", 180.0))
+    move_timeout_s = float(getattr(mapping_cfg, "preflight_move_timeout_s", 30.0))
+    wait_timeout_s = move_timeout_s + 10.0
+    retry_count = max(0, int(getattr(mapping_cfg, "preflight_retry_count", 0)))
+    retry_delay_s = float(getattr(mapping_cfg, "preflight_retry_delay_s", 5.0))
+
+    start_pos = await bridge.get_position()
+    if start_pos:
+        start_n = float(start_pos.x_val)
+        start_e = float(start_pos.y_val)
+    else:
+        start_n, start_e = 0.0, 0.0
+
+    path_points = [(start_n, start_e)]
+    for asset in scenario.assets:
+        n, e, _ = geo_ref.gps_to_ned(
+            asset.latitude,
+            asset.longitude,
+            geo_ref.altitude + altitude_agl,
+        )
+        path_points.append((n, e))
+
+    path_points.append((0.0, 0.0))
+
+    stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    session_dir = Path("data/maps") / f"sequence_{scenario.scenario_id}_preflight_{stamp}"
+    output_dir = Path(mapping_cfg.slam_dir) / f"run_{scenario.scenario_id}_preflight_{stamp}"
+
+    dataset_id = f"{scenario.scenario_id}_preflight"
+    sequence_id = f"{scenario.scenario_id}_preflight_{stamp}"
+    manifest_builder = ManifestBuilder(
+        dataset_id=dataset_id,
+        sequence_id=sequence_id,
+        output_dir=session_dir,
+        sensor_type="airsim",
+    )
+    manifest_builder.set_origin(geo_ref.latitude, geo_ref.longitude, geo_ref.altitude)
+    manifest_builder.manifest.metadata.update({
+        "scenario_id": scenario.scenario_id,
+        "capture_type": "preflight",
+    })
+    calibration_set = False
+
+    def _quat_to_euler_deg(qw: float, qx: float, qy: float, qz: float) -> tuple[float, float, float]:
+        sinr_cosp = 2.0 * (qw * qx + qy * qz)
+        cosr_cosp = 1.0 - 2.0 * (qx * qx + qy * qy)
+        roll = math.atan2(sinr_cosp, cosr_cosp)
+
+        sinp = 2.0 * (qw * qy - qz * qx)
+        if abs(sinp) >= 1.0:
+            pitch = math.copysign(math.pi / 2.0, sinp)
+        else:
+            pitch = math.asin(sinp)
+
+        siny_cosp = 2.0 * (qw * qz + qx * qy)
+        cosy_cosp = 1.0 - 2.0 * (qy * qy + qz * qz)
+        yaw = math.atan2(siny_cosp, cosy_cosp)
+
+        return (math.degrees(roll), math.degrees(pitch), math.degrees(yaw))
+
+    def _rel_path(path_value: str | None) -> str | None:
+        if not path_value:
+            return None
+        try:
+            return str(Path(path_value).resolve().relative_to(session_dir.resolve()))
+        except Exception:
+            return str(Path(path_value).name)
+
+    def _timestamp_s(metadata: dict) -> float:
+        timestamp_ns = metadata.get("timestamp_ns")
+        if timestamp_ns:
+            return float(timestamp_ns) / 1e9
+        timestamp_str = metadata.get("timestamp")
+        if timestamp_str:
+            try:
+                return datetime.fromisoformat(timestamp_str).timestamp()
+            except ValueError:
+                return 0.0
+        return 0.0
+
+    # Estimate total captures based on path segments and step size
+    step_m = max(1.0, float(mapping_cfg.preflight_step_m))
+    estimated_captures = 0
+    for seg_idx in range(len(path_points) - 1):
+        seg_start = path_points[seg_idx]
+        seg_end = path_points[seg_idx + 1]
+        distance = math.hypot(seg_end[0] - seg_start[0], seg_end[1] - seg_start[1])
+        estimated_captures += max(1, int(math.ceil(distance / step_m))) + 1
+
+    capture_count = [0]  # Mutable for inner function access
+
+    logger.info(
+        "preflight_mapping_start",
+        scenario_id=scenario.scenario_id,
+        target_id=scenario.assets[0].asset_id,
+        steps=len(path_points),
+        estimated_captures=estimated_captures,
+    )
+    await _broadcast_preflight_status(
+        scenario.scenario_id,
+        "started",
+        f"Preflight mapping started ({len(path_points)} path points).",
+        details={
+            "steps": len(path_points),
+            "total_captures": estimated_captures,
+            "capture_count": 0,
+            "mapping_status": "started",
+            "slam_status": "pending",
+        },
+    )
+
+    move_with_avoidance = getattr(bridge, "move_to_position_with_obstacle_avoidance", None)
+    recovery_timeout_s = float(getattr(mapping_cfg, "preflight_recovery_timeout_s", 60.0))
+
+    async def _recover_preflight(reason: str, error: str | None = None) -> None:
+        """Attempt safe recovery after preflight mapping failure.
+
+        Recovery steps:
+        1. Broadcast recovery status
+        2. Try to move back to home position (with timeout)
+        3. Fall back to hover if move fails
+        4. Report final recovery status
+        """
+        recovery_success = False
+        try:
+            error_snippet = ""
+            if error:
+                trimmed = str(error).strip().replace("\n", " ")
+                error_snippet = f": {trimmed[:120]}"
+            await _broadcast_preflight_status(
+                scenario.scenario_id,
+                "recovering",
+                f"Preflight recovery initiated ({reason}{error_snippet}).",
+                severity=EventSeverity.WARNING,
+                details={
+                    "reason": reason,
+                    "error": str(error) if error else None,
+                    "capture_count": capture_count[0],
+                    "mapping_status": "recovering",
+                    "slam_status": "failed",
+                },
+            )
+
+            # Try to move back to home with timeout
+            try:
+                await asyncio.wait_for(
+                    bridge.move_to_position(0.0, 0.0, -altitude_agl, velocity=2.0),
+                    timeout=recovery_timeout_s,
+                )
+                logger.info(
+                    "preflight_recovery_move_complete",
+                    scenario_id=scenario.scenario_id,
+                    reason=reason,
+                )
+                recovery_success = True
+            except asyncio.TimeoutError:
+                logger.warning(
+                    "preflight_recovery_move_timeout",
+                    scenario_id=scenario.scenario_id,
+                    timeout_s=recovery_timeout_s,
+                )
+                # Fallback: just try to hover in place
+                if executor and executor.is_flying:
+                    try:
+                        await bridge.hover()
+                        logger.info("preflight_recovery_hover_fallback", scenario_id=scenario.scenario_id)
+                        recovery_success = True
+                    except Exception as hover_exc:
+                        logger.error("preflight_recovery_hover_failed", error=str(hover_exc))
+
+            # Ensure we're hovering at the end
+            if executor and executor.is_flying:
+                await bridge.hover()
+
+            # Broadcast recovery complete
+            if recovery_success:
+                await _broadcast_preflight_status(
+                    scenario.scenario_id,
+                    "idle",
+                    f"Recovery complete. Drone returned to safe position.",
+                    severity=EventSeverity.INFO,
+                    details={
+                        "reason": reason,
+                        "capture_count": capture_count[0],
+                        "mapping_status": "idle",
+                        "slam_status": "failed",
+                    },
+                )
+
+        except Exception as exc:
+            logger.warning(
+                "preflight_recovery_failed",
+                scenario_id=scenario.scenario_id,
+                error=str(exc),
+            )
+            await _broadcast_preflight_status(
+                scenario.scenario_id,
+                "recovery_failed",
+                f"Recovery failed: {str(exc)[:50]}",
+                severity=EventSeverity.ERROR,
+                details={
+                    "error": str(exc),
+                    "reason": reason,
+                    "mapping_status": "recovery_failed",
+                },
+            )
+
+    async def _perform_mapping() -> None:
+        nonlocal calibration_set
+        move_failures = 0
+        capture_failures = 0
+        max_move_failures = max(1, int(getattr(mapping_cfg, "preflight_max_move_failures", 3)))
+        max_capture_failures = max(1, int(getattr(mapping_cfg, "preflight_max_capture_failures", 5)))
+        if executor and not executor.is_flying:
+            await executor.execute({
+                "action": "takeoff",
+                "parameters": {"altitude_agl": altitude_agl},
+                "reasoning": f"Preflight mapping takeoff for {scenario.scenario_id}",
+                "confidence": 1.0,
+            })
+
+        for seg_idx in range(len(path_points) - 1):
+            seg_start = path_points[seg_idx]
+            seg_end = path_points[seg_idx + 1]
+            distance = math.hypot(seg_end[0] - seg_start[0], seg_end[1] - seg_start[1])
+            step_m = max(1.0, float(mapping_cfg.preflight_step_m))
+            steps = max(1, int(math.ceil(distance / step_m)))
+
+            for idx in range(steps + 1):
+                frac = idx / steps
+                n = seg_start[0] + (seg_end[0] - seg_start[0]) * frac
+                e = seg_start[1] + (seg_end[1] - seg_start[1]) * frac
+                try:
+                    if move_with_avoidance:
+                        move_ok = await asyncio.wait_for(
+                            move_with_avoidance(
+                                n,
+                                e,
+                                -altitude_agl,
+                                velocity=float(mapping_cfg.preflight_velocity_ms),
+                            ),
+                            timeout=wait_timeout_s,
+                        )
+                    else:
+                        move_ok = await asyncio.wait_for(
+                            bridge.move_to_position(
+                                n,
+                                e,
+                                -altitude_agl,
+                                velocity=float(mapping_cfg.preflight_velocity_ms),
+                                timeout=move_timeout_s,
+                            ),
+                            timeout=wait_timeout_s,
+                        )
+
+                    if not move_ok:
+                        raise RuntimeError(
+                            "move_to_position returned False (check AirSim connection or limits)"
+                        )
+                except asyncio.TimeoutError:
+                    move_failures += 1
+                    error_msg = f"Move timed out after {wait_timeout_s:.0f}s"
+                    logger.warning(
+                        "preflight_move_failed",
+                        scenario_id=scenario.scenario_id,
+                        error=error_msg,
+                        error_type="TimeoutError",
+                        target_n=n,
+                        target_e=e,
+                        target_altitude_agl=altitude_agl,
+                        timeout_s=move_timeout_s,
+                        failures=move_failures,
+                    )
+                    await _broadcast_preflight_status(
+                        scenario.scenario_id,
+                        "capturing",
+                        f"Move failed ({move_failures}/{max_move_failures}). Continuing.",
+                        severity=EventSeverity.WARNING,
+                        details={
+                            "capture_count": capture_count[0],
+                            "total_captures": estimated_captures,
+                            "mapping_status": "capturing",
+                            "slam_status": "pending",
+                            "move_failures": move_failures,
+                            "last_move_error": error_msg,
+                            "last_move_target": {
+                                "north_m": n,
+                                "east_m": e,
+                                "altitude_agl_m": altitude_agl,
+                            },
+                        },
+                    )
+                    if move_failures >= max_move_failures:
+                        logger.warning(
+                            "preflight_move_failures_exceeded",
+                            scenario_id=scenario.scenario_id,
+                            failures=move_failures,
+                        )
+                        break
+                    continue
+                except Exception as exc:
+                    move_failures += 1
+                    logger.warning(
+                        "preflight_move_failed",
+                        scenario_id=scenario.scenario_id,
+                        error=str(exc),
+                        error_type=type(exc).__name__,
+                        target_n=n,
+                        target_e=e,
+                        target_altitude_agl=altitude_agl,
+                        timeout_s=move_timeout_s,
+                        failures=move_failures,
+                    )
+                    await _broadcast_preflight_status(
+                        scenario.scenario_id,
+                        "capturing",
+                        f"Move failed ({move_failures}/{max_move_failures}). Continuing.",
+                        severity=EventSeverity.WARNING,
+                        details={
+                            "capture_count": capture_count[0],
+                            "total_captures": estimated_captures,
+                            "mapping_status": "capturing",
+                            "slam_status": "pending",
+                            "move_failures": move_failures,
+                            "last_move_error": str(exc),
+                            "last_move_target": {
+                                "north_m": n,
+                                "east_m": e,
+                                "altitude_agl_m": altitude_agl,
+                            },
+                        },
+                    )
+                    if move_failures >= max_move_failures:
+                        logger.warning(
+                            "preflight_move_failures_exceeded",
+                            scenario_id=scenario.scenario_id,
+                            failures=move_failures,
+                        )
+                        break
+                    continue
+
+                try:
+                    capture = await bridge.capture_mapping_bundle(
+                        output_dir=session_dir,
+                        include_depth=True,
+                        include_imu=True,
+                    )
+                except Exception as exc:
+                    capture = {"success": False, "error": str(exc)}
+                    logger.warning(
+                        "preflight_capture_failed",
+                        scenario_id=scenario.scenario_id,
+                        error=str(exc),
+                    )
+                if not capture.get("success"):
+                    # Log why capture failed if not an exception
+                    error_reason = capture.get("error", "unknown")
+                    logger.debug(
+                        "preflight_capture_not_successful",
+                        scenario_id=scenario.scenario_id,
+                        error=error_reason,
+                    )
+                if capture.get("success"):
+                    telemetry = capture.get("telemetry") or {}
+                    pose = telemetry.get("pose") if isinstance(telemetry, dict) else None
+                    position = None
+                    orientation = None
+                    if pose:
+                        pos_data = pose.get("position") or {}
+                        ori = pose.get("orientation") or {}
+                        position = [
+                            float(pos_data.get("x", 0.0)),
+                            float(pos_data.get("y", 0.0)),
+                            float(pos_data.get("z", 0.0)),
+                        ]
+                        orientation = list(
+                            _quat_to_euler_deg(
+                                float(ori.get("w", 1.0)),
+                                float(ori.get("x", 0.0)),
+                                float(ori.get("y", 0.0)),
+                                float(ori.get("z", 0.0)),
+                            )
+                        )
+
+                    if not calibration_set:
+                        cam = capture.get("camera") or {}
+                        intrinsics = cam.get("intrinsics") or {}
+                        resolution = cam.get("resolution") or [0, 0]
+                        calibration = SensorCalibration(
+                            fx=float(intrinsics.get("fx", 0.0)),
+                            fy=float(intrinsics.get("fy", 0.0)),
+                            cx=float(intrinsics.get("cx", 0.0)),
+                            cy=float(intrinsics.get("cy", 0.0)),
+                            width=int(intrinsics.get("width") or (resolution[0] if len(resolution) > 0 else 0)),
+                            height=int(intrinsics.get("height") or (resolution[1] if len(resolution) > 1 else 0)),
+                        )
+                        manifest_builder.set_calibration(calibration)
+                        calibration_set = True
+
+                    manifest_builder.add_frame(
+                        timestamp_s=_timestamp_s(capture),
+                        image_path=_rel_path(capture.get("files", {}).get("rgb")) or "",
+                        depth_path=_rel_path(capture.get("files", {}).get("depth")),
+                        position=position,
+                        orientation=orientation,
+                    )
+                    capture_count[0] += 1
+                    # Broadcast capture progress every 5 captures to reduce overhead
+                    if capture_count[0] % 5 == 0 or capture_count[0] == estimated_captures:
+                        await _broadcast_preflight_status(
+                            scenario.scenario_id,
+                            "capturing",
+                            f"Captured {capture_count[0]}/{estimated_captures} frames.",
+                            details={
+                                "capture_count": capture_count[0],
+                                "total_captures": estimated_captures,
+                                "mapping_status": "capturing",
+                                "slam_status": "pending",
+                            },
+                        )
+                else:
+                    capture_failures += 1
+                    await _broadcast_preflight_status(
+                        scenario.scenario_id,
+                        "capturing",
+                        f"Capture failed ({capture_failures}/{max_capture_failures}). Continuing.",
+                        severity=EventSeverity.WARNING,
+                        details={
+                            "capture_count": capture_count[0],
+                            "total_captures": estimated_captures,
+                            "mapping_status": "capturing",
+                            "slam_status": "pending",
+                            "capture_failures": capture_failures,
+                        },
+                    )
+                    if capture_failures >= max_capture_failures:
+                        logger.warning(
+                            "preflight_capture_failures_exceeded",
+                            scenario_id=scenario.scenario_id,
+                            failures=capture_failures,
+                        )
+                        break
+                await asyncio.sleep(float(mapping_cfg.preflight_capture_interval_s))
+
+            if move_failures >= max_move_failures or capture_failures >= max_capture_failures:
+                break
+
+        # Broadcast SLAM starting
+        await _broadcast_preflight_status(
+            scenario.scenario_id,
+            "processing",
+            f"Running SLAM on {capture_count[0]} frames...",
+            details={
+                "capture_count": capture_count[0],
+                "total_captures": estimated_captures,
+                "mapping_status": "processing",
+                "slam_status": "running",
+            },
+        )
+
+        backend = getattr(mapping_cfg, "slam_backend", "telemetry") or "telemetry"
+        args = SimpleNamespace(
+            input_dir=str(session_dir),
+            output_dir=str(output_dir),
+            backend=backend,
+            allow_telemetry_fallback=bool(getattr(mapping_cfg, "slam_allow_fallback", True)),
+            no_pointcloud=False,
+            max_points=mapping_cfg.max_points,
+            depth_subsample=6,
+            min_time_interval_s=None,
+            max_time_interval_s=None,
+            min_translation_m=None,
+            min_rotation_deg=None,
+            velocity_threshold_ms=None,
+            blur_threshold=None,
+            min_feature_count=None,
+            overlap_target=None,
+        )
+        if capture_count[0] == 0:
+            # No captures collected - skip SLAM and continue gracefully
+            logger.warning(
+                "preflight_mapping_no_captures",
+                scenario_id=scenario.scenario_id,
+                message="No captures collected - check AirSim camera connection",
+            )
+            await _broadcast_preflight_status(
+                scenario.scenario_id,
+                "complete",
+                "Preflight completed without map (no captures collected).",
+                severity=EventSeverity.WARNING,
+                details={
+                    "capture_count": 0,
+                    "total_captures": estimated_captures,
+                    "mapping_status": "skipped",
+                    "slam_status": "skipped",
+                    "quality": 0,
+                },
+            )
+            return  # Exit gracefully without raising error
+
+        slam_result = await asyncio.to_thread(run_slam_runner, args)
+        map_points = output_dir / "map_points.ply"
+        if slam_result != 0 and not map_points.exists():
+            raise RuntimeError(f"SLAM runner failed (backend={backend}, code={slam_result})")
+
+        # Broadcast SLAM complete, starting fusion
+        await _broadcast_preflight_status(
+            scenario.scenario_id,
+            "processing",
+            "SLAM complete. Fusing navigation map...",
+            details={
+                "capture_count": capture_count[0],
+                "total_captures": estimated_captures,
+                "mapping_status": "fusing",
+                "slam_status": "complete",
+            },
+        )
+
+        map_points = output_dir / "map_points.ply"
+        if map_points.exists():
+            fusion = MapFusion(
+                MapFusionConfig(
+                    resolution_m=mapping_cfg.map_resolution_m,
+                    tile_size_cells=getattr(mapping_cfg, "tile_size_cells", 120),
+                    voxel_size_m=mapping_cfg.voxel_size_m,
+                    max_points=mapping_cfg.max_points,
+                    min_points=mapping_cfg.min_points,
+                )
+            )
+            fused = fusion.build_navigation_map(
+                point_cloud_path=map_points,
+                map_id=output_dir.name,
+                scenario_id=scenario.scenario_id,
+                source="slam_preflight",
+            )
+            server_state.navigation_map = fused.navigation_map
+            if server_state.airsim_action_executor:
+                executor_ref = server_state.airsim_action_executor
+                if hasattr(executor_ref, "set_navigation_map"):
+                    executor_ref.set_navigation_map(fused.navigation_map)
+                else:
+                    executor_ref.set_avoid_zones(fused.navigation_map.get("obstacles", []))
+
+    try:
+        attempts = retry_count + 1
+        for attempt in range(1, attempts + 1):
+            try:
+                await asyncio.wait_for(_perform_mapping(), timeout=timeout_s)
+                logger.info("preflight_mapping_complete", scenario_id=scenario.scenario_id)
+                # Extract quality from navigation map if available
+                quality = None
+                obstacle_count = 0
+                if server_state.navigation_map:
+                    meta = server_state.navigation_map.get("metadata", {})
+                    quality = meta.get("map_quality_score")
+                    obstacle_count = len(server_state.navigation_map.get("obstacles", []))
+                await _broadcast_preflight_status(
+                    scenario.scenario_id,
+                    "complete",
+                    "Preflight mapping completed successfully.",
+                    details={
+                        "attempt": attempt,
+                        "capture_count": capture_count[0],
+                        "total_captures": estimated_captures,
+                        "mapping_status": "complete",
+                        "slam_status": "complete",
+                        "quality": quality,
+                        "obstacle_count": obstacle_count,
+                    },
+                )
+                return
+            except asyncio.TimeoutError:
+                logger.warning("preflight_mapping_timeout", scenario_id=scenario.scenario_id)
+                await _broadcast_preflight_status(
+                    scenario.scenario_id,
+                    "timeout",
+                    "Preflight mapping timed out.",
+                    severity=EventSeverity.WARNING,
+                    details={
+                        "attempt": attempt,
+                        "timeout_s": timeout_s,
+                        "capture_count": capture_count[0],
+                        "total_captures": estimated_captures,
+                        "mapping_status": "timeout",
+                        "slam_status": "failed",
+                    },
+                )
+                await _recover_preflight("timeout")
+            except Exception as exc:
+                logger.warning(
+                    "preflight_mapping_failed",
+                    scenario_id=scenario.scenario_id,
+                    error=str(exc),
+                )
+                await _broadcast_preflight_status(
+                    scenario.scenario_id,
+                    "failed",
+                    f"Preflight mapping failed: {str(exc)[:100]}",
+                    severity=EventSeverity.ERROR,
+                    details={
+                        "attempt": attempt,
+                        "error": str(exc),
+                        "capture_count": capture_count[0],
+                        "total_captures": estimated_captures,
+                        "mapping_status": "failed",
+                        "slam_status": "failed",
+                    },
+                )
+                await _recover_preflight("failure", error=str(exc))
+
+            if attempt < attempts:
+                await _broadcast_preflight_status(
+                    scenario.scenario_id,
+                    "retrying",
+                    f"Retrying preflight mapping (attempt {attempt + 1}/{attempts}).",
+                    severity=EventSeverity.WARNING,
+                    details={
+                        "attempt": attempt + 1,
+                        "capture_count": 0,
+                        "total_captures": estimated_captures,
+                        "mapping_status": "retrying",
+                        "slam_status": "pending",
+                    },
+                )
+                await asyncio.sleep(retry_delay_s)
+    finally:
+        if manifest_builder.manifest.frames:
+            manifest_builder.save()
 
 
 def register_scenario_routes(app: FastAPI) -> None:
@@ -261,6 +991,12 @@ def register_scenario_routes(app: FastAPI) -> None:
                     "priority": a.priority,
                     "has_anomaly": a.has_anomaly,
                     "anomaly_severity": a.anomaly_severity,
+                    "altitude_m": a.altitude_m,
+                    "inspection_altitude_agl": a.inspection_altitude_agl,
+                    "orbit_radius_m": a.orbit_radius_m,
+                    "dwell_time_s": a.dwell_time_s,
+                    "scale": a.scale,
+                    "rotation_deg": a.rotation_deg,
                     "position": {
                         "latitude": a.latitude,
                         "longitude": a.longitude,
@@ -364,6 +1100,45 @@ def register_scenario_routes(app: FastAPI) -> None:
                 drones=len(scenario.drones),
                 assets=len(scenario.assets),
                 defects=len(scenario.defects),
+            )
+
+            # Seed the shared world model so live decisions see scenario assets.
+            server_state.world_model.reset_assets()
+            for asset in scenario.assets:
+                asset_type = (
+                    AssetType(asset.asset_type)
+                    if asset.asset_type in [e.value for e in AssetType]
+                    else AssetType.OTHER
+                )
+                server_state.world_model.add_asset(
+                    Asset(
+                        asset_id=asset.asset_id,
+                        name=asset.name,
+                        asset_type=asset_type,
+                        position=Position(
+                            latitude=asset.latitude,
+                            longitude=asset.longitude,
+                            altitude_msl=float(asset.altitude_m or 0.0),
+                        ),
+                        priority=asset.priority,
+                        inspection_altitude_agl=asset.inspection_altitude_agl,
+                        orbit_radius_m=asset.orbit_radius_m,
+                        dwell_time_s=asset.dwell_time_s,
+                    )
+                )
+                if asset.has_anomaly:
+                    server_state.world_model.add_anomaly(
+                        Anomaly(
+                            anomaly_id=f"anom_{asset.asset_id}",
+                            asset_id=asset.asset_id,
+                            detected_at=datetime.now(),
+                            severity=asset.anomaly_severity,
+                            description=f"Pre-existing anomaly on {asset.name}",
+                        )
+                    )
+            server_state.world_model.start_mission(
+                mission_id=f"scenario_{scenario.scenario_id}",
+                mission_name=scenario.name,
             )
 
             def on_decision(drone_id: str, goal: Goal, decision: dict) -> None:
@@ -622,6 +1397,8 @@ def register_scenario_routes(app: FastAPI) -> None:
                                 )
                                 return
                             await asyncio.sleep(1.0)
+
+                        await _run_preflight_slam_mapping(scenario, executor)
 
                         # Fly to each asset in sequence
                         logger.info(

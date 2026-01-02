@@ -457,7 +457,7 @@ class UnrealConnectionManager:
 
         disconnected = []
 
-        for conn_id, websocket in self.connections.items():
+        for conn_id, websocket in list(self.connections.items()):
             # Filter by drone subscription
             if drone_id:
                 subs = self.drone_subscriptions.get(conn_id, set())
@@ -486,7 +486,7 @@ class UnrealConnectionManager:
 
         disconnected = []
 
-        for conn_id, websocket in self.connections.items():
+        for conn_id, websocket in list(self.connections.items()):
             if drone_id:
                 subs = self.drone_subscriptions.get(conn_id, set())
                 if subs and drone_id not in subs:

@@ -3,10 +3,24 @@
 Lightweight components for vehicle-side execution.
 """
 
-from agent.client.action_executor import ActionExecutor
-from agent.client.state_collector import StateCollector
+from __future__ import annotations
 
-__all__ = [
-    "ActionExecutor",
-    "StateCollector",
-]
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from agent.client.action_executor import ActionExecutor
+    from agent.client.state_collector import StateCollector
+
+__all__ = ["ActionExecutor", "StateCollector"]
+
+
+def __getattr__(name: str):
+    if name == "ActionExecutor":
+        from agent.client.action_executor import ActionExecutor
+
+        return ActionExecutor
+    if name == "StateCollector":
+        from agent.client.state_collector import StateCollector
+
+        return StateCollector
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

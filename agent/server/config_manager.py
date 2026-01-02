@@ -15,6 +15,20 @@ from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
 
+# =============================================================================
+# Global Constants - Single source of truth for ports and URLs
+# =============================================================================
+DEFAULT_SERVER_PORT = 8090
+DEFAULT_WEBSOCKET_PATH = "/ws/unreal"
+
+def get_default_server_url(host: str = "localhost", port: int | None = None) -> str:
+    """Get the default server URL."""
+    return f"http://{host}:{port or DEFAULT_SERVER_PORT}"
+
+def get_default_websocket_url(host: str = "localhost", port: int | None = None) -> str:
+    """Get the default WebSocket URL for Unreal connections."""
+    return f"ws://{host}:{port or DEFAULT_SERVER_PORT}{DEFAULT_WEBSOCKET_PATH}"
+
 
 class RedisSettings(BaseModel):
     """Redis connection settings."""
@@ -68,12 +82,23 @@ class VisionSettings(BaseModel):
 class SimulationSettings(BaseModel):
     """Simulation settings."""
 
-    enabled: bool = Field(default=False, description="Enable simulation mode")
+    enabled: bool = Field(default=True, description="Enable simulation mode")
 
     # AirSim settings
-    airsim_enabled: bool = Field(default=False, description="Enable AirSim integration")
+    airsim_enabled: bool = Field(default=True, description="Enable AirSim integration")
     airsim_host: str = Field(default="127.0.0.1")
-    airsim_vehicle_name: str = Field(default="Drone1")
+    airsim_vehicle_name: str = Field(default="Drone1", description="Primary vehicle (legacy)")
+
+    # Multi-drone vehicle mapping: scenario drone_id -> AirSim vehicle name
+    # Example: {"alpha": "Drone1", "bravo": "Drone2", "charlie": "Drone3"}
+    # If empty, uses auto-mapping based on available vehicles
+    airsim_vehicle_mapping: dict[str, str] = Field(
+        default_factory=dict,
+        description="Mapping of scenario drone_id to AirSim vehicle names",
+    )
+
+    # Maximum number of drones to support (for auto-spawning if needed)
+    max_drones: int = Field(default=4, description="Maximum concurrent drones")
 
     # SITL settings
     sitl_enabled: bool = Field(default=False, description="Enable ArduPilot SITL")
@@ -84,6 +109,17 @@ class SimulationSettings(BaseModel):
     home_latitude: float = Field(default=37.7749)
     home_longitude: float = Field(default=-122.4194)
     home_altitude: float = Field(default=0.0)
+
+    # Battery simulation for AirSim telemetry
+    battery_sim_enabled: bool = Field(default=True)
+    battery_initial_percent: float = Field(default=100.0)
+    battery_min_percent: float = Field(default=5.0)
+    battery_max_percent: float = Field(default=100.0)
+    battery_drain_hover_percent_per_min: float = Field(default=6.0)
+    battery_drain_move_percent_per_m: float = Field(default=0.015)
+    battery_charge_percent_per_min: float = Field(default=25.0)
+    battery_aggressive_multiplier: float = Field(default=1.3)
+    battery_low_speed_threshold_ms: float = Field(default=0.5)
 
 
 class AgentSettings(BaseModel):
@@ -122,6 +158,24 @@ class AgentSettings(BaseModel):
     max_decisions_per_mission: int = Field(default=1000)
 
 
+class MissionSuccessWeights(BaseModel):
+    """Weights for mission success scoring."""
+
+    coverage: float = Field(default=0.30, ge=0.0)
+    anomaly: float = Field(default=0.25, ge=0.0)
+    decision_quality: float = Field(default=0.20, ge=0.0)
+    execution: float = Field(default=0.15, ge=0.0)
+    resource_use: float = Field(default=0.10, ge=0.0)
+
+
+class MissionSuccessThresholds(BaseModel):
+    """Grade thresholds for mission success scoring."""
+
+    excellent: float = Field(default=85.0, ge=0.0, le=100.0)
+    good: float = Field(default=70.0, ge=0.0, le=100.0)
+    fair: float = Field(default=55.0, ge=0.0, le=100.0)
+
+
 class DashboardSettings(BaseModel):
     """Dashboard/UI settings."""
 
@@ -131,13 +185,122 @@ class DashboardSettings(BaseModel):
     show_vision: bool = Field(default=True)
     show_reasoning: bool = Field(default=True)
     theme: str = Field(default="dark", description="UI theme: dark, light")
+    mission_success_weights: MissionSuccessWeights = Field(
+        default_factory=MissionSuccessWeights,
+        description="Weights for mission success score components",
+    )
+    mission_success_thresholds: MissionSuccessThresholds = Field(
+        default_factory=MissionSuccessThresholds,
+        description="Grade thresholds for mission success score",
+    )
+
+
+class MappingSettings(BaseModel):
+    """Mapping pipeline settings."""
+
+    enabled: bool = Field(default=True, description="Enable SLAM/splat map updates")
+    update_interval_s: float = Field(default=2.0, description="Map update loop interval")
+    prefer_splat: bool = Field(default=False, description="Prefer splat preview over SLAM points")
+    max_map_age_s: float = Field(default=60.0, description="Max age before map considered stale")
+    min_quality_score: float = Field(default=0.3, description="Minimum quality score to accept map")
+    slam_dir: str = Field(default="data/slam_runs")
+    splat_dir: str = Field(default="data/splats")
+    map_resolution_m: float = Field(default=2.0)
+    tile_size_cells: int = Field(default=120, description="Occupancy tile size in cells")
+    voxel_size_m: float | None = Field(default=None)
+    max_points: int = Field(default=200000)
+    min_points: int = Field(default=50)
+    fused_map_dir: str = Field(default="data/maps/fused", description="Fused map artifact storage")
+    fused_map_max_versions: int | None = Field(default=None, description="Max fused map versions per map")
+    fused_map_max_age_days: int | None = Field(default=None, description="Max age in days for fused maps")
+    fused_map_keep_last: int = Field(default=3, description="Keep last N fused map versions")
+    slam_backend: str = Field(
+        default="telemetry",
+        description="SLAM backend: telemetry, orb_slam3, vins_fusion",
+    )
+    slam_allow_fallback: bool = Field(
+        default=True,
+        description="Allow telemetry fallback when external SLAM backends fail",
+    )
+
+    # Proxy regeneration settings (Agent B Phase 3)
+    proxy_regeneration_enabled: bool = Field(default=True, description="Enable planning proxy regeneration")
+    proxy_regeneration_cadence_s: float = Field(default=30.0, description="Min interval between proxy regenerations")
+    proxy_max_points: int = Field(default=100000, description="Max points for planning proxy")
+    proxy_force_regenerate: bool = Field(default=False, description="Force regenerate proxy on every update")
+
+    # Splat training settings
+    splat_backend: str = Field(default="stub", description="Splat training backend: stub, gsplat, nerfstudio")
+    splat_iterations: int = Field(default=7000, description="Training iterations for real backends")
+    splat_auto_train: bool = Field(default=False, description="Auto-train splat after SLAM capture")
+
+    # Preflight mapping pass
+    preflight_enabled: bool = Field(default=True, description="Run preflight map pass before targets")
+    preflight_altitude_agl: float = Field(default=20.0, description="Preflight mapping altitude AGL")
+    preflight_step_m: float = Field(default=15.0, description="Step size along preflight path")
+    preflight_velocity_ms: float = Field(default=4.0, description="Preflight mapping velocity")
+    preflight_capture_interval_s: float = Field(default=0.4, description="Delay between captures")
+    preflight_timeout_s: float = Field(default=180.0, description="Preflight mapping timeout")
+    preflight_retry_count: int = Field(default=0, description="Preflight mapping retry count")
+    preflight_retry_delay_s: float = Field(default=5.0, description="Delay between preflight retries")
+    preflight_move_timeout_s: float = Field(default=30.0, description="Timeout per preflight move")
+    preflight_recovery_timeout_s: float = Field(default=60.0, description="Timeout for recovery move after failure")
+    preflight_max_move_failures: int = Field(
+        default=3,
+        description="Max move failures before aborting preflight mapping",
+    )
+    preflight_max_capture_failures: int = Field(
+        default=5,
+        description="Max capture failures before aborting preflight mapping",
+    )
+    preflight_autorun: bool = Field(default=False, description="Auto-run preflight mapping on startup")
+    preflight_autorun_scenario_id: str | None = Field(
+        default=None,
+        description="Scenario id to use for autorun preflight mapping",
+    )
+    preflight_autorun_delay_s: float = Field(
+        default=6.0,
+        description="Delay before autorun preflight mapping starts",
+    )
+    preflight_autorun_max_attempts: int = Field(
+        default=2,
+        description="Max autorun attempts before giving up",
+    )
+    preflight_autorun_retry_delay_s: float = Field(
+        default=15.0,
+        description="Delay between autorun retry attempts",
+    )
+
+    # Splat proxy generation
+    proxy_regen_interval_s: float = Field(default=60.0, description="Min seconds between proxy rebuilds")
+    proxy_max_points: int = Field(default=120000, description="Max points for splat planning proxy")
+
+    # Real sensor capture (optional)
+    real_capture_enabled: bool = Field(
+        default=False,
+        description="Enable real sensor capture endpoints",
+    )
+    real_capture_output_dir: str = Field(
+        default="data/maps/real_capture",
+        description="Output directory for real sensor capture",
+    )
+    real_capture_camera_index: int = Field(default=0, description="Default camera index")
+    real_capture_width: int = Field(default=1280)
+    real_capture_height: int = Field(default=720)
+    real_capture_fps: int = Field(default=15)
+    real_capture_frames: int = Field(default=120, description="Frames to capture per run")
+    real_capture_interval_s: float = Field(default=0.5, description="Interval between frames")
+    real_capture_calibration_path: str | None = Field(
+        default=None,
+        description="Calibration JSON path for real sensor capture",
+    )
 
 
 class ServerSettings(BaseModel):
     """Server settings."""
 
     host: str = Field(default="0.0.0.0", description="Bind address (0.0.0.0 for all interfaces)")  # noqa: S104
-    port: int = Field(default=8080)
+    port: int = Field(default=DEFAULT_SERVER_PORT)
     log_level: str = Field(default="INFO", description="Logging level")
     cors_origins: list[str] = Field(default=["*"], description="CORS allowed origins")
 
@@ -157,6 +320,7 @@ class AegisConfig(BaseModel):
     simulation: SimulationSettings = Field(default_factory=SimulationSettings)
     agent: AgentSettings = Field(default_factory=AgentSettings)
     dashboard: DashboardSettings = Field(default_factory=DashboardSettings)
+    mapping: MappingSettings = Field(default_factory=MappingSettings)
 
 
 class ConfigManager:
@@ -190,11 +354,36 @@ class ConfigManager:
         self.config_dir = Path(config_dir)
         self.config_dir.mkdir(parents=True, exist_ok=True)
 
+        # Store project root for resolving relative paths
+        self._project_root = self.config_dir.parent
+
         self.config_file = self.config_dir / "aegis_config.yaml"
         self.config = AegisConfig()
         self._loaded = False
 
         self.logger = logger
+
+    @property
+    def project_root(self) -> Path:
+        """Get the project root directory."""
+        return self._project_root
+
+    def resolve_path(self, path_str: str) -> Path:
+        """Resolve a path string relative to project root.
+
+        If the path is absolute, returns it as-is.
+        If the path is relative, resolves it relative to project root.
+
+        Args:
+            path_str: Path string from configuration
+
+        Returns:
+            Resolved absolute path
+        """
+        path = Path(path_str)
+        if path.is_absolute():
+            return path
+        return self._project_root / path
 
     def load(self) -> AegisConfig:
         """Load configuration from file and environment.
@@ -455,12 +644,12 @@ class ConfigManager:
 
     def export_env_template(self) -> str:
         """Generate environment variable template."""
-        template = """# AegisAV Environment Configuration
+        template = f"""# AegisAV Environment Configuration
 # Copy this to .env and customize
 
 # Server
 AEGIS_HOST=0.0.0.0
-AEGIS_PORT=8080
+AEGIS_PORT={DEFAULT_SERVER_PORT}
 AEGIS_LOG_LEVEL=INFO
 
 # Authentication

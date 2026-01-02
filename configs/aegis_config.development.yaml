@@ -9,7 +9,7 @@ config_version: "1.0.0"
 # Server Settings (development friendly)
 server:
   host: "0.0.0.0"
-  port: 8080
+  port: 8090
   log_level: "DEBUG"      # Verbose logging for debugging
   cors_origins:
     - "*"                 # Allow all origins in dev
@@ -63,6 +63,15 @@ simulation:
   home_latitude: 37.7749
   home_longitude: -122.4194
   home_altitude: 0.0
+  battery_sim_enabled: true
+  battery_initial_percent: 100.0
+  battery_min_percent: 5.0
+  battery_max_percent: 100.0
+  battery_drain_hover_percent_per_min: 6.0
+  battery_drain_move_percent_per_m: 0.015
+  battery_charge_percent_per_min: 25.0
+  battery_aggressive_multiplier: 1.8
+  battery_low_speed_threshold_ms: 0.5
 
 # Agent Decision-Making
 agent:
@@ -85,3 +94,51 @@ dashboard:
   show_vision: true
   show_reasoning: true
   theme: "dark"
+
+# Mapping Pipeline Settings
+mapping:
+  enabled: true
+  update_interval_s: 2.0
+  prefer_splat: false
+  max_map_age_s: 60.0
+  min_quality_score: 0.3
+  slam_dir: "data/slam_runs"
+  splat_dir: "data/splats"
+  map_resolution_m: 2.0
+  tile_size_cells: 120
+  voxel_size_m: null
+  max_points: 200000
+  min_points: 50
+  fused_map_dir: "data/maps/fused"
+  fused_map_max_versions: null
+  fused_map_max_age_days: null
+  fused_map_keep_last: 3
+  slam_backend: "telemetry"
+  slam_allow_fallback: true
+  preflight_enabled: true
+  preflight_altitude_agl: 20.0
+  preflight_step_m: 15.0
+  preflight_velocity_ms: 4.0
+  preflight_capture_interval_s: 0.4
+  preflight_timeout_s: 180.0
+  preflight_retry_count: 0
+  preflight_retry_delay_s: 5.0
+  preflight_move_timeout_s: 30.0
+  preflight_max_move_failures: 3
+  preflight_max_capture_failures: 5
+  preflight_autorun: true
+  preflight_autorun_scenario_id: "normal_ops_001"
+  preflight_autorun_delay_s: 6.0
+  preflight_autorun_max_attempts: 2
+  preflight_autorun_retry_delay_s: 15.0
+  proxy_regen_interval_s: 60.0
+  proxy_max_points: 120000
+  real_capture_enabled: false
+  real_capture_output_dir: "data/maps/real_capture"
+  real_capture_camera_index: 0
+  real_capture_width: 1280
+  real_capture_height: 720
+  real_capture_fps: 15
+  real_capture_frames: 120
+  real_capture_interval_s: 0.5
+  real_capture_calibration_path: null

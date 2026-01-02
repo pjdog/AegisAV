@@ -31,6 +31,10 @@ import tempfile
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from typing import Literal
 
 # Check for tkinter availability
 try:
@@ -87,9 +91,10 @@ LOG_FILE_ACTIVE = LOG_FILE_PRIMARY
 URLS = {
     "unreal_engine": "https://www.unrealengine.com/download",
     "epic_games": "https://store.epicgames.com/download",
-    "airsim_releases": "https://github.com/microsoft/AirSim/releases",
-    "airsim_docs": "https://microsoft.github.io/AirSim/",
-    "airsim_ue5": "https://github.com/microsoft/AirSim/blob/main/docs/unreal_upgrade.md",
+    # Cosys-AirSim - actively maintained fork with UE 5.5 support
+    "airsim_releases": "https://github.com/Cosys-Lab/Cosys-AirSim/releases",
+    "airsim_docs": "https://cosys-lab.github.io/Cosys-AirSim/",
+    "airsim_github": "https://github.com/Cosys-Lab/Cosys-AirSim",
     "python": "https://www.python.org/downloads/",
     "nodejs": "https://nodejs.org/",
     "git": "https://git-scm.com/downloads",
@@ -193,7 +198,32 @@ class SetupConfig:
     simulation_enabled: bool = True
     airsim_enabled: bool = True
     sitl_enabled: bool = True
-    build_airsim_overlay: bool = False  # Build AirSim from source with AegisAV Overlay plugin
+    build_airsim_overlay: bool = True  # Build AirSim from source with AegisAV Overlay plugin (default: True for full features)
+
+    # Version and install tracking
+    install_version: str = APP_VERSION
+    install_date: str = ""
+
+    # Theme preference
+    theme_preference: str = "system"  # "dark", "light", "system"
+
+    # Desktop shortcut options
+    create_desktop_shortcuts: bool = True
+    create_start_menu_shortcuts: bool = True  # Windows only
+    shortcuts_to_create: list[str] = field(
+        default_factory=lambda: ["server", "dashboard", "demo"]
+    )
+
+    # Launch options
+    open_dashboard_on_start: bool = True
+
+    # Update/reinstall tracking
+    install_mode: str = "fresh"  # "fresh", "update", "reinstall"
+
+    # Reinstall options (for maintenance mode)
+    reinstall_npm: bool = False
+    rebuild_frontend: bool = False
+    update_python_packages: bool = False
 
     def to_dict(self) -> dict:
         return {
@@ -212,11 +242,120 @@ class SetupConfig:
             "airsim_enabled": self.airsim_enabled,
             "sitl_enabled": self.sitl_enabled,
             "build_airsim_overlay": self.build_airsim_overlay,
+            "install_version": self.install_version,
+            "install_date": self.install_date,
+            "theme_preference": self.theme_preference,
+            "create_desktop_shortcuts": self.create_desktop_shortcuts,
+            "create_start_menu_shortcuts": self.create_start_menu_shortcuts,
+            "shortcuts_to_create": self.shortcuts_to_create,
+            "open_dashboard_on_start": self.open_dashboard_on_start,
+            "install_mode": self.install_mode,
         }
 
     def save(self, path: Path) -> None:
         with open(path, "w") as f:
             json.dump(self.to_dict(), f, indent=2)
+
+    @classmethod
+    def load(cls, path: Path) -> "SetupConfig":
+        """Load configuration from a JSON file."""
+        try:
+            with open(path, "r") as f:
+                data = json.load(f)
+
+            config = cls()
+            if data.get("project_root"):
+                config.project_root = Path(data["project_root"])
+            if data.get("unreal_engine_path"):
+                config.unreal_engine_path = Path(data["unreal_engine_path"])
+            if data.get("airsim_path"):
+                config.airsim_path = Path(data["airsim_path"])
+            if data.get("ardupilot_path"):
+                config.ardupilot_path = Path(data["ardupilot_path"])
+            if data.get("python_path"):
+                config.python_path = Path(data["python_path"])
+            if data.get("uv_root"):
+                config.uv_root = Path(data["uv_root"])
+
+            # Simple fields
+            for key in [
+                "server_port", "use_redis", "use_gpu", "create_shortcuts",
+                "install_frontend", "simulation_enabled", "airsim_enabled",
+                "sitl_enabled", "build_airsim_overlay", "install_version",
+                "install_date", "theme_preference", "create_desktop_shortcuts",
+                "create_start_menu_shortcuts", "shortcuts_to_create",
+                "open_dashboard_on_start", "install_mode",
+            ]:
+                if key in data:
+                    setattr(config, key, data[key])
+
+            return config
+        except Exception:
+            return cls()
+
+
+# =============================================================================
+# Installation Detection
+# =============================================================================
+
+
+def detect_existing_installation() -> tuple[bool, SetupConfig | None, str | None]:
+    """Detect if AegisAV is already installed.
+
+    Checks for:
+    1. .aegis_setup.json exists and is valid
+    2. configs/aegis_config.yaml exists
+    3. Python packages are importable (agent module)
+    4. Frontend dist/ exists (if frontend was enabled)
+
+    Returns:
+        Tuple of (is_installed, previous_config, version)
+    """
+    config_path = PROJECT_ROOT / ".aegis_setup.json"
+    yaml_config = PROJECT_ROOT / "configs" / "aegis_config.yaml"
+    frontend_dist = PROJECT_ROOT / "frontend" / "dist"
+
+    # Check if setup config exists
+    if not config_path.exists():
+        return False, None, None
+
+    # Try to load previous configuration
+    try:
+        previous_config = SetupConfig.load(config_path)
+        version = previous_config.install_version or "unknown"
+    except Exception:
+        return False, None, None
+
+    # Verify some installation artifacts exist
+    indicators = 0
+
+    if yaml_config.exists():
+        indicators += 1
+
+    if frontend_dist.exists() and any(frontend_dist.iterdir()):
+        indicators += 1
+
+    # Try to import the agent module
+    try:
+        import importlib.util
+        spec = importlib.util.find_spec("agent")
+        if spec is not None:
+            indicators += 1
+    except Exception:
+        pass
+
+    # Check for launch scripts
+    if IS_WINDOWS:
+        if (PROJECT_ROOT / "scripts" / "start_server.bat").exists():
+            indicators += 1
+    else:
+        if (PROJECT_ROOT / "scripts" / "start_server.sh").exists():
+            indicators += 1
+
+    # Consider installed if we have at least 2 indicators
+    is_installed = indicators >= 2
+
+    return is_installed, previous_config if is_installed else None, version if is_installed else None
 
 
 # =============================================================================
@@ -627,7 +766,7 @@ def init_log() -> None:
 
 def get_dependencies() -> list[Dependency]:
     """Get list of all dependencies to check."""
-    return [
+    deps = [
         Dependency(
             name="Python",
             check_cmd=[sys.executable, "--version"],
@@ -669,6 +808,130 @@ def get_dependencies() -> list[Dependency]:
             install_cmd_windows="powershell -NoProfile -ExecutionPolicy Bypass -Command \"irm https://astral.sh/uv/install.ps1 | iex\"",
         ),
     ]
+
+    # Add Windows-specific dependencies for AirSim build
+    if IS_WINDOWS:
+        # Visual Studio and Windows SDK are required to build AirSim and UE5 projects
+        # The "Platform Win64 is not a valid platform" error is caused by missing Windows SDK
+        deps.extend([
+            Dependency(
+                name="Visual Studio (C++)",
+                check_cmd=["__custom_check__"],  # Special marker for custom check
+                required=False,  # Required only if building AirSim
+                install_url="https://visualstudio.microsoft.com/downloads/",
+            ),
+            Dependency(
+                name="Windows SDK",
+                check_cmd=["__custom_check__"],  # Special marker for custom check
+                required=False,  # Required only if building AirSim
+                install_url="https://visualstudio.microsoft.com/downloads/",
+            ),
+        ])
+
+    return deps
+
+
+def find_visual_studio_2022() -> tuple[Path | None, str | None]:
+    """Find Visual Studio installation and vcvarsall.bat.
+
+    Checks for VS 2026, 2022, and 2019 in that order.
+
+    Returns:
+        Tuple of (vcvarsall_path, version_and_edition) or (None, None) if not found.
+    """
+    vs_editions = ["Community", "Professional", "Enterprise", "BuildTools"]
+    # VS version folder names: VS 2026 = "18", VS 2022 = "2022", VS 2019 = "2019"
+    # Check newer versions first
+    vs_versions = [
+        ("18", "2026"),      # VS 2026 uses folder "18"
+        ("2026", "2026"),    # Also check in case they change it
+        ("2022", "2022"),    # VS 2022
+        ("2019", "2019"),    # VS 2019
+        ("17", "2022"),      # VS 2022 alternate folder name
+        ("16", "2019"),      # VS 2019 alternate folder name
+    ]
+    vs_roots = [
+        Path("C:/Program Files/Microsoft Visual Studio"),
+        Path("C:/Program Files (x86)/Microsoft Visual Studio"),
+    ]
+
+    for vs_root in vs_roots:
+        for folder_name, display_name in vs_versions:
+            for edition in vs_editions:
+                vcvarsall = vs_root / folder_name / edition / "VC" / "Auxiliary" / "Build" / "vcvarsall.bat"
+                if vcvarsall.exists():
+                    return vcvarsall, f"{display_name} {edition}"
+
+    return None, None
+
+
+def find_windows_sdk() -> tuple[Path | None, str | None]:
+    """Find Windows SDK installation.
+
+    Returns:
+        Tuple of (sdk_path, version) or (None, None) if not found.
+    """
+    sdk_base = Path("C:/Program Files (x86)/Windows Kits/10/Include")
+    if not sdk_base.exists():
+        return None, None
+
+    # Find latest version
+    versions = []
+    try:
+        for item in sdk_base.iterdir():
+            if item.is_dir() and item.name.startswith("10."):
+                versions.append(item.name)
+    except (PermissionError, OSError):
+        pass
+
+    if versions:
+        versions.sort(reverse=True)
+        return sdk_base / versions[0], versions[0]
+
+    return None, None
+
+
+def find_ue5_win64_platform(ue5_path: Path | None = None) -> tuple[bool, str]:
+    """Check if UE5 has Win64 platform support.
+
+    Returns:
+        Tuple of (has_win64, message).
+    """
+    if not ue5_path:
+        # Try to auto-detect UE5
+        ue5_candidates = [
+            Path("D:/game_pass_games/UE_5.7"),
+            Path("D:/game_pass_games/UE_5.5"),
+            Path("C:/Program Files/Epic Games/UE_5.5"),
+            Path("C:/Program Files/Epic Games/UE_5.4"),
+            Path("C:/Program Files/Epic Games/UE_5.3"),
+        ]
+        for candidate in ue5_candidates:
+            if candidate.exists():
+                ue5_path = candidate
+                break
+
+    if not ue5_path or not ue5_path.exists():
+        return False, "UE5 not found"
+
+    # Check for Win64 platform support files
+    # UnrealEditor.exe in Win64 folder is the definitive indicator
+    win64_editor = ue5_path / "Engine" / "Binaries" / "Win64" / "UnrealEditor.exe"
+    if win64_editor.exists():
+        return True, f"{ue5_path.name}"
+
+    # Also check for older UE4 naming
+    ue4_editor = ue5_path / "Engine" / "Binaries" / "Win64" / "UE4Editor.exe"
+    if ue4_editor.exists():
+        return True, f"{ue5_path.name}"
+
+    # Check if Win64 folder exists at all
+    win64_folder = ue5_path / "Engine" / "Binaries" / "Win64"
+    if win64_folder.exists():
+        # Folder exists but no editor - might be a stripped install
+        return False, f"Win64 folder exists but UnrealEditor.exe missing in {ue5_path.name}"
+
+    return False, f"Win64 not found in {ue5_path.name}"
 
 
 # =============================================================================
@@ -766,6 +1029,141 @@ Project Location: {PROJECT_ROOT}"""
 
     def get_title(self) -> str:
         return "Welcome"
+
+
+class MaintenanceModeStep(StepFrame):
+    """Shown when existing installation detected. Allows Update/Reinstall/Fresh Install."""
+
+    def __init__(self, parent: tk.Widget, wizard: SetupWizard) -> None:
+        super().__init__(parent, wizard)
+        self._build_ui()
+
+    def _build_ui(self) -> None:
+        # Title
+        title = ttk.Label(
+            self,
+            text="Existing Installation Detected",
+            font=("Helvetica", 18, "bold"),
+        )
+        title.pack(pady=(20, 10))
+
+        # Info about existing installation
+        info_frame = ttk.LabelFrame(self, text="Current Installation", padding=15)
+        info_frame.pack(fill="x", padx=50, pady=20)
+
+        version = getattr(self.wizard, "previous_version", "unknown")
+        install_date = self.config.install_date or "Unknown date"
+
+        info_text = f"""Version: {version}
+Installed: {install_date}
+Location: {PROJECT_ROOT}"""
+
+        ttk.Label(info_frame, text=info_text, font=("Courier", 10)).pack(anchor="w")
+
+        # Mode selection
+        mode_frame = ttk.LabelFrame(self, text="What would you like to do?", padding=15)
+        mode_frame.pack(fill="x", padx=50, pady=10)
+
+        self.mode_var = tk.StringVar(value="update")
+
+        modes = [
+            ("update", "Update", "Keep settings, update packages only"),
+            ("reinstall", "Reinstall", "Keep settings, reinstall all components"),
+            ("fresh", "Fresh Install", "Reset everything to defaults"),
+        ]
+
+        for value, label, desc in modes:
+            frame = ttk.Frame(mode_frame)
+            frame.pack(fill="x", pady=5)
+
+            ttk.Radiobutton(
+                frame,
+                text=label,
+                variable=self.mode_var,
+                value=value,
+                command=self._on_mode_change,
+            ).pack(side="left")
+
+            ttk.Label(
+                frame,
+                text=f" - {desc}",
+                font=("Helvetica", 9),
+                foreground="gray",
+            ).pack(side="left")
+
+        # Advanced options (collapsible)
+        self.advanced_frame = ttk.LabelFrame(self, text="Advanced Options", padding=15)
+        self.advanced_frame.pack(fill="x", padx=50, pady=10)
+
+        self.reinstall_npm_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(
+            self.advanced_frame,
+            text="Reinstall npm dependencies (delete node_modules)",
+            variable=self.reinstall_npm_var,
+        ).pack(anchor="w")
+
+        self.rebuild_frontend_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(
+            self.advanced_frame,
+            text="Rebuild frontend from scratch",
+            variable=self.rebuild_frontend_var,
+        ).pack(anchor="w", pady=(5, 0))
+
+        self.update_python_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(
+            self.advanced_frame,
+            text="Update Python packages (force reinstall)",
+            variable=self.update_python_var,
+        ).pack(anchor="w", pady=(5, 0))
+
+        # Update UI based on initial mode
+        self._on_mode_change()
+
+    def _on_mode_change(self) -> None:
+        """Handle mode selection change."""
+        mode = self.mode_var.get()
+
+        if mode == "fresh":
+            # Disable advanced options for fresh install
+            for child in self.advanced_frame.winfo_children():
+                if isinstance(child, ttk.Checkbutton):
+                    child.configure(state="disabled")
+        else:
+            # Enable advanced options
+            for child in self.advanced_frame.winfo_children():
+                if isinstance(child, ttk.Checkbutton):
+                    child.configure(state="normal")
+
+        # For reinstall mode, suggest some options
+        if mode == "reinstall":
+            self.reinstall_npm_var.set(True)
+            self.rebuild_frontend_var.set(True)
+
+    def on_leave(self) -> bool:
+        self.config.install_mode = self.mode_var.get()
+        self.config.reinstall_npm = self.reinstall_npm_var.get()
+        self.config.rebuild_frontend = self.rebuild_frontend_var.get()
+        self.config.update_python_packages = self.update_python_var.get()
+
+        # If fresh install, reset config to defaults (but keep paths)
+        if self.config.install_mode == "fresh":
+            # Preserve paths
+            ue_path = self.config.unreal_engine_path
+            airsim_path = self.config.airsim_path
+            ardupilot_path = self.config.ardupilot_path
+
+            # Reset to defaults
+            self.wizard.config = SetupConfig()
+
+            # Restore paths
+            self.wizard.config.unreal_engine_path = ue_path
+            self.wizard.config.airsim_path = airsim_path
+            self.wizard.config.ardupilot_path = ardupilot_path
+
+        return True
+
+    def get_title(self) -> str:
+        return "Maintenance"
 
 
 class DependencyStep(StepFrame):
@@ -963,6 +1361,31 @@ class DependencyStep(StepFrame):
             else:
                 dep.found = False
                 dep.version = "Not found"
+            self.after(0, lambda: self._update_dep_ui(dep, labels, dep.found))
+            return
+
+        # Custom checks for Windows build dependencies
+        if dep.name == "Visual Studio (C++)":
+            vcvarsall, vs_version = find_visual_studio_2022()
+            if vcvarsall:
+                dep.found = True
+                dep.version = vs_version  # e.g. "2026 Community"
+                dep.path = str(vcvarsall)
+            else:
+                dep.found = False
+                dep.version = "Not installed (required for AirSim)"
+            self.after(0, lambda: self._update_dep_ui(dep, labels, dep.found))
+            return
+
+        if dep.name == "Windows SDK":
+            sdk_path, sdk_version = find_windows_sdk()
+            if sdk_path:
+                dep.found = True
+                dep.version = sdk_version or "Found"
+                dep.path = str(sdk_path)
+            else:
+                dep.found = False
+                dep.version = "Not installed (required for AirSim)"
             self.after(0, lambda: self._update_dep_ui(dep, labels, dep.found))
             return
 
@@ -1436,31 +1859,34 @@ class PythonSetupStep(StepFrame):
         python_exec: str,
         log_line: Callable[[str], None],
     ) -> bool:
-        """Ensure AirSim Python package is installed in the target environment."""
-        self.after(0, lambda: self._log("\n🔎 Checking AirSim Python package..."))
-        check_cmd = [python_exec, "-c", "import airsim; print('OK')"]
+        """Ensure Cosys-AirSim Python package is installed in the target environment.
+
+        Uses cosysairsim package which is the actively maintained fork with UE 5.5 support.
+        The package can be imported as: import cosysairsim as airsim
+        """
+        self.after(0, lambda: self._log("\n🔎 Checking Cosys-AirSim Python package..."))
+        # cosysairsim is imported as 'airsim' for backwards compatibility
+        check_cmd = [python_exec, "-c", "import cosysairsim as airsim; print('OK')"]
         success, output, exit_code = run_command_stream(
             check_cmd,
             timeout=30,
             on_output=log_line,
         )
         if success and "OK" in output:
-            self.after(0, lambda: self._log("✅ AirSim already installed."))
+            self.after(0, lambda: self._log("✅ Cosys-AirSim already installed."))
             return True
 
-        self.after(0, lambda: self._log("Installing AirSim Python package..."))
+        self.after(0, lambda: self._log("Installing Cosys-AirSim Python package..."))
         uv_path = self.uv_path or find_uv_executable()
         if uv_path:
-            self.after(0, lambda: self._log(f"Using uv at {uv_path} for AirSim install."))
+            self.after(0, lambda: self._log(f"Using uv at {uv_path} for Cosys-AirSim install."))
             install_cmd = [
                 uv_path,
                 "pip",
                 "install",
                 "--python",
                 python_exec,
-                "airsim",
-                "msgpack-rpc-python",
-                "backports.ssl_match_hostname",
+                "cosysairsim",  # Cosys-AirSim package (replaces 'airsim')
             ]
             self.after(0, lambda: self._log(f"Running: {' '.join(install_cmd)}"))
             install_success, output, exit_code = run_command_stream(
@@ -1477,9 +1903,7 @@ class PythonSetupStep(StepFrame):
                 "-m",
                 "pip",
                 "install",
-                "airsim",
-                "msgpack-rpc-python",
-                "backports.ssl_match_hostname",
+                "cosysairsim",  # Cosys-AirSim package (replaces 'airsim')
             ]
             self.after(0, lambda: self._log(f"Running: {' '.join(install_cmd)}"))
             install_success, output, exit_code = run_command_stream(
@@ -1489,8 +1913,8 @@ class PythonSetupStep(StepFrame):
             )
 
         if not output.strip():
-            self.after(0, lambda: self._log("AirSim install produced no output."))
-        self.after(0, lambda: self._log(f"AirSim install exit code: {exit_code}"))
+            self.after(0, lambda: self._log("Cosys-AirSim install produced no output."))
+        self.after(0, lambda: self._log(f"Cosys-AirSim install exit code: {exit_code}"))
         if not install_success:
             return False
 
@@ -1500,10 +1924,10 @@ class PythonSetupStep(StepFrame):
             on_output=log_line,
         )
         if success and "OK" in output:
-            self.after(0, lambda: self._log("✅ AirSim installed successfully."))
+            self.after(0, lambda: self._log("✅ Cosys-AirSim installed successfully."))
             return True
 
-        self.after(0, lambda: self._log(f"AirSim import failed: {output}"))
+        self.after(0, lambda: self._log(f"Cosys-AirSim import failed: {output}"))
         return False
 
     def _install_success(self) -> None:
@@ -1697,16 +2121,25 @@ You can always set up Unreal Engine later."""
 
         if IS_WINDOWS:
             possible_paths = [
+                # Custom/Game Pass locations (check first)
+                Path("D:/game_pass_games/UE_5.5"),
+                Path("D:/game_pass_games/UE_5.4"),
+                # Standard Epic Games locations
+                Path("C:/Program Files/Epic Games/UE_5.5"),
                 Path("C:/Program Files/Epic Games/UE_5.4"),
                 Path("C:/Program Files/Epic Games/UE_5.3"),
                 Path("C:/Program Files/Epic Games/UE_5.2"),
                 Path("C:/Program Files/Epic Games/UE_5.1"),
+                Path("D:/Program Files/Epic Games/UE_5.5"),
+                Path("D:/Epic Games/UE_5.5"),
+                Path("E:/Epic Games/UE_5.5"),
             ]
         else:
             home = Path.home()
             possible_paths = [
                 home / "UnrealEngine",
                 Path("/opt/UnrealEngine"),
+                home / "Epic Games/UE_5.5",
                 home / "Epic Games/UE_5.4",
             ]
 
@@ -1729,7 +2162,7 @@ You can always set up Unreal Engine later."""
 
 
 class AirSimSetupStep(StepFrame):
-    """Guide through AirSim setup."""
+    """Guide through Cosys-AirSim setup."""
 
     def __init__(self, parent: tk.Widget, wizard: SetupWizard) -> None:
         super().__init__(parent, wizard)
@@ -1739,14 +2172,14 @@ class AirSimSetupStep(StepFrame):
         # Title
         title = ttk.Label(
             self,
-            text="AirSim Setup",
+            text="Cosys-AirSim Setup",
             font=("Helvetica", 18, "bold"),
         )
         title.pack(pady=(20, 10))
 
         desc = ttk.Label(
             self,
-            text="Configure Microsoft AirSim for drone simulation",
+            text="Configure Cosys-AirSim for drone simulation (UE 5.5 supported)",
             font=("Helvetica", 11),
         )
         desc.pack(pady=(0, 20))
@@ -1763,25 +2196,28 @@ class AirSimSetupStep(StepFrame):
         canvas.create_window((0, 0), window=content_frame, anchor="nw")
         canvas.configure(yscrollcommand=scrollbar.set)
 
-        # Step 1: Choose AirSim Setup Method
-        step1 = ttk.LabelFrame(content_frame, text="Step 1: Choose AirSim Setup Method", padding=10)
+        # Step 1: Choose Cosys-AirSim Setup Method
+        step1 = ttk.LabelFrame(content_frame, text="Step 1: Choose Cosys-AirSim Setup Method", padding=10)
         step1.pack(fill="x", padx=20, pady=10)
 
-        step1_text = """AirSim is a simulator for drones built on Unreal Engine.
+        step1_text = """Cosys-AirSim is an actively maintained simulator for drones built on Unreal Engine.
+Supports UE 5.5 (latest stable) with advanced sensors like GPU LiDAR and Echo.
 
-Choose how to set up AirSim:"""
+Choose how to set up Cosys-AirSim:"""
 
         ttk.Label(step1, text=step1_text, justify="left").pack(anchor="w")
 
         # Radio buttons for setup method
-        self.airsim_method_var = tk.StringVar(value="prebuilt")
+        # Initialize from config (defaults to build_overlay for full functionality)
+        initial_method = "build_overlay" if self.wizard.config.build_airsim_overlay else "prebuilt"
+        self.airsim_method_var = tk.StringVar(value=initial_method)
 
         method_frame = ttk.Frame(step1)
         method_frame.pack(fill="x", pady=10)
 
         ttk.Radiobutton(
             method_frame,
-            text="Use pre-built AirSim binary (faster, but no AegisAV overlay UI)",
+            text="Use pre-built Cosys-AirSim binary (faster, but no AegisAV overlay UI)",
             variable=self.airsim_method_var,
             value="prebuilt",
             command=self._on_method_change,
@@ -1810,13 +2246,13 @@ Choose how to set up AirSim:"""
 
         ttk.Button(
             btn_frame1,
-            text="Download AirSim Releases",
+            text="Download Cosys-AirSim Releases",
             command=lambda: open_url(URLS["airsim_releases"]),
         ).pack(side="left", padx=5)
 
         ttk.Button(
             btn_frame1,
-            text="AirSim Documentation",
+            text="Cosys-AirSim Documentation",
             command=lambda: open_url(URLS["airsim_docs"]),
         ).pack(side="left", padx=5)
 
@@ -1969,7 +2405,7 @@ We'll create an optimized configuration for AegisAV."""
                 cmd = [
                     str(uv_python),
                     "-c",
-                    "import airsim; c=airsim.MultirotorClient(); c.confirmConnection(); print('OK')",
+                    "import cosysairsim as airsim; c=airsim.MultirotorClient(); c.confirmConnection(); print('OK')",
                 ]
                 success, output, _ = run_command_stream(
                     cmd,
@@ -2014,7 +2450,7 @@ We'll create an optimized configuration for AegisAV."""
 
         if method == "build_overlay":
             self.overlay_info.config(
-                text="Will clone AirSim, copy AegisAVOverlay plugin, and build.\n"
+                text="Will clone Cosys-AirSim (UE5.5 compatible), copy AegisAVOverlay plugin, and build.\n"
                      "Requires: UE5, Visual Studio 2022, Git. Build takes ~15-30 minutes.",
                 foreground="blue",
             )
@@ -2100,26 +2536,82 @@ class ConfigurationStep(StepFrame):
             foreground="gray",
         ).pack(anchor="w", pady=(5, 0))
 
-        # Shortcuts option
-        shortcuts_frame = ttk.LabelFrame(self, text="Convenience Options", padding=15)
-        shortcuts_frame.pack(fill="x", padx=50, pady=10)
+        # Launch scripts option
+        scripts_frame = ttk.LabelFrame(self, text="Launch Scripts", padding=15)
+        scripts_frame.pack(fill="x", padx=50, pady=10)
 
         self.create_shortcuts_var = tk.BooleanVar(value=True)
-        shortcuts_check = ttk.Checkbutton(
-            shortcuts_frame,
+        scripts_check = ttk.Checkbutton(
+            scripts_frame,
             text="Create launch scripts (start_server.sh/bat, run_demo.sh/bat)",
             variable=self.create_shortcuts_var,
         )
-        shortcuts_check.pack(anchor="w")
+        scripts_check.pack(anchor="w")
 
         # Port configuration
-        port_frame = ttk.Frame(shortcuts_frame)
+        port_frame = ttk.Frame(scripts_frame)
         port_frame.pack(fill="x", pady=(10, 0))
 
         ttk.Label(port_frame, text="Server Port:").pack(side="left")
         self.port_var = tk.StringVar(value=str(self.config.server_port))
         port_entry = ttk.Entry(port_frame, textvariable=self.port_var, width=10)
         port_entry.pack(side="left", padx=(10, 0))
+
+        # Desktop shortcuts option
+        shortcuts_frame = ttk.LabelFrame(self, text="Desktop Launchers", padding=15)
+        shortcuts_frame.pack(fill="x", padx=50, pady=10)
+
+        self.create_desktop_shortcuts_var = tk.BooleanVar(value=self.config.create_desktop_shortcuts)
+        desktop_check = ttk.Checkbutton(
+            shortcuts_frame,
+            text="Create Desktop shortcuts",
+            variable=self.create_desktop_shortcuts_var,
+        )
+        desktop_check.pack(anchor="w")
+
+        if IS_WINDOWS:
+            self.create_start_menu_var = tk.BooleanVar(value=self.config.create_start_menu_shortcuts)
+            start_menu_check = ttk.Checkbutton(
+                shortcuts_frame,
+                text="Create Start Menu shortcuts",
+                variable=self.create_start_menu_var,
+            )
+            start_menu_check.pack(anchor="w", pady=(5, 0))
+
+        # Shortcut selection
+        ttk.Label(
+            shortcuts_frame,
+            text="Shortcuts to create:",
+            font=("Helvetica", 9),
+            foreground="gray",
+        ).pack(anchor="w", pady=(10, 5))
+
+        self.shortcut_vars: dict[str, tk.BooleanVar] = {}
+        shortcut_options = [
+            ("server", "AegisAV Server"),
+            ("dashboard", "Dashboard"),
+            ("demo", "Demo Mode"),
+        ]
+        if IS_WINDOWS:
+            shortcut_options.append(("airsim", "Launch AirSim"))
+
+        for key, label in shortcut_options:
+            var = tk.BooleanVar(value=(key in self.config.shortcuts_to_create))
+            self.shortcut_vars[key] = var
+            chk = ttk.Checkbutton(shortcuts_frame, text=f"  {label}", variable=var)
+            chk.pack(anchor="w", padx=(15, 0))
+
+        # Launch options
+        launch_frame = ttk.LabelFrame(self, text="Launch Options", padding=15)
+        launch_frame.pack(fill="x", padx=50, pady=10)
+
+        self.open_dashboard_var = tk.BooleanVar(value=self.config.open_dashboard_on_start)
+        dashboard_check = ttk.Checkbutton(
+            launch_frame,
+            text="Open dashboard in browser when server starts",
+            variable=self.open_dashboard_var,
+        )
+        dashboard_check.pack(anchor="w")
 
         # Simulation options
         sim_frame = ttk.LabelFrame(self, text="Simulation (Optional)", padding=15)
@@ -2203,6 +2695,20 @@ class ConfigurationStep(StepFrame):
                 self.config.server_port = port
         except ValueError:
             pass
+
+        # Desktop shortcut options
+        self.config.create_desktop_shortcuts = self.create_desktop_shortcuts_var.get()
+        if IS_WINDOWS and hasattr(self, "create_start_menu_var"):
+            self.config.create_start_menu_shortcuts = self.create_start_menu_var.get()
+
+        # Collect selected shortcuts
+        self.config.shortcuts_to_create = [
+            key for key, var in self.shortcut_vars.items() if var.get()
+        ]
+
+        # Launch options
+        self.config.open_dashboard_on_start = self.open_dashboard_var.get()
+
         return True
 
     def _browse_ardupilot_path(self) -> None:
@@ -2245,10 +2751,12 @@ class InstallStep(StepFrame):
         self.tasks_frame.pack(fill="x", padx=50, pady=10)
 
         self.tasks = [
+            ("Copy project files to install location", self._copy_project_files),
             ("Generate configuration files", self._generate_configs),
             ("Build AirSim with Overlay (if enabled)", self._build_airsim_overlay),
             ("Build frontend (if enabled)", self._build_frontend),
             ("Create launch scripts", self._create_scripts),
+            ("Create desktop shortcuts", self._create_desktop_shortcuts),
             ("Verify installation", self._verify_install),
         ]
 
@@ -2363,22 +2871,168 @@ class InstallStep(StepFrame):
                 and open_path(LOG_FILE_ACTIVE),
             )
 
+    def _copy_project_files(self) -> bool:
+        """Copy project files to Windows install location.
+
+        On Windows, copies the Python agent code and frontend to the local install dir.
+        This allows the server to run without needing WSL UNC paths.
+        """
+        if not IS_WINDOWS:
+            self._log("  Skipped (only needed on Windows)")
+            return True
+
+        # Determine the install location
+        local_root = Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData" / "Local"))
+        install_dir = local_root / "AegisAV"
+
+        # Store the Windows install path for later use
+        self._windows_install_dir = install_dir
+
+        try:
+            install_dir.mkdir(parents=True, exist_ok=True)
+        except PermissionError as e:
+            self._log(f"  ✗ FAILED to create install dir: {e}")
+            return False
+
+        # Define what to copy
+        copy_items = [
+            ("agent", "agent"),           # Python package
+            ("configs", "configs"),       # Configuration files
+            ("shared", "shared"),         # Static assets
+            ("scenarios", "scenarios"),   # Scenario definitions
+        ]
+
+        # Optional items (only if they exist)
+        optional_items = [
+            ("frontend/dist", "frontend/dist"),  # Built frontend
+        ]
+
+        files_copied = 0
+        files_failed = 0
+
+        for src_rel, dest_rel in copy_items:
+            src_path = PROJECT_ROOT / src_rel
+            dest_path = install_dir / dest_rel
+
+            if not src_path.exists():
+                self._log(f"  ⚠️ Source not found, skipping: {src_rel}")
+                continue
+
+            try:
+                # Remove existing destination
+                if dest_path.exists():
+                    if dest_path.is_dir():
+                        shutil.rmtree(dest_path)
+                    else:
+                        dest_path.unlink()
+
+                # Copy
+                if src_path.is_dir():
+                    shutil.copytree(src_path, dest_path)
+                else:
+                    dest_path.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(src_path, dest_path)
+
+                self._log(f"  ✓ Copied {src_rel}")
+                files_copied += 1
+
+            except Exception as e:
+                self._log(f"  ✗ FAILED to copy {src_rel}: {e}")
+                files_failed += 1
+
+        # Copy optional items
+        for src_rel, dest_rel in optional_items:
+            src_path = PROJECT_ROOT / src_rel
+            dest_path = install_dir / dest_rel
+
+            if not src_path.exists():
+                # Optional, don't warn
+                continue
+
+            try:
+                if dest_path.exists():
+                    if dest_path.is_dir():
+                        shutil.rmtree(dest_path)
+                    else:
+                        dest_path.unlink()
+
+                if src_path.is_dir():
+                    shutil.copytree(src_path, dest_path)
+                else:
+                    dest_path.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(src_path, dest_path)
+
+                self._log(f"  ✓ Copied {src_rel}")
+                files_copied += 1
+            except Exception as e:
+                self._log(f"  ⚠️ Optional item failed: {src_rel}: {e}")
+
+        # Copy installer assets for shortcuts
+        assets_src = PROJECT_ROOT / "scripts" / "installer" / "assets"
+        assets_dest = install_dir / "assets"
+        if assets_src.exists():
+            try:
+                if assets_dest.exists():
+                    shutil.rmtree(assets_dest)
+                shutil.copytree(assets_src, assets_dest)
+                self._log(f"  ✓ Copied installer assets (icons)")
+                files_copied += 1
+            except Exception as e:
+                self._log(f"  ⚠️ Failed to copy assets: {e}")
+
+        # Create data directories
+        data_dirs = ["data", "data/vision", "data/vision/captures", "logs"]
+        for data_dir in data_dirs:
+            dir_path = install_dir / data_dir
+            try:
+                dir_path.mkdir(parents=True, exist_ok=True)
+            except Exception:
+                pass  # Non-critical
+
+        self._log(f"  Installed to: {install_dir}")
+
+        if files_failed > 0:
+            self._log(f"  ⚠️ {files_copied} copied, {files_failed} failed")
+            return False
+
+        self._log(f"  ✅ {files_copied} items copied successfully")
+        return True
+
     def _generate_configs(self) -> bool:
         """Generate configuration files."""
+        configs_written = 0
+        configs_failed = 0
+
+        # Use Windows install location if available
+        if IS_WINDOWS and hasattr(self, "_windows_install_dir"):
+            install_root = self._windows_install_dir
+        else:
+            install_root = PROJECT_ROOT
+
         if self.config.airsim_enabled:
             airsim_root, error = self._resolve_airsim_install()
             if error:
-                self._log(f"  {error}")
-                return False
-            self.config.airsim_path = airsim_root
+                self._log(f"  ⚠️ AirSim path: {error}")
+                # Don't fail - just note it
+            else:
+                self.config.airsim_path = airsim_root
 
-        # Save setup config
-        config_path = PROJECT_ROOT / ".aegis_setup.json"
-        self.config.save(config_path)
-        self._log(f"  Saved config to {config_path}")
+        # Set install date and version
+        self.config.install_date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        self.config.install_version = APP_VERSION
+
+        # Save setup config to install location
+        config_path = install_root / ".aegis_setup.json"
+        try:
+            self.config.save(config_path)
+            self._log(f"  ✓ Saved config to {config_path}")
+            configs_written += 1
+        except Exception as e:
+            self._log(f"  ✗ FAILED to save config: {e}")
+            configs_failed += 1
 
         # Update server config if needed
-        server_config = PROJECT_ROOT / "configs" / "aegis_config.yaml"
+        server_config = install_root / "configs" / "aegis_config.yaml"
         if server_config.exists():
             try:
                 try:
@@ -2412,7 +3066,8 @@ class InstallStep(StepFrame):
                     data["simulation"] = simulation_block
                     with open(server_config, "w", encoding="utf-8") as file_handle:
                         yaml.dump(data, file_handle, sort_keys=False)
-                    self._log(f"  Updated server port in {server_config}")
+                    self._log(f"  ✓ Updated server config in {server_config}")
+                    configs_written += 1
                 else:
                     content = server_config.read_text(encoding="utf-8")
                     content = _update_yaml_section(
@@ -2420,30 +3075,42 @@ class InstallStep(StepFrame):
                     )
                     content = _update_yaml_section(content, "simulation", simulation_updates)
                     server_config.write_text(content, encoding="utf-8")
-                    self._log(f"  Updated server config in {server_config}")
+                    self._log(f"  ✓ Updated server config in {server_config}")
+                    configs_written += 1
 
                 if ardupilot_path:
-                    self._log(f"  Updated ArduPilot path in {server_config}")
+                    self._log(f"  ✓ Updated ArduPilot path in {server_config}")
             except Exception as exc:
-                self._log(f"  Failed to update server port in {server_config}: {exc}")
+                self._log(f"  ✗ FAILED to update {server_config}: {exc}")
+                configs_failed += 1
+        else:
+            self._log(f"  ⚠️ Server config not found: {server_config}")
 
-        return True
+        # Summary
+        if configs_failed == 0:
+            self._log(f"  ✅ All {configs_written} config files written successfully")
+        else:
+            self._log(f"  ⚠️ Configs: {configs_written} written, {configs_failed} FAILED")
+
+        return configs_failed == 0
 
     def _build_frontend(self) -> bool:
         """Build the React frontend."""
         if not self.config.install_frontend:
-            self._log("  Skipped (disabled)")
+            self._log("  Skipped (frontend install disabled in configuration)")
             return True
 
         frontend_dir = PROJECT_ROOT / "frontend"
         if not frontend_dir.exists():
-            self._log("  Frontend directory not found, skipping")
-            return True
+            self._log(f"  ✗ Frontend directory not found: {frontend_dir}")
+            self._log("    Cannot build frontend - directory missing")
+            return False
 
         # Check for npm
         npm_path = find_npm_executable()
         if not npm_path:
-            self._log("  npm not found. Install Node.js or add npm to PATH, then retry.")
+            self._log("  ✗ npm not found in PATH")
+            self._log("    Install Node.js or add npm to PATH, then retry.")
             return False
         if IS_WINDOWS and not npm_path.lower().endswith(".cmd"):
             cmd_candidate = f"{npm_path}.cmd"
@@ -2516,8 +3183,9 @@ class InstallStep(StepFrame):
         if exit_code is not None:
             self._log(f"  npm install exit code: {exit_code}")
         if not success:
-            self._log("  npm install failed.")
+            self._log("  ✗ npm install FAILED")
             return False
+        self._log("  ✓ npm dependencies installed")
 
         # Build
         self._log("  Building frontend...")
@@ -2525,8 +3193,9 @@ class InstallStep(StepFrame):
         if exit_code is not None:
             self._log(f"  npm build exit code: {exit_code}")
         if not success:
-            self._log("  Build failed.")
+            self._log("  ✗ Frontend build FAILED")
             return False
+        self._log("  ✓ Frontend build completed")
 
         if staging_dir:
             staged_dist = staging_dir / "dist"
@@ -2535,34 +3204,140 @@ class InstallStep(StepFrame):
                 if dist_dir.exists():
                     shutil.rmtree(dist_dir, ignore_errors=True)
                 shutil.copytree(staged_dist, dist_dir)
-                self._log(f"  Synced build output to {dist_dir}")
+                self._log(f"  ✓ Synced build output to {dist_dir}")
             else:
-                self._log("  Build succeeded but no dist folder found in staged output.")
+                self._log("  ✗ Build succeeded but no dist folder found in staged output")
                 return False
 
-        self._log("  Frontend built successfully")
+        self._log("  ✅ Frontend built successfully")
+        return True
+
+    def _get_local_install_root(self) -> Path:
+        """Get the local Windows installation root for AegisAV components.
+
+        Returns a local Windows path (not UNC) suitable for CMD operations.
+        """
+        return Path(os.environ.get("LOCALAPPDATA", "C:/Users/Default/AppData/Local")) / "AegisAV"
+
+    def _is_unc_path(self, path: Path | str) -> bool:
+        """Check if a path is a UNC path (\\\\server\\share)."""
+        path_str = str(path)
+        return path_str.startswith("\\\\") or path_str.startswith("//")
+
+    def _force_remove_directory(self, dir_path: Path, max_retries: int = 3) -> bool:
+        """Forcefully remove a directory, killing processes that might lock it.
+
+        Args:
+            dir_path: Path to remove
+            max_retries: Maximum number of removal attempts
+
+        Returns:
+            True if directory was removed, False otherwise
+        """
+        if not dir_path.exists():
+            return True
+
+        dir_str = str(dir_path)
+        self._log(f"    Removing directory: {dir_str}")
+
+        for attempt in range(max_retries):
+            if not dir_path.exists():
+                return True
+
+            self._log(f"    Removal attempt {attempt + 1}/{max_retries}...")
+
+            # First, try to kill any git processes that might be holding locks
+            if IS_WINDOWS:
+                # Kill git processes that might be in this directory
+                run_command_stream(
+                    ["taskkill", "/F", "/IM", "git.exe"],
+                    timeout=10,
+                )
+                time.sleep(0.5)
+
+                # Try PowerShell Remove-Item (more aggressive than rmdir)
+                ps_cmd = f'Remove-Item -Path "{dir_str}" -Recurse -Force -ErrorAction SilentlyContinue'
+                success, output, _ = run_command_stream(
+                    ["powershell", "-Command", ps_cmd],
+                    timeout=120,
+                )
+
+                if not dir_path.exists():
+                    self._log("    Directory removed successfully (PowerShell)")
+                    return True
+
+                # Try cmd rmdir as fallback
+                run_command_stream(
+                    ["cmd", "/c", "rmdir", "/s", "/q", dir_str],
+                    timeout=120,
+                )
+
+                if not dir_path.exists():
+                    self._log("    Directory removed successfully (rmdir)")
+                    return True
+
+            # Try Python shutil as final fallback
+            try:
+                shutil.rmtree(dir_path, ignore_errors=False)
+                if not dir_path.exists():
+                    self._log("    Directory removed successfully (shutil)")
+                    return True
+            except Exception as e:
+                self._log(f"    shutil.rmtree failed: {e}")
+
+            # Wait before retry
+            time.sleep(2)
+
+        # Final check
+        if dir_path.exists():
+            self._log(f"  ERROR: Cannot remove directory after {max_retries} attempts")
+            self._log(f"  Please manually delete: {dir_str}")
+            self._log("  Then run the installer again.")
+            return False
+
         return True
 
     def _build_airsim_overlay(self) -> bool:
         """Build AirSim from source with AegisAVOverlay plugin."""
+        self._log(f"  Build overlay enabled: {self.config.build_airsim_overlay}")
         if not self.config.build_airsim_overlay:
-            self._log("  Skipped (not enabled)")
+            self._log("  Skipped (user selected pre-built option)")
+            self._log("  To build from source, re-run installer and select 'Build from source with AegisAV Overlay'")
             return True
 
         if not IS_WINDOWS:
             self._log("  AirSim overlay build is only supported on Windows")
             return True
 
+        self._log("  Starting AirSim + Overlay build process...")
+
         # Check for UE5
         ue5_path = self.config.unreal_engine_path
         if not ue5_path:
-            # Try to detect UE5
+            # Try to detect UE5 (check custom paths first, then standard paths)
             ue5_candidates = [
+                # Custom/Game Pass locations (check newer versions first)
+                Path("D:/game_pass_games/UE_5.7"),
+                Path("D:/game_pass_games/UE_5.6"),
+                Path("D:/game_pass_games/UE_5.5"),
+                Path("D:/game_pass_games/UE_5.4"),
+                # Standard Epic Games locations
+                Path("C:/Program Files/Epic Games/UE_5.7"),
+                Path("C:/Program Files/Epic Games/UE_5.6"),
                 Path("C:/Program Files/Epic Games/UE_5.5"),
                 Path("C:/Program Files/Epic Games/UE_5.4"),
                 Path("C:/Program Files/Epic Games/UE_5.3"),
                 Path("C:/Program Files/Epic Games/UE_5.2"),
                 Path("C:/Program Files/Epic Games/UE_5.1"),
+                Path("D:/Program Files/Epic Games/UE_5.7"),
+                Path("D:/Program Files/Epic Games/UE_5.6"),
+                Path("D:/Program Files/Epic Games/UE_5.5"),
+                Path("D:/Epic Games/UE_5.7"),
+                Path("D:/Epic Games/UE_5.6"),
+                Path("D:/Epic Games/UE_5.5"),
+                Path("E:/Epic Games/UE_5.7"),
+                Path("E:/Epic Games/UE_5.6"),
+                Path("E:/Epic Games/UE_5.5"),
             ]
             for candidate in ue5_candidates:
                 if candidate.exists():
@@ -2582,7 +3357,6 @@ class InstallStep(StepFrame):
             self._log("  ERROR: Git not found. Please install Git and add to PATH.")
             return False
 
-        airsim_dir = PROJECT_ROOT / "AirSim"
         overlay_src = PROJECT_ROOT / "unreal" / "AegisAVOverlay"
 
         # Check if overlay plugin source exists
@@ -2590,47 +3364,156 @@ class InstallStep(StepFrame):
             self._log(f"  ERROR: AegisAVOverlay plugin not found at: {overlay_src}")
             return False
 
-        # Step 1: Clone or update AirSim
-        if (airsim_dir / ".git").exists():
-            self._log("  AirSim already cloned, updating...")
-            success, output, _ = run_command_stream(
-                ["git", "pull", "origin", "main"],
-                cwd=airsim_dir,
-                timeout=120,
-                on_output=lambda line: self.after(0, lambda msg=line: self._log(f"    {msg}")) if line else None,
-            )
-            if not success:
-                self._log("  Warning: git pull failed, continuing with existing code")
-        else:
-            self._log("  Cloning AirSim repository (this may take a few minutes)...")
-            success, output, _ = run_command_stream(
-                ["git", "clone", "https://github.com/microsoft/AirSim.git", str(airsim_dir)],
-                cwd=PROJECT_ROOT,
-                timeout=300,
-                on_output=lambda line: self.after(0, lambda msg=line: self._log(f"    {msg}")) if line else None,
-            )
-            if not success:
-                self._log("  ERROR: Failed to clone AirSim")
-                self._log(f"  Output: {output}")
-                return False
+        # Always use local Windows path for AirSim (CMD doesn't support UNC paths)
+        local_root = self._get_local_install_root()
+        local_airsim_dir = local_root / "AirSim"
+        self._log(f"  Using local build directory: {local_airsim_dir}")
 
-        # Step 2: Run AirSim build script
-        build_script = airsim_dir / "build.cmd"
-        if build_script.exists():
-            self._log("  Running AirSim build script...")
+        # Step 1: Clone or update Cosys-AirSim to local path
+        needs_clone = True
+        if (local_airsim_dir / ".git").exists():
+            # Check if it's the correct repository (Cosys-AirSim, not Microsoft AirSim)
+            success, remote_url, _ = run_command_stream(
+                ["git", "remote", "get-url", "origin"],
+                cwd=str(local_airsim_dir),
+                timeout=10,
+            )
+            remote_url = remote_url.strip() if remote_url else ""
+
+            if "Cosys-Lab/Cosys-AirSim" in remote_url or "cosys-lab/cosys-airsim" in remote_url.lower():
+                # Correct repo, just update
+                self._log("  Cosys-AirSim already cloned, updating...")
+                success, output, _ = run_command_stream(
+                    ["git", "pull", "origin", "main"],
+                    cwd=str(local_airsim_dir),
+                    timeout=120,
+                    on_output=lambda line: self.after(0, lambda msg=line: self._log(f"    {msg}")) if line else None,
+                )
+                if not success:
+                    self._log("  Warning: git pull failed, continuing with existing code")
+                needs_clone = False
+            else:
+                # Wrong repo (probably old Microsoft AirSim), remove and re-clone
+                self._log(f"  Found old AirSim repository ({remote_url})")
+                self._log("  Removing old repository and re-cloning with Cosys-AirSim...")
+                if not self._force_remove_directory(local_airsim_dir):
+                    return False
+
+        if needs_clone:
+            # Ensure directory is really gone before cloning
+            if local_airsim_dir.exists():
+                self._log("  Warning: Directory still exists, attempting forced removal...")
+                if not self._force_remove_directory(local_airsim_dir):
+                    return False
+
+            self._log("  Cloning Cosys-AirSim repository (this may take a few minutes)...")
+            # Ensure parent directory exists
+            local_airsim_dir.parent.mkdir(parents=True, exist_ok=True)
+            # Clone Cosys-AirSim (actively maintained fork with UE 5.5 support)
             success, output, _ = run_command_stream(
-                ["cmd", "/c", str(build_script)],
-                cwd=airsim_dir,
+                ["git", "clone", "--branch", "main", "https://github.com/Cosys-Lab/Cosys-AirSim.git", str(local_airsim_dir)],
+                cwd=str(local_root),
                 timeout=600,
                 on_output=lambda line: self.after(0, lambda msg=line: self._log(f"    {msg}")) if line else None,
             )
             if not success:
-                self._log("  Warning: AirSim build script had errors, continuing...")
+                self._log("  ERROR: Failed to clone Cosys-AirSim")
+                self._log(f"  Output: {output}")
+                return False
+
+        # Track build status
+        build_success = True
+        build_issues: list[str] = []
+
+        # Check prerequisites before attempting to build
+        # The "Platform Win64 is not a valid platform" error is caused by missing Windows SDK
+        vcvarsall, vs_edition = find_visual_studio_2022()
+        sdk_path, sdk_version = find_windows_sdk()
+
+        self._log("  Checking build prerequisites...")
+        prereqs_ok = True
+
+        if vcvarsall:
+            self._log(f"    ✓ Visual Studio {vs_edition}")
         else:
-            self._log("  Warning: AirSim build.cmd not found, skipping native build")
+            self._log("    ✗ Visual Studio NOT FOUND")
+            self._log("      Install from: https://visualstudio.microsoft.com/downloads/")
+            self._log("      Select 'Desktop development with C++' workload")
+            build_issues.append("Visual Studio not installed")
+            prereqs_ok = False
+
+        if sdk_path:
+            self._log(f"    ✓ Windows SDK {sdk_version}")
+        else:
+            self._log("    ✗ Windows SDK NOT FOUND")
+            self._log("      Install via Visual Studio Installer > Modify > Individual Components")
+            self._log("      Search 'Windows SDK' and install Windows 10 SDK + Windows 11 SDK")
+            build_issues.append("Windows SDK not installed")
+            prereqs_ok = False
+
+        if not prereqs_ok:
+            self._log("")
+            self._log("  ⚠️ Missing prerequisites - AirSim build will be skipped")
+            self._log("  Install the missing components above, then re-run the installer")
+            # Still copy the plugin so manual build is possible
+            self._log("")
+        else:
+            self._log("    All prerequisites met!")
+            self._log("")
+
+        # Step 2: Run AirSim build script from local path
+        # AirSim build.cmd requires Visual Studio x64 Native Tools environment
+        build_script = local_airsim_dir / "build.cmd"
+        if build_script.exists() and vcvarsall:
+            self._log("  Running AirSim build script (this may take 5-10 minutes)...")
+
+            # Create a wrapper batch file that sets up VS environment and runs build
+            wrapper_script = local_airsim_dir / "build_wrapper.bat"
+            wrapper_content = f'''@echo off
+echo Setting up Visual Studio x64 environment...
+call "{vcvarsall}" x64
+if errorlevel 1 (
+    echo Failed to set up VS environment
+    exit /b 1
+)
+cd /d "{local_airsim_dir}"
+call build.cmd
+'''
+            wrapper_script.write_text(wrapper_content)
+            success, output, _ = run_command_stream(
+                ["cmd", "/c", str(wrapper_script)],
+                cwd=str(local_airsim_dir),
+                timeout=900,  # 15 minutes for full build
+                on_output=lambda line: self.after(0, lambda msg=line: self._log(f"    {msg}")) if line else None,
+            )
+            if success:
+                self._log("  ✓ AirSim native build completed")
+            else:
+                build_success = False
+                build_issues.append("AirSim build.cmd failed")
+                self._log("  ✗ AirSim build script FAILED")
+                # Check for known issues
+                if output and "v143" in output:
+                    self._log("")
+                    self._log("  ⚠️ Cosys-AirSim requires Visual Studio 2022 (v143) toolset")
+                    self._log("    The build scripts are hardcoded for VS 2022.")
+                    self._log("    Options:")
+                    self._log("    1. Install VS 2022 Build Tools alongside VS 2026")
+                    self._log("       https://visualstudio.microsoft.com/visual-cpp-build-tools/")
+                    self._log("    2. Download pre-built Cosys-AirSim binaries:")
+                    self._log("       https://github.com/Cosys-Lab/Cosys-AirSim/releases")
+                    self._log("")
+                else:
+                    self._log("    Check build output above for errors")
+        elif not vcvarsall:
+            self._log("  Skipping AirSim native build (VS 2022 not installed)")
+        elif not build_script.exists():
+            build_success = False
+            build_issues.append("AirSim build.cmd not found")
+            self._log("  ✗ AirSim build.cmd not found - cannot build native components")
 
         # Step 3: Copy AegisAVOverlay plugin to AirSim
-        overlay_dst = airsim_dir / "Unreal" / "Plugins" / "AegisAVOverlay"
+        overlay_dst = local_airsim_dir / "Unreal" / "Plugins" / "AegisAVOverlay"
         self._log(f"  Copying AegisAVOverlay plugin to {overlay_dst}...")
 
         if overlay_dst.exists():
@@ -2638,111 +3521,568 @@ class InstallStep(StepFrame):
 
         try:
             shutil.copytree(overlay_src, overlay_dst)
-            self._log("  Plugin copied successfully")
+            self._log("  ✓ Plugin copied successfully")
         except Exception as e:
-            self._log(f"  ERROR: Failed to copy plugin: {e}")
+            self._log(f"  ✗ ERROR: Failed to copy plugin: {e}")
             return False
 
-        # Step 4: Find and update project
-        blocks_project = airsim_dir / "Unreal" / "Environments" / "Blocks" / "Blocks.uproject"
+        # Step 4: Copy plugins to Blocks project folder (CRITICAL)
+        # UE5 needs plugins in the project's Plugins folder, not just in Unreal/Plugins
+        # This step MUST succeed or the build will fail with "Unable to find plugin 'AirSim'"
+        blocks_plugins_dir = local_airsim_dir / "Unreal" / "Environments" / "Blocks" / "Plugins"
+        airsim_plugin_src = local_airsim_dir / "Unreal" / "Plugins" / "AirSim"
+
+        self._log("")
+        self._log("  ================================================================")
+        self._log("  Step 4: Copying plugins to Blocks project (CRITICAL)")
+        self._log("  ================================================================")
+        self._log(f"  Source: {airsim_plugin_src}")
+        self._log(f"  Destination: {blocks_plugins_dir}")
+
+        # Verify source plugin exists
+        if not airsim_plugin_src.exists():
+            self._log("")
+            self._log("  ╔════════════════════════════════════════════════════════════╗")
+            self._log("  ║  FATAL ERROR: AirSim plugin not found!                     ║")
+            self._log("  ╚════════════════════════════════════════════════════════════╝")
+            self._log(f"  Expected at: {airsim_plugin_src}")
+            self._log("  The Cosys-AirSim clone may be incomplete or corrupted.")
+            self._log("  Try deleting the AirSim folder and running the installer again.")
+            return False
+
+        # Create Plugins directory
+        try:
+            blocks_plugins_dir.mkdir(parents=True, exist_ok=True)
+            self._log(f"  ✓ Created Plugins directory: {blocks_plugins_dir}")
+        except Exception as e:
+            self._log(f"  ✗ FATAL: Failed to create Plugins directory: {e}")
+            return False
+
+        # Copy AirSim plugin to Blocks/Plugins
+        airsim_plugin_dst = blocks_plugins_dir / "AirSim"
+        self._log(f"  Copying AirSim plugin...")
+        if airsim_plugin_dst.exists():
+            try:
+                shutil.rmtree(airsim_plugin_dst)
+                self._log(f"  - Removed existing AirSim plugin")
+            except Exception as e:
+                self._log(f"  ✗ FATAL: Failed to remove existing AirSim plugin: {e}")
+                return False
+
+        try:
+            shutil.copytree(airsim_plugin_src, airsim_plugin_dst)
+            # Verify the copy succeeded
+            airsim_uplugin = airsim_plugin_dst / "AirSim.uplugin"
+            if not airsim_uplugin.exists():
+                self._log(f"  ✗ FATAL: AirSim.uplugin not found after copy!")
+                self._log(f"  Expected at: {airsim_uplugin}")
+                return False
+            self._log(f"  ✓ AirSim plugin copied successfully")
+        except Exception as e:
+            self._log("")
+            self._log("  ╔════════════════════════════════════════════════════════════╗")
+            self._log("  ║  FATAL ERROR: Failed to copy AirSim plugin!                ║")
+            self._log("  ╚════════════════════════════════════════════════════════════╝")
+            self._log(f"  Error: {e}")
+            self._log("  Without this plugin, the Blocks project cannot be built.")
+            return False
+
+        # Copy AegisAVOverlay plugin to Blocks/Plugins
+        overlay_blocks_dst = blocks_plugins_dir / "AegisAVOverlay"
+        self._log(f"  Copying AegisAVOverlay plugin...")
+        if overlay_blocks_dst.exists():
+            try:
+                shutil.rmtree(overlay_blocks_dst)
+                self._log(f"  - Removed existing AegisAVOverlay plugin")
+            except Exception as e:
+                self._log(f"  ✗ WARNING: Failed to remove existing AegisAVOverlay plugin: {e}")
+                # Non-fatal, try to continue
+
+        try:
+            shutil.copytree(overlay_src, overlay_blocks_dst)
+            # Verify the copy succeeded
+            overlay_uplugin = overlay_blocks_dst / "AegisAVOverlay.uplugin"
+            if not overlay_uplugin.exists():
+                self._log(f"  ✗ WARNING: AegisAVOverlay.uplugin not found after copy")
+                build_issues.append("AegisAVOverlay plugin copy may have failed")
+            else:
+                self._log(f"  ✓ AegisAVOverlay plugin copied successfully")
+        except Exception as e:
+            self._log(f"  ✗ WARNING: Failed to copy AegisAVOverlay plugin: {e}")
+            self._log("  The overlay features may not work, but AirSim should still function.")
+            build_issues.append("Failed to copy AegisAVOverlay plugin")
+
+        # Final verification - list what's in the Plugins folder
+        self._log("")
+        self._log("  Verifying Plugins folder contents:")
+        try:
+            for item in blocks_plugins_dir.iterdir():
+                if item.is_dir():
+                    uplugin_files = list(item.glob("*.uplugin"))
+                    if uplugin_files:
+                        self._log(f"    ✓ {item.name}/ ({uplugin_files[0].name})")
+                    else:
+                        self._log(f"    ? {item.name}/ (no .uplugin file found)")
+        except Exception as e:
+            self._log(f"  ✗ Could not list Plugins folder: {e}")
+
+        # Step 5: Generate project files
+        blocks_project = local_airsim_dir / "Unreal" / "Environments" / "Blocks" / "Blocks.uproject"
+        project_files_generated = False
         if not blocks_project.exists():
-            self._log("  Warning: Blocks.uproject not found")
-            self._log("  You may need to generate project files manually")
+            build_issues.append("Blocks.uproject not found")
+            self._log("  ✗ Blocks.uproject not found")
+            self._log("    You may need to generate project files manually")
         else:
             self._log("  Generating project files...")
+            # Use UnrealVersionSelector or UBT to generate project files
             ubt_path = ue5_path / "Engine" / "Binaries" / "Win64" / "UnrealBuildTool.exe"
-            if ubt_path.exists():
+            uvs_path = ue5_path / "Engine" / "Binaries" / "Win64" / "UnrealVersionSelector.exe"
+
+            if uvs_path.exists():
+                # UnrealVersionSelector is more reliable for generating project files
                 success, output, _ = run_command_stream(
-                    [str(ubt_path), "-projectfiles", f"-project={blocks_project}", "-game", "-engine"],
-                    cwd=blocks_project.parent,
+                    [str(uvs_path), "/projectfiles", str(blocks_project)],
+                    cwd=str(blocks_project.parent),
                     timeout=120,
                     on_output=lambda line: self.after(0, lambda msg=line: self._log(f"    {msg}")) if line else None,
                 )
                 if success:
-                    self._log("  Project files generated")
+                    self._log("  ✓ Project files generated")
+                    project_files_generated = True
                 else:
-                    self._log("  Warning: Project file generation may have issues")
+                    build_issues.append("Project file generation failed")
+                    self._log("  ✗ Project file generation FAILED")
+            elif ubt_path.exists():
+                success, output, _ = run_command_stream(
+                    [str(ubt_path), "-projectfiles", f"-project={blocks_project}", "-game", "-engine"],
+                    cwd=str(blocks_project.parent),
+                    timeout=120,
+                    on_output=lambda line: self.after(0, lambda msg=line: self._log(f"    {msg}")) if line else None,
+                )
+                if success:
+                    self._log("  ✓ Project files generated")
+                    project_files_generated = True
+                else:
+                    build_issues.append("Project file generation failed")
+                    self._log("  ✗ Project file generation FAILED")
+            else:
+                build_issues.append("UnrealVersionSelector and UnrealBuildTool not found")
+                self._log("  ✗ Cannot generate project files - UE5 tools not found")
 
-        # Update config with new AirSim path
-        self.config.airsim_path = airsim_dir / "Unreal" / "Environments" / "Blocks"
+        # Step 6: Patch target files for UE 5.x compatibility (if needed)
+        # UE 5.7 has stricter build settings - upgrade to V6 which is the new default
+        # Note: Using BuildEnvironment.Unique doesn't work with installed (launcher) engines
+        if blocks_project.exists():
+            source_dir = blocks_project.parent / "Source"
+            target_files = [
+                source_dir / "BlocksEditor.Target.cs",
+                source_dir / "Blocks.Target.cs",
+            ]
+            for target_file in target_files:
+                if target_file.exists():
+                    try:
+                        target_content = target_file.read_text(encoding="utf-8")
+                        patched = target_content
+                        made_changes = False
 
+                        # Remove BuildEnvironment.Unique if present (doesn't work with launcher engine)
+                        if "BuildEnvironment = TargetBuildEnvironment.Unique" in patched:
+                            self._log(f"  Removing incompatible BuildEnvironment from {target_file.name}...")
+                            lines = patched.split("\n")
+                            lines = [l for l in lines if "BuildEnvironment = TargetBuildEnvironment.Unique" not in l]
+                            patched = "\n".join(lines)
+                            made_changes = True
+
+                        # Upgrade build settings version based on UE version
+                        # V5 = UE 5.3-5.5, V6 = UE 5.7+ (V6 doesn't exist in 5.5)
+                        # Extract UE version from path to determine target version
+                        ue_version_str = str(ue5_path)
+                        target_build_version = "V5"  # Default to V5 for compatibility
+                        if "5.7" in ue_version_str or "5.8" in ue_version_str or "5.9" in ue_version_str:
+                            target_build_version = "V6"
+                        elif "5.6" in ue_version_str:
+                            target_build_version = "V5"  # 5.6 may or may not have V6
+
+                        # Only upgrade from older versions (V2, V4) to the target version
+                        for old_version in ["V2", "V4"]:
+                            old_str = f"BuildSettingsVersion.{old_version}"
+                            if old_str in patched:
+                                self._log(f"  Upgrading {target_file.name} to BuildSettingsVersion.{target_build_version}...")
+                                patched = patched.replace(old_str, f"BuildSettingsVersion.{target_build_version}")
+                                made_changes = True
+
+                        if made_changes:
+                            target_file.write_text(patched, encoding="utf-8")
+                            self._log(f"  ✓ Patched {target_file.name}")
+                    except Exception as e:
+                        self._log(f"  Warning: Could not patch {target_file.name}: {e}")
+
+        # Step 7: Build the Unreal project (compile the game)
+        # Note: This requires Windows SDK to be installed and UE5 configured for Win64
+        unreal_build_success = False
+        if blocks_project.exists():
+            self._log("")
+            self._log("  ================================================================")
+            self._log("  Step 7: Packaging Blocks.exe (this may take 10-30 minutes)...")
+            self._log("  ================================================================")
+
+            # Find UnrealBuildTool or use RunUAT.bat
+            uat_path = ue5_path / "Engine" / "Build" / "BatchFiles" / "RunUAT.bat"
+            ubt_path = ue5_path / "Engine" / "Binaries" / "Win64" / "UnrealBuildTool.exe"
+
+            self._log(f"    UE5 path: {ue5_path}")
+            self._log(f"    UAT path: {uat_path}")
+            self._log(f"    UAT exists: {uat_path.exists()}")
+            self._log(f"    UBT exists: {ubt_path.exists()}")
+
+            # Check for Windows SDK
+            win_sdk_path = Path("C:/Program Files (x86)/Windows Kits/10/Include")
+            has_win_sdk = win_sdk_path.exists() and any(win_sdk_path.iterdir()) if win_sdk_path.exists() else False
+
+            if not has_win_sdk:
+                self._log("  ⚠️ Windows SDK not found at expected location")
+                self._log("    Install Windows 10/11 SDK via Visual Studio Installer")
+
+            if uat_path.exists():
+                self._log("  Starting UAT BuildCookRun...")
+                # Create a wrapper script that sets up VS environment for UAT
+                # Package to a temp location, then rename to 'Blocks' for start_airsim.bat
+                uat_wrapper = local_airsim_dir / "uat_wrapper.bat"
+                output_dir = local_airsim_dir
+                if vcvarsall:
+                    uat_wrapper_content = f'''@echo off
+echo Setting up Visual Studio x64 environment for UAT...
+call "{vcvarsall}" x64
+if errorlevel 1 (
+    echo Failed to set up VS environment
+    exit /b 1
+)
+echo.
+echo ================================================================
+echo Packaging Blocks.exe (this will take 10-30 minutes)...
+echo Output: {output_dir}\\Blocks\\Blocks.exe
+echo ================================================================
+echo.
+call "{uat_path}" BuildCookRun -project="{blocks_project}" -noP4 -platform=Win64 -clientconfig=Development -build -cook -stage -pak -archive -archivedirectory="{output_dir}" -utf8output -compressed -prereqs
+if errorlevel 1 exit /b 1
+REM Rename output folder to Blocks for start_airsim.bat
+REM UE5 outputs to 'Windows', UE4 outputs to 'WindowsNoEditor'
+echo.
+echo Checking build output...
+if exist "{output_dir}\\Windows\\Blocks.exe" (
+    echo Found UE5 output at Windows folder
+    if exist "{output_dir}\\Blocks" rmdir /s /q "{output_dir}\\Blocks"
+    move "{output_dir}\\Windows" "{output_dir}\\Blocks"
+) else if exist "{output_dir}\\WindowsNoEditor\\Blocks.exe" (
+    echo Found UE4-style output at WindowsNoEditor folder
+    if exist "{output_dir}\\Blocks" rmdir /s /q "{output_dir}\\Blocks"
+    move "{output_dir}\\WindowsNoEditor" "{output_dir}\\Blocks"
+) else (
+    echo WARNING: Could not find Blocks.exe in expected output locations
+    echo Checking archive directory contents:
+    dir "{output_dir}" /b
+)
+'''
+                else:
+                    uat_wrapper_content = f'''@echo off
+echo.
+echo ================================================================
+echo Packaging Blocks.exe (this will take 10-30 minutes)...
+echo Output: {output_dir}\\Blocks\\Blocks.exe
+echo ================================================================
+echo.
+call "{uat_path}" BuildCookRun -project="{blocks_project}" -noP4 -platform=Win64 -clientconfig=Development -build -cook -stage -pak -archive -archivedirectory="{output_dir}" -utf8output -compressed -prereqs
+if errorlevel 1 exit /b 1
+REM Rename output folder to Blocks for start_airsim.bat
+REM UE5 outputs to 'Windows', UE4 outputs to 'WindowsNoEditor'
+echo.
+echo Checking build output...
+if exist "{output_dir}\\Windows\\Blocks.exe" (
+    echo Found UE5 output at Windows folder
+    if exist "{output_dir}\\Blocks" rmdir /s /q "{output_dir}\\Blocks"
+    move "{output_dir}\\Windows" "{output_dir}\\Blocks"
+) else if exist "{output_dir}\\WindowsNoEditor\\Blocks.exe" (
+    echo Found UE4-style output at WindowsNoEditor folder
+    if exist "{output_dir}\\Blocks" rmdir /s /q "{output_dir}\\Blocks"
+    move "{output_dir}\\WindowsNoEditor" "{output_dir}\\Blocks"
+) else (
+    echo WARNING: Could not find Blocks.exe in expected output locations
+    echo Checking archive directory contents:
+    dir "{output_dir}" /b
+)
+'''
+                uat_wrapper.write_text(uat_wrapper_content)
+
+                self._log(f"    Using UAT: {uat_path}")
+                success, output, _ = run_command_stream(
+                    ["cmd", "/c", str(uat_wrapper)],
+                    cwd=str(blocks_project.parent),
+                    timeout=3600,  # 1 hour for full build
+                    on_output=lambda line: self.after(0, lambda msg=line: self._log(f"    {msg}")) if line else None,
+                )
+                if success:
+                    self._log("  ✓ Unreal project built successfully")
+                    unreal_build_success = True
+                else:
+                    build_issues.append("UAT build failed - check Windows SDK and UE5 platform support")
+                    self._log("  ✗ Unreal project build FAILED")
+                    output_str = output or ""
+
+                    # Check for specific known errors
+                    if "Unable to find plugin" in output_str:
+                        self._log("")
+                        self._log("  ╔════════════════════════════════════════════════════════════╗")
+                        self._log("  ║  PLUGIN NOT FOUND ERROR                                    ║")
+                        self._log("  ╚════════════════════════════════════════════════════════════╝")
+                        # Extract plugin name
+                        import re
+                        plugin_match = re.search(r"Unable to find plugin '([^']+)'", output_str)
+                        if plugin_match:
+                            missing_plugin = plugin_match.group(1)
+                            self._log(f"  Missing plugin: {missing_plugin}")
+                            expected_path = blocks_plugins_dir / missing_plugin
+                            self._log(f"  Expected at: {expected_path}")
+                            self._log("")
+                            self._log("  This should have been copied in Step 4.")
+                            self._log("  Please report this bug with the full installer log.")
+                        return False
+
+                    if "BuildSettingsVersion" in output_str and "does not contain a definition" in output_str:
+                        self._log("")
+                        self._log("  ╔════════════════════════════════════════════════════════════╗")
+                        self._log("  ║  BUILDSETTINGSVERSION COMPATIBILITY ERROR                  ║")
+                        self._log("  ╚════════════════════════════════════════════════════════════╝")
+                        self._log("  The target files use a BuildSettingsVersion not supported by your UE version.")
+                        self._log("")
+                        # Check which version they're using
+                        if "V6" in output_str:
+                            self._log("  The project uses V6, but your UE version only supports up to V5.")
+                            self._log("  This usually means UE 5.5 is installed, but the files were patched for 5.7+")
+                        self._log("")
+                        self._log("  Fix: Edit these files and change BuildSettingsVersion.V6 to V5:")
+                        self._log(f"    - {blocks_project.parent / 'Source' / 'Blocks.Target.cs'}")
+                        self._log(f"    - {blocks_project.parent / 'Source' / 'BlocksEditor.Target.cs'}")
+                        return False
+
+                    if "Platform Win64 is not a valid platform" in output_str:
+                        self._log("    ERROR: Win64 platform not available in your UE5 install")
+                        self._log("    Fix: Open Epic Games Launcher > UE5 > Options > Enable 'Windows' platform")
+                    elif "unique build environment" in output_str.lower():
+                        self._log("")
+                        self._log("  ⚠️ UE 5.7 + Installed Engine limitation!")
+                        self._log("    Unique build environments require a source-built engine.")
+                        self._log("    The Epic Games Launcher version cannot compile this project.")
+                        self._log("")
+                        self._log("    Options:")
+                        self._log("    1. Download pre-built Cosys-AirSim binaries (RECOMMENDED):")
+                        self._log("       https://github.com/Cosys-Lab/Cosys-AirSim/releases")
+                        self._log("    2. Install UE 5.5 via Epic Games Launcher")
+                        self._log("    3. Build UE 5.7 from source (advanced)")
+                        self._log("")
+                    elif "UndefinedIdentifierWarningLevel" in output_str or "bOverrideBuildEnvironment" in output_str:
+                        self._log("")
+                        self._log("  ⚠️ UE 5.7 compatibility issue detected!")
+                        self._log("    Cosys-AirSim Blocks project was designed for UE 5.5")
+                        self._log("    UE 5.7 has stricter build settings that conflict with the project.")
+                        self._log("")
+                        self._log("    Options:")
+                        self._log("    1. Use UE 5.5 (recommended for Cosys-AirSim v3.3)")
+                        self._log("    2. Use pre-built Cosys-AirSim binaries:")
+                        self._log("       https://github.com/Cosys-Lab/Cosys-AirSim/releases")
+                        self._log("")
+                    else:
+                        self._log("    Alternative: Build manually in Unreal Editor")
+            elif ubt_path.exists():
+                # Use UnrealBuildTool directly for editor build
+                build_cmd = [
+                    str(ubt_path),
+                    "BlocksEditor",
+                    "Win64",
+                    "Development",
+                    f"-Project={blocks_project}",
+                    "-WaitMutex",
+                    "-FromMsBuild",
+                ]
+                self._log(f"    Using UBT: {ubt_path}")
+                success, output, _ = run_command_stream(
+                    build_cmd,
+                    cwd=str(blocks_project.parent),
+                    timeout=1800,  # 30 minutes
+                    on_output=lambda line: self.after(0, lambda msg=line: self._log(f"    {msg}")) if line else None,
+                )
+                if success:
+                    self._log("  ✓ Unreal Editor target built successfully")
+                    unreal_build_success = True
+                else:
+                    build_issues.append("UBT build failed")
+                    self._log("  ✗ Unreal Editor build FAILED")
+            else:
+                build_issues.append("No Unreal build tools found (UAT or UBT)")
+                self._log("  ✗ Cannot build - no Unreal build tools found")
+                self._log(f"    Expected UAT at: {uat_path}")
+                self._log(f"    Expected UBT at: {ubt_path}")
+        else:
+            build_issues.append("Cannot build - Blocks.uproject not found")
+            self._log("  ✗ Cannot build Unreal project - .uproject file missing")
+
+        # Update config with AirSim path (local path)
+        self.config.airsim_path = local_airsim_dir / "Unreal" / "Environments" / "Blocks"
+
+        # Check if the built executable exists (check Blocks folder first - our renamed output)
+        exe_path = local_airsim_dir / "Blocks" / "Blocks.exe"
+        if not exe_path.exists():
+            # Check UE5 Windows output (before rename)
+            exe_path = local_airsim_dir / "Windows" / "Blocks.exe"
+        if not exe_path.exists():
+            # Check UE4-style WindowsNoEditor (before rename)
+            exe_path = local_airsim_dir / "WindowsNoEditor" / "Blocks.exe"
+        if not exe_path.exists():
+            # Check legacy Build folder (UE5 style)
+            exe_path = local_airsim_dir / "Build" / "Windows" / "Blocks.exe"
+        if not exe_path.exists():
+            # Check legacy Build folder (UE4 style)
+            exe_path = local_airsim_dir / "Build" / "WindowsNoEditor" / "Blocks.exe"
+        if not exe_path.exists():
+            # Check editor build output
+            exe_path = local_airsim_dir / "Unreal" / "Environments" / "Blocks" / "Binaries" / "Win64" / "Blocks.exe"
+
+        # Final status report
         self._log("")
-        self._log("  ✅ AirSim with AegisAVOverlay setup complete!")
-        self._log(f"  Project location: {blocks_project.parent if blocks_project.exists() else airsim_dir}")
-        self._log("")
-        self._log("  Next steps:")
-        self._log("  1. Open Blocks.sln in Visual Studio 2022")
-        self._log("  2. Build the project (Development Editor | Win64)")
-        self._log("  3. Or open Blocks.uproject in Unreal Editor")
+        all_success = build_success and project_files_generated and unreal_build_success
+        if all_success:
+            self._log("  ✅ AirSim with AegisAVOverlay FULLY BUILT!")
+            if exe_path.exists():
+                self._log(f"  ✅ Blocks.exe packaged successfully!")
+                self._log(f"     Executable: {exe_path}")
+                self._log("")
+                self._log("  The 'Start AirSim' button on the dashboard should now work!")
+            else:
+                self._log("  ⚠️ Build completed but Blocks.exe not found at expected location")
+                self._log(f"     Expected: {local_airsim_dir / 'Blocks' / 'Blocks.exe'}")
+        else:
+            self._log("  ⚠️ AirSim setup completed with issues:")
+            for issue in build_issues:
+                self._log(f"    - {issue}")
+        self._log(f"  Project location: {blocks_project.parent if blocks_project.exists() else local_airsim_dir}")
+
+        if not unreal_build_success:
+            self._log("")
+            self._log("  To build manually, run: scripts\\build_blocks_ue5.bat")
+            self._log("  Or open in Unreal Editor:")
+            self._log(f"    {blocks_project}")
+            self._log("    File > Package Project > Windows (64-bit)")
+
         return True
 
     def _resolve_airsim_install(self) -> tuple[Path | None, str | None]:
+        """Resolve AirSim installation path, checking local install first."""
         if not IS_WINDOWS:
             return None, "AirSim launch is only supported on Windows."
 
-        path = self.config.airsim_path or detect_airsimnh_path()
-        if not path:
-            return None, "AirSim installation path not set. Browse to AirSimNH folder."
+        # Check local AegisAV installation first (where we build AirSim)
+        local_root = self._get_local_install_root()
+        local_airsim_blocks = local_root / "AirSim" / "Unreal" / "Environments" / "Blocks"
 
-        candidate = Path(path)
-        if candidate.is_file():
-            if candidate.name.lower() != "airsimnh.exe":
-                return None, f"Selected file is not AirSimNH.exe: {candidate}"
-            airsim_root = candidate.parent
-        else:
-            airsim_root = candidate
+        # If config has a path set, try that first
+        path = self.config.airsim_path
+        if path:
+            candidate = Path(path)
+            if candidate.is_file():
+                if candidate.name.lower() != "airsimnh.exe":
+                    return None, f"Selected file is not AirSimNH.exe: {candidate}"
+                airsim_root = candidate.parent
+            else:
+                airsim_root = candidate
 
-        exe_path = airsim_root / "AirSimNH.exe"
-        if not exe_path.exists():
-            return None, f"AirSimNH.exe not found at: {exe_path}"
+            exe_path = airsim_root / "AirSimNH.exe"
+            if exe_path.exists():
+                self.config.airsim_path = airsim_root
+                return airsim_root, None
 
-        self.config.airsim_path = airsim_root
-        return airsim_root, None
+        # Check local build location (even if no exe yet - return for script generation)
+        if local_airsim_blocks.exists():
+            self.config.airsim_path = local_airsim_blocks
+            # Return even if exe doesn't exist - scripts will point to right place
+            return local_airsim_blocks, None
+
+        # Try auto-detection
+        path = detect_airsimnh_path()
+        if path:
+            candidate = Path(path)
+            if candidate.is_file():
+                airsim_root = candidate.parent
+            else:
+                airsim_root = candidate
+
+            exe_path = airsim_root / "AirSimNH.exe"
+            if exe_path.exists():
+                self.config.airsim_path = airsim_root
+                return airsim_root, None
+
+        return None, "AirSim installation path not set. Browse to AirSimNH folder or build from source."
 
     def _create_scripts(self) -> bool:
         """Create launch scripts."""
+        scripts_created: list[str] = []
+        scripts_failed: list[str] = []
+
         airsim_root: Path | None = None
         if self.config.airsim_enabled:
             airsim_root, error = self._resolve_airsim_install()
             if error:
-                self._log(f"  {error}")
-                return False
+                self._log(f"  ⚠️ AirSim: {error}")
+                self._log("    AirSim launch script will NOT be created")
+                # Don't fail - just skip AirSim script creation
+                airsim_root = None
 
         if not self.config.create_shortcuts:
-            self._log("  Skipped (disabled)")
+            self._log("  Skipped (disabled by configuration)")
             return True
 
-        scripts_dir = PROJECT_ROOT / "scripts"
-        scripts_dir.mkdir(exist_ok=True)
+        # Use Windows install location if available (set by _copy_project_files)
+        if IS_WINDOWS and hasattr(self, "_windows_install_dir"):
+            install_root = self._windows_install_dir
+        else:
+            install_root = PROJECT_ROOT
+
+        scripts_dir = install_root / "scripts"
+        scripts_dir.mkdir(parents=True, exist_ok=True)
 
         uv_python = get_uv_python_path(self.config.uv_root)
         python_exec = str(uv_python) if uv_python else sys.executable
 
         if IS_WINDOWS:
             # Windows batch scripts
+            # Use the local Windows install directory, not WSL paths
             python_cmd = f"\"{python_exec}\""
             port = self.config.server_port
-            project_root_str = str(PROJECT_ROOT)
-            roots = [project_root_str]
-            if project_root_str.lower().startswith("\\\\wsl.localhost\\"):
-                roots.insert(0, "\\\\wsl$\\" + project_root_str[len("\\\\wsl.localhost\\"):])
-            root_a = roots[0]
-            root_b = roots[1] if len(roots) > 1 else roots[0]
+            project_root_str = str(install_root)
+
+            # For PYTHONPATH, we need the project root accessible
+            # Python handles UNC paths fine, CMD doesn't for current directory
             start_server = scripts_dir / "start_server.bat"
             start_server.write_text(f"""@echo off
-setlocal
+setlocal EnableDelayedExpansion
+echo Starting AegisAV Server...
+
+REM Select available port
 if "%AEGIS_PORT%"=="" call :select_port
 if "%AEGIS_HOST%"=="" set "AEGIS_HOST=0.0.0.0"
 if "%AEGIS_RELOAD%"=="" set "AEGIS_RELOAD=0"
-pushd "{root_a}" 2>nul
-if errorlevel 1 pushd "{root_b}" 2>nul
+
+REM Set PYTHONPATH so Python can find the agent module
+REM Python handles UNC paths fine - no need for pushd
+set "PYTHONPATH={project_root_str};%PYTHONPATH%"
+
+echo Server starting on %AEGIS_HOST%:%AEGIS_PORT%
+{python_cmd} -c "import sys; sys.path.insert(0, r'{project_root_str}'); from agent.server.main import main; main()"
 if errorlevel 1 (
-  echo Failed to access project root.
+  echo.
+  echo Server failed to start. Check the error above.
   pause
   exit /b 1
 )
-{python_cmd} -m agent.server.main
-popd
 pause
 exit /b 0
 
@@ -2762,24 +4102,32 @@ goto :eof
 
             run_demo = scripts_dir / "run_demo.bat"
             run_demo.write_text(f"""@echo off
-setlocal
+setlocal EnableDelayedExpansion
+echo Starting AegisAV Demo Mode...
+
+REM Select available port
 if "%AEGIS_PORT%"=="" call :select_port
 if "%AEGIS_HOST%"=="" set "AEGIS_HOST=0.0.0.0"
 if "%AEGIS_RELOAD%"=="" set "AEGIS_RELOAD=0"
-pushd "{root_a}" 2>nul
-if errorlevel 1 pushd "{root_b}" 2>nul
-if errorlevel 1 (
-  echo Failed to access project root.
-  pause
-  exit /b 1
-)
-start "" {python_cmd} -m agent.server.main
-timeout /t 3
-start http://localhost:%AEGIS_PORT%/dashboard/
-start http://localhost:%AEGIS_PORT%/overlay/
-start http://localhost:%AEGIS_PORT%/api/docs
-popd
-pause
+
+REM Set PYTHONPATH so Python can find the agent module
+set "PYTHONPATH={project_root_str};%PYTHONPATH%"
+
+echo Starting server on %AEGIS_HOST%:%AEGIS_PORT%
+start "AegisAV Server" {python_cmd} -c "import sys; sys.path.insert(0, r'{project_root_str}'); from agent.server.main import main; main()"
+
+echo Waiting for server to start...
+timeout /t 3 /nobreak >nul
+
+echo Opening browser tabs...
+start "" http://localhost:%AEGIS_PORT%/dashboard/
+start "" http://localhost:%AEGIS_PORT%/overlay/
+start "" http://localhost:%AEGIS_PORT%/api/docs
+
+echo.
+echo Demo started! Browser tabs should have opened.
+echo Close this window to stop or press any key to exit without stopping server.
+pause >nul
 exit /b 0
 
 :select_port
@@ -2795,20 +4143,162 @@ set "AEGIS_PORT=8090"
 echo Using port %AEGIS_PORT%
 goto :eof
 """)
-            self._log(f"  Created {start_server}")
-            self._log(f"  Created {run_demo}")
+            self._log(f"  ✓ Created {start_server}")
+            scripts_created.append("start_server.bat")
+            self._log(f"  ✓ Created {run_demo}")
+            scripts_created.append("run_demo.bat")
 
-            if self.config.airsim_enabled and airsim_root:
+            if self.config.airsim_enabled:
                 airsim_script = PROJECT_ROOT / "start_airsim.bat"
-                airsim_script.write_text(f"""@echo off
-REM Start AirSim on Windows
-REM Run this from Windows Command Prompt, not WSL
+                # Create a smart launcher that searches for the executable at runtime
+                # Uses %LOCALAPPDATA% environment variable so it works for any user
+                airsim_script.write_text("""@echo off
+setlocal EnableDelayedExpansion
 
-echo Starting AirSim...
-cd /d "{airsim_root}"
-start "" "AirSimNH.exe" -ResX=1920 -ResY=1080 -windowed
+REM ============================================================================
+REM AegisAV Cosys-AirSim Launcher
+REM ============================================================================
+REM Searches for Cosys-AirSim executable in multiple locations and launches it.
+REM ============================================================================
+
+echo.
+echo ================================================================
+echo            AegisAV Cosys-AirSim Launcher
+echo ================================================================
+echo.
+
+set "AIRSIM_EXE="
+set "AEGIS_LOCAL=%LOCALAPPDATA%\\AegisAV"
+
+REM Check packaged build output first (from installer packaging step)
+if exist "%AEGIS_LOCAL%\\AirSim\\Blocks\\Blocks.exe" (
+    set "AIRSIM_EXE=%AEGIS_LOCAL%\\AirSim\\Blocks\\Blocks.exe"
+    goto :found
+)
+if exist "%AEGIS_LOCAL%\\Cosys-AirSim\\Blocks\\Blocks.exe" (
+    set "AIRSIM_EXE=%AEGIS_LOCAL%\\Cosys-AirSim\\Blocks\\Blocks.exe"
+    goto :found
+)
+
+REM Check UAT Build output (Build\\WindowsNoEditor)
+if exist "%AEGIS_LOCAL%\\AirSim\\Build\\WindowsNoEditor\\Blocks.exe" (
+    set "AIRSIM_EXE=%AEGIS_LOCAL%\\AirSim\\Build\\WindowsNoEditor\\Blocks.exe"
+    goto :found
+)
+if exist "%AEGIS_LOCAL%\\Cosys-AirSim\\Build\\WindowsNoEditor\\Blocks.exe" (
+    set "AIRSIM_EXE=%AEGIS_LOCAL%\\Cosys-AirSim\\Build\\WindowsNoEditor\\Blocks.exe"
+    goto :found
+)
+
+REM Check Editor build output (Development Editor build from Visual Studio)
+if exist "%AEGIS_LOCAL%\\AirSim\\Unreal\\Environments\\Blocks\\Binaries\\Win64\\Blocks.exe" (
+    set "AIRSIM_EXE=%AEGIS_LOCAL%\\AirSim\\Unreal\\Environments\\Blocks\\Binaries\\Win64\\Blocks.exe"
+    goto :found
+)
+if exist "%AEGIS_LOCAL%\\Cosys-AirSim\\Unreal\\Environments\\Blocks\\Binaries\\Win64\\Blocks.exe" (
+    set "AIRSIM_EXE=%AEGIS_LOCAL%\\Cosys-AirSim\\Unreal\\Environments\\Blocks\\Binaries\\Win64\\Blocks.exe"
+    goto :found
+)
+
+REM Check user's Desktop for pre-built binaries
+if exist "%USERPROFILE%\\Desktop\\Cosys-AirSim\\WindowsNoEditor\\Blocks.exe" (
+    set "AIRSIM_EXE=%USERPROFILE%\\Desktop\\Cosys-AirSim\\WindowsNoEditor\\Blocks.exe"
+    goto :found
+)
+if exist "%USERPROFILE%\\Desktop\\Cosys-AirSim\\Blocks.exe" (
+    set "AIRSIM_EXE=%USERPROFILE%\\Desktop\\Cosys-AirSim\\Blocks.exe"
+    goto :found
+)
+
+REM Check Downloads folder
+if exist "%USERPROFILE%\\Downloads\\Cosys-AirSim\\WindowsNoEditor\\Blocks.exe" (
+    set "AIRSIM_EXE=%USERPROFILE%\\Downloads\\Cosys-AirSim\\WindowsNoEditor\\Blocks.exe"
+    goto :found
+)
+if exist "%USERPROFILE%\\Downloads\\Cosys-AirSim\\Blocks.exe" (
+    set "AIRSIM_EXE=%USERPROFILE%\\Downloads\\Cosys-AirSim\\Blocks.exe"
+    goto :found
+)
+
+REM Check common install locations
+if exist "C:\\Cosys-AirSim\\Blocks.exe" (
+    set "AIRSIM_EXE=C:\\Cosys-AirSim\\Blocks.exe"
+    goto :found
+)
+if exist "C:\\Cosys-AirSim\\WindowsNoEditor\\Blocks.exe" (
+    set "AIRSIM_EXE=C:\\Cosys-AirSim\\WindowsNoEditor\\Blocks.exe"
+    goto :found
+)
+
+REM Check legacy AirSimNH locations
+if exist "%USERPROFILE%\\Desktop\\AirSimNH\\WindowsNoEditor\\AirSimNH.exe" (
+    set "AIRSIM_EXE=%USERPROFILE%\\Desktop\\AirSimNH\\WindowsNoEditor\\AirSimNH.exe"
+    goto :found
+)
+
+REM Not found - show helpful message
+echo ERROR: Cosys-AirSim executable (Blocks.exe) not found!
+echo.
+echo Searched these locations:
+echo   - %AEGIS_LOCAL%\\AirSim\\Blocks\\
+echo   - %AEGIS_LOCAL%\\AirSim\\Build\\WindowsNoEditor\\
+echo   - %AEGIS_LOCAL%\\AirSim\\Unreal\\Environments\\Blocks\\Binaries\\Win64\\
+echo   - %%USERPROFILE%%\\Desktop\\Cosys-AirSim\\
+echo   - %%USERPROFILE%%\\Downloads\\Cosys-AirSim\\
+echo   - C:\\Cosys-AirSim\\
+echo.
+echo ================================================================
+echo                      HOW TO FIX
+echo ================================================================
+echo.
+echo The AirSim C++ libraries were built, but the Unreal Blocks
+echo environment needs to be packaged separately.
+echo.
+echo Option 1: Package from Unreal Editor
+echo   1. Open: %AEGIS_LOCAL%\\AirSim\\Unreal\\Environments\\Blocks\\Blocks.uproject
+echo   2. Wait for shaders to compile (first time only)
+echo   3. File -^> Package Project -^> Windows (64-bit)
+echo   4. Choose output: %AEGIS_LOCAL%\\AirSim\\Blocks
+echo.
+echo Option 2: Run the build script
+echo   Run: scripts\\build_blocks_ue5.bat
+echo   Choose Option 2 to package a standalone executable.
+echo.
+echo Option 3: Download pre-built binaries
+echo   https://github.com/Cosys-Lab/Cosys-AirSim/releases
+echo   Extract to Desktop\\Cosys-AirSim
+echo.
+pause
+exit /b 1
+
+:found
+echo Found Cosys-AirSim at: %AIRSIM_EXE%
+echo.
+
+REM Check if already running
+tasklist /FI "IMAGENAME eq Blocks.exe" 2>NUL | find /I /N "Blocks.exe">NUL
+if "%ERRORLEVEL%"=="0" (
+    echo Cosys-AirSim is already running!
+    echo.
+    pause
+    exit /b 0
+)
+
+REM Launch Cosys-AirSim
+echo Starting Cosys-AirSim...
+for %%F in ("%AIRSIM_EXE%") do set "EXE_DIR=%%~dpF"
+for %%F in ("%AIRSIM_EXE%") do set "EXE_NAME=%%~nxF"
+
+cd /d "%EXE_DIR%"
+start "" "%EXE_NAME%" -windowed -ResX=1280 -ResY=720
+
+echo.
+echo Cosys-AirSim started. Window should appear shortly.
+echo (It may take 30-60 seconds to fully initialize)
+echo.
 """)
-                self._log(f"  Created {airsim_script}")
+                self._log(f"  ✓ Created {airsim_script} (smart launcher)")
+                scripts_created.append("start_airsim.bat")
         else:
             # Linux/Mac shell scripts
             python_cmd = f"\"{python_exec}\""
@@ -2839,37 +4329,153 @@ kill $SERVER_PID
 """)
             run_demo.chmod(0o755)
 
-            self._log(f"  Created {start_server}")
-            self._log(f"  Created {run_demo}")
+            self._log(f"  ✓ Created {start_server}")
+            scripts_created.append("start_server.sh")
+            self._log(f"  ✓ Created {run_demo}")
+            scripts_created.append("run_demo.sh")
+
+        # Final summary
+        if scripts_failed:
+            self._log("")
+            self._log(f"  ⚠️ Scripts summary: {len(scripts_created)} created, {len(scripts_failed)} failed")
+            for name in scripts_failed:
+                self._log(f"    ✗ {name}")
+        else:
+            self._log("")
+            self._log(f"  ✅ All {len(scripts_created)} scripts created successfully")
+
+        return True
+
+    def _create_desktop_shortcuts(self) -> bool:
+        """Create desktop shortcuts for AegisAV."""
+        if not self.config.create_desktop_shortcuts and not self.config.create_start_menu_shortcuts:
+            self._log("  Skipped (desktop shortcuts disabled in configuration)")
+            return True
+
+        if not self.config.shortcuts_to_create:
+            self._log("  Skipped (no shortcuts selected in configuration)")
+            return True
+
+        try:
+            # Add installer directory to sys.path temporarily for imports
+            installer_dir = Path(__file__).parent
+            installer_dir_str = str(installer_dir)
+            path_added = False
+            if installer_dir_str not in sys.path:
+                sys.path.insert(0, installer_dir_str)
+                path_added = True
+
+            try:
+                # Import modules from same directory
+                from shortcuts import create_shortcuts_for_platform
+            finally:
+                # Remove from path to avoid polluting imports
+                if path_added and installer_dir_str in sys.path:
+                    sys.path.remove(installer_dir_str)
+        except Exception as e:
+            self._log(f"  ✗ FAILED to load shortcut module: {e}")
+            import traceback
+            self._log(f"    {traceback.format_exc()}")
+            self._log("    Desktop shortcuts will NOT be created")
+            return False  # This is a real failure, report it
+
+        # Use Windows install location if available
+        if IS_WINDOWS and hasattr(self, "_windows_install_dir"):
+            install_root = self._windows_install_dir
+        else:
+            install_root = PROJECT_ROOT
+
+        # Get icon path from the install location (copied there in _copy_project_files)
+        icon_path: Path | None = None
+        if IS_WINDOWS:
+            icon_path = install_root / "assets" / "aegis_icon.ico"
+        else:
+            icon_path = install_root / "assets" / "aegis_icon.png"
+
+        if icon_path and icon_path.exists():
+            self._log(f"  Using icon: {icon_path}")
+        else:
+            self._log(f"  ⚠️ No icon file found at {icon_path} - shortcuts will use default icon")
+            icon_path = None
+
+        # Create shortcuts
+        results = create_shortcuts_for_platform(
+            project_root=install_root,
+            shortcuts_to_create=self.config.shortcuts_to_create,
+            icon_path=icon_path,
+            install_desktop=self.config.create_desktop_shortcuts,
+            install_menu=self.config.create_start_menu_shortcuts if IS_WINDOWS else True,
+            airsim_enabled=self.config.airsim_enabled,
+            log_callback=self._log,
+        )
+
+        # Report results
+        success_count = sum(1 for v in results.values() if v)
+        total_count = len(results)
+
+        if success_count == total_count:
+            self._log(f"  ✅ Created {success_count} shortcut(s) successfully")
+            for name in results:
+                self._log(f"    ✓ {name}")
+        elif success_count > 0:
+            self._log(f"  ⚠️ Created {success_count}/{total_count} shortcuts")
+            for name, success in results.items():
+                status = "✓" if success else "✗ FAILED"
+                self._log(f"    {status} {name}")
+        else:
+            self._log(f"  ✗ FAILED to create any shortcuts (0/{total_count})")
+            for name in results:
+                self._log(f"    ✗ {name}")
+
+        # Store results for CompleteStep
+        self._shortcut_results = results
 
         return True
 
     def _verify_install(self) -> bool:
         """Verify the installation."""
+        checks_passed = 0
+        checks_failed = 0
+
+        # Use Windows install location if available
+        if IS_WINDOWS and hasattr(self, "_windows_install_dir"):
+            install_root = self._windows_install_dir
+        else:
+            install_root = PROJECT_ROOT
+
         # Check imports
         self._log("  Checking Python imports...")
         uv_python = get_uv_python_path(self.config.uv_root)
         python_exec = str(uv_python) if uv_python else sys.executable
         success, stdout, stderr = run_command(
             [python_exec, "-c", "from agent.server.main import app; print('OK')"],
-            cwd=PROJECT_ROOT,
+            cwd=install_root,
         )
 
         if success and "OK" in stdout:
             self._log("  ✓ Server imports working")
+            checks_passed += 1
         else:
-            self._log(f"  Import check failed: {stderr}")
-            return False
+            self._log(f"  ✗ Server import check FAILED: {stderr}")
+            checks_failed += 1
 
         if self.config.install_frontend:
-            dashboard_index = PROJECT_ROOT / "frontend" / "dist" / "index.html"
+            dashboard_index = install_root / "frontend" / "dist" / "index.html"
             if dashboard_index.exists():
                 self._log("  ✓ Dashboard build ready")
+                checks_passed += 1
             else:
-                self._log("  Dashboard build missing (frontend/dist/index.html)")
-                return False
+                self._log("  ✗ Dashboard build MISSING (frontend/dist/index.html)")
+                checks_failed += 1
 
-        return True
+        # Summary
+        self._log("")
+        if checks_failed == 0:
+            self._log(f"  ✅ All {checks_passed} verification checks passed")
+            return True
+        else:
+            self._log(f"  ⚠️ Verification: {checks_passed} passed, {checks_failed} FAILED")
+            return False
 
     def can_proceed(self) -> bool:
         return self.install_complete
@@ -2894,21 +4500,69 @@ class CompleteStep(StepFrame):
         )
         title.pack(pady=(40, 20))
 
+        # Show install location on Windows
+        if IS_WINDOWS:
+            local_root = Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData" / "Local"))
+            install_dir = local_root / "AegisAV"
+            location_label = ttk.Label(
+                self,
+                text=f"Installed to: {install_dir}",
+                font=("Courier", 9),
+                foreground="gray",
+            )
+            location_label.pack(pady=(0, 10))
+
         # Summary
         summary_frame = ttk.LabelFrame(self, text="What's Ready", padding=15)
         summary_frame.pack(fill="x", padx=50, pady=20)
 
         items = [
-            "✅ AegisAV agent server configured",
-            "✅ Python dependencies installed",
-            "✅ Launch scripts created",
-            "✅ OBS overlay ready at /overlay/",
+            "AegisAV agent server configured",
+            "Python dependencies installed",
+            "Launch scripts created",
+            "OBS overlay ready at /overlay/",
         ]
         if self.config.install_frontend:
-            items.insert(3, "✅ Dashboard ready at /dashboard/")
+            items.insert(3, "Dashboard ready at /dashboard/")
+
+        # Check if desktop shortcuts were created
+        if self.config.create_desktop_shortcuts or self.config.create_start_menu_shortcuts:
+            shortcut_count = len(self.config.shortcuts_to_create)
+            if shortcut_count > 0:
+                items.append(f"Desktop shortcuts created ({shortcut_count})")
 
         for item in items:
-            ttk.Label(summary_frame, text=item, font=("Helvetica", 11)).pack(anchor="w", pady=2)
+            ttk.Label(summary_frame, text=f"✅ {item}", font=("Helvetica", 11)).pack(anchor="w", pady=2)
+
+        # Shortcuts detail section (if shortcuts were created)
+        if self.config.create_desktop_shortcuts and self.config.shortcuts_to_create:
+            shortcuts_frame = ttk.LabelFrame(self, text="Desktop Shortcuts", padding=10)
+            shortcuts_frame.pack(fill="x", padx=50, pady=10)
+
+            locations = []
+            if self.config.create_desktop_shortcuts:
+                locations.append("Desktop")
+            if IS_WINDOWS and self.config.create_start_menu_shortcuts:
+                locations.append("Start Menu")
+            elif not IS_WINDOWS:
+                locations.append("Applications menu")
+
+            ttk.Label(
+                shortcuts_frame,
+                text=f"Created in: {', '.join(locations)}",
+                font=("Helvetica", 9),
+                foreground="gray",
+            ).pack(anchor="w")
+
+            for shortcut in self.config.shortcuts_to_create:
+                name_map = {
+                    "server": "AegisAV Server",
+                    "dashboard": "Dashboard",
+                    "demo": "Demo Mode",
+                    "airsim": "Launch AirSim",
+                }
+                name = name_map.get(shortcut, shortcut)
+                ttk.Label(shortcuts_frame, text=f"  • {name}", font=("Helvetica", 10)).pack(anchor="w")
 
         # Next steps
         next_frame = ttk.LabelFrame(self, text="Next Steps", padding=15)
@@ -3079,7 +4733,22 @@ class SetupWizard:
         y = (self.root.winfo_screenheight() - 700) // 2
         self.root.geometry(f"+{x}+{y}")
 
-        self.config = SetupConfig()
+        # Check for existing installation
+        self.existing_install, self.previous_config, self.previous_version = (
+            detect_existing_installation()
+        )
+
+        # Load config from previous install or create new
+        if self.existing_install and self.previous_config:
+            self.config = self.previous_config
+            self.config.install_mode = "update"  # Default to update mode
+            # Override old default: build_airsim_overlay should be True for full features
+            # This ensures users who installed with old defaults get the build option
+            if not self.config.build_airsim_overlay:
+                self.config.build_airsim_overlay = True  # Enable by default for better experience
+        else:
+            self.config = SetupConfig()
+
         self.current_step = 0
 
         init_log()
@@ -3089,6 +4758,11 @@ class SetupWizard:
         append_log(f"Log file: {LOG_FILE_ACTIVE}")
         if LOG_FILE_ACTIVE != LOG_FILE_FALLBACK:
             append_log(f"Fallback log: {LOG_FILE_FALLBACK}")
+        if self.existing_install:
+            append_log(f"Existing installation detected: v{self.previous_version}")
+
+        # Store reference to logo image to prevent garbage collection
+        self._logo_image: tk.PhotoImage | None = None
 
         self._setup_styles()
         self._build_ui()
@@ -3202,11 +4876,68 @@ class SetupWizard:
             ],
         )
 
+    def _add_logo(self, parent: ttk.Frame) -> None:
+        """Add the AegisAV logo and title to the header."""
+        try:
+            # Try to import branding module
+            from branding import load_logo_image, create_logo_canvas, ASSETS_DIR
+
+            # Try to load PNG logo
+            logo_path = ASSETS_DIR / "aegis_logo_48.png"
+            if logo_path.exists():
+                self._logo_image = tk.PhotoImage(file=str(logo_path))
+                logo_label = ttk.Label(parent, image=self._logo_image)
+                logo_label.pack(side="left", padx=(0, 10))
+            else:
+                # Fallback to canvas-drawn logo
+                logo_canvas = create_logo_canvas(parent, size=48)
+                logo_canvas.pack(side="left", padx=(0, 10))
+
+        except ImportError:
+            # If branding module not available, skip logo
+            pass
+
+        # Title text
+        title_frame = ttk.Frame(parent)
+        title_frame.pack(side="left")
+
+        title_label = ttk.Label(
+            title_frame,
+            text="AegisAV",
+            font=("Helvetica", 18, "bold"),
+        )
+        title_label.pack(anchor="w")
+
+        subtitle_label = ttk.Label(
+            title_frame,
+            text="Setup Wizard",
+            font=("Helvetica", 10),
+            foreground="#52606d",
+        )
+        subtitle_label.pack(anchor="w")
+
+        # Show update badge if existing install detected
+        if self.existing_install:
+            badge_label = ttk.Label(
+                parent,
+                text=f"  v{self.previous_version} installed",
+                font=("Helvetica", 9),
+                foreground="#10b981",
+            )
+            badge_label.pack(side="left", padx=(20, 0))
+
     def _build_ui(self) -> None:
         """Build the main UI structure."""
-        # Header with steps indicator
+        # Header with logo and steps indicator
         self.header = ttk.Frame(self.root)
         self.header.pack(fill="x", padx=20, pady=10)
+
+        # Logo and title frame
+        logo_title_frame = ttk.Frame(self.header)
+        logo_title_frame.pack(pady=(0, 10))
+
+        # Try to load logo
+        self._add_logo(logo_title_frame)
 
         # Steps indicator (will be populated after creating steps)
         self.steps_indicator = ttk.Frame(self.header)
@@ -3299,8 +5030,15 @@ class SetupWizard:
 
     def _create_steps(self) -> None:
         """Create all wizard steps."""
-        self.steps: list[StepFrame] = [
-            WelcomeStep(self.content, self),
+        # Base steps
+        steps: list[StepFrame] = [WelcomeStep(self.content, self)]
+
+        # Insert maintenance mode step if existing installation detected
+        if self.existing_install:
+            steps.append(MaintenanceModeStep(self.content, self))
+
+        # Continue with remaining steps
+        steps.extend([
             DependencyStep(self.content, self),
             PythonSetupStep(self.content, self),
             UnrealSetupStep(self.content, self),
@@ -3308,7 +5046,9 @@ class SetupWizard:
             ConfigurationStep(self.content, self),
             InstallStep(self.content, self),
             CompleteStep(self.content, self),
-        ]
+        ])
+
+        self.steps = steps
 
         # Create step indicators
         self.step_indicators = []

@@ -100,7 +100,7 @@ async def test_invalid_decision_parameters():
 @pytest.mark.allow_error_logs
 async def test_none_values_in_world_snapshot():
     """Test handling of None/missing values in world snapshot."""
-    orchestrator = CriticOrchestrator(authority_model=AuthorityModel.ESCALATION)
+    orchestrator = CriticOrchestrator(authority_model=AuthorityModel.ESCALATION, enable_llm=False)
 
     # Create vehicle with minimal data (some fields might be None)
     vehicle = VehicleState(
@@ -328,7 +328,7 @@ async def test_outcome_tracker_performance():
 @pytest.mark.allow_error_logs
 async def test_extreme_risk_values():
     """Test handling of extreme risk values (0.0, 1.0)."""
-    orchestrator = CriticOrchestrator(authority_model=AuthorityModel.ESCALATION)
+    orchestrator = CriticOrchestrator(authority_model=AuthorityModel.ESCALATION, enable_llm=False)
 
     world = WorldSnapshot(
         timestamp=datetime.now(),
@@ -390,7 +390,7 @@ async def test_extreme_risk_values():
 @pytest.mark.asyncio
 async def test_empty_assets_list():
     """Test handling of missions with no assets."""
-    orchestrator = CriticOrchestrator(authority_model=AuthorityModel.ESCALATION)
+    orchestrator = CriticOrchestrator(authority_model=AuthorityModel.ESCALATION, enable_llm=False)
 
     world = WorldSnapshot(
         timestamp=datetime.now(),

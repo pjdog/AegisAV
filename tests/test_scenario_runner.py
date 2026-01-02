@@ -458,7 +458,7 @@ class TestScenarioRunnerGoalApplication:
         ds = DroneSimState(drone=drone, world_model=WorldModel())
 
         goal = Goal(goal_type=GoalType.ABORT, priority=0, reason="Emergency")
-        runner._apply_goal(ds, goal)
+        await runner._apply_goal(ds, goal)
 
         assert drone.state == DroneState.EMERGENCY
         assert drone.in_air is False
@@ -478,7 +478,7 @@ class TestScenarioRunnerGoalApplication:
         ds = DroneSimState(drone=drone, world_model=WorldModel())
 
         goal = Goal(goal_type=GoalType.RETURN_LOW_BATTERY, priority=5, reason="Low battery")
-        runner._apply_goal(ds, goal)
+        await runner._apply_goal(ds, goal)
 
         assert drone.state == DroneState.RETURNING
 
@@ -498,7 +498,7 @@ class TestScenarioRunnerGoalApplication:
         ds = DroneSimState(drone=drone, world_model=WorldModel())
 
         goal = Goal(goal_type=GoalType.INSPECT_ASSET, priority=30, reason="Inspect asset")
-        runner._apply_goal(ds, goal)
+        await runner._apply_goal(ds, goal)
 
         assert drone.state == DroneState.INSPECTING
         assert drone.in_air is True

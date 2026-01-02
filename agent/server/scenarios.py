@@ -135,10 +135,20 @@ class SimulatedAsset:
     asset_type: str  # solar_panel, wind_turbine, power_line, etc.
     latitude: float
     longitude: float
+    altitude_m: float = 0.0
     priority: int = 1
     has_anomaly: bool = False
     anomaly_severity: float = 0.0
     last_inspected: datetime | None = None
+
+    # Inspection profile (for flight planning + demos)
+    inspection_altitude_agl: float = 30.0
+    orbit_radius_m: float = 20.0
+    dwell_time_s: float = 20.0
+
+    # Unreal visualization tuning
+    scale: float = 1.0
+    rotation_deg: float = 0.0
 
 
 @dataclass
@@ -290,6 +300,11 @@ def create_normal_operations_scenario() -> Scenario:
                 latitude=37.7760,
                 longitude=-122.4180,
                 priority=1,
+                inspection_altitude_agl=28.0,
+                orbit_radius_m=18.0,
+                dwell_time_s=18.0,
+                scale=1.35,
+                rotation_deg=15.0,
             ),
             SimulatedAsset(
                 asset_id="solar_farm_b",
@@ -298,6 +313,11 @@ def create_normal_operations_scenario() -> Scenario:
                 latitude=37.7770,
                 longitude=-122.4170,
                 priority=2,
+                inspection_altitude_agl=28.0,
+                orbit_radius_m=18.0,
+                dwell_time_s=18.0,
+                scale=1.3,
+                rotation_deg=32.0,
             ),
             SimulatedAsset(
                 asset_id="substation_1",
@@ -306,6 +326,11 @@ def create_normal_operations_scenario() -> Scenario:
                 latitude=37.7755,
                 longitude=-122.4195,
                 priority=1,
+                inspection_altitude_agl=36.0,
+                orbit_radius_m=26.0,
+                dwell_time_s=22.0,
+                scale=1.2,
+                rotation_deg=8.0,
             ),
         ],
         defects=[
@@ -400,6 +425,11 @@ def create_battery_cascade_scenario() -> Scenario:
                 priority=1,
                 has_anomaly=True,  # Critical asset with detected anomaly
                 anomaly_severity=0.75,
+                inspection_altitude_agl=30.0,
+                orbit_radius_m=20.0,
+                dwell_time_s=24.0,
+                scale=1.4,
+                rotation_deg=20.0,
             ),
         ],
         defects=[
@@ -510,6 +540,11 @@ def create_gps_degradation_scenario() -> Scenario:
                 latitude=37.7775,
                 longitude=-122.4155,
                 priority=1,
+                inspection_altitude_agl=34.0,
+                orbit_radius_m=24.0,
+                dwell_time_s=26.0,
+                scale=1.25,
+                rotation_deg=12.0,
             ),
         ],
         defects=[
@@ -597,6 +632,37 @@ def create_weather_emergency_scenario() -> Scenario:
                 latitude=37.7810,
                 longitude=-122.4110,
                 priority=2,
+                inspection_altitude_agl=48.0,
+                orbit_radius_m=34.0,
+                dwell_time_s=24.0,
+                scale=1.15,
+                rotation_deg=0.0,
+            ),
+            SimulatedAsset(
+                asset_id="wind_farm_west",
+                name="Wind Farm West",
+                asset_type="wind_turbine",
+                latitude=37.7804,
+                longitude=-122.4132,
+                priority=1,
+                inspection_altitude_agl=48.0,
+                orbit_radius_m=34.0,
+                dwell_time_s=24.0,
+                scale=1.12,
+                rotation_deg=8.0,
+            ),
+            SimulatedAsset(
+                asset_id="wind_farm_east",
+                name="Wind Farm East",
+                asset_type="wind_turbine",
+                latitude=37.7816,
+                longitude=-122.4093,
+                priority=3,
+                inspection_altitude_agl=46.0,
+                orbit_radius_m=32.0,
+                dwell_time_s=22.0,
+                scale=1.1,
+                rotation_deg=352.0,
             ),
         ],
         defects=[
@@ -698,6 +764,11 @@ def create_sensor_cascade_scenario() -> Scenario:
                 priority=1,
                 has_anomaly=True,
                 anomaly_severity=0.85,
+                inspection_altitude_agl=38.0,
+                orbit_radius_m=28.0,
+                dwell_time_s=26.0,
+                scale=1.3,
+                rotation_deg=18.0,
             ),
         ],
         defects=[
@@ -782,6 +853,11 @@ def create_multi_anomaly_scenario() -> Scenario:
                 priority=1,
                 has_anomaly=True,
                 anomaly_severity=0.92,  # Critical
+                inspection_altitude_agl=30.0,
+                orbit_radius_m=20.0,
+                dwell_time_s=22.0,
+                scale=1.45,
+                rotation_deg=25.0,
             ),
             SimulatedAsset(
                 asset_id="mod_substation",
@@ -792,6 +868,11 @@ def create_multi_anomaly_scenario() -> Scenario:
                 priority=2,
                 has_anomaly=True,
                 anomaly_severity=0.55,  # Moderate
+                inspection_altitude_agl=36.0,
+                orbit_radius_m=26.0,
+                dwell_time_s=24.0,
+                scale=1.2,
+                rotation_deg=6.0,
             ),
             SimulatedAsset(
                 asset_id="low_tower",
@@ -802,6 +883,11 @@ def create_multi_anomaly_scenario() -> Scenario:
                 priority=3,
                 has_anomaly=True,
                 anomaly_severity=0.25,  # Low
+                inspection_altitude_agl=40.0,
+                orbit_radius_m=32.0,
+                dwell_time_s=16.0,
+                scale=1.05,
+                rotation_deg=40.0,
             ),
             SimulatedAsset(
                 asset_id="new_anomaly",
@@ -812,6 +898,11 @@ def create_multi_anomaly_scenario() -> Scenario:
                 priority=2,
                 has_anomaly=True,
                 anomaly_severity=0.78,  # High, detected mid-mission
+                inspection_altitude_agl=48.0,
+                orbit_radius_m=34.0,
+                dwell_time_s=26.0,
+                scale=1.1,
+                rotation_deg=12.0,
             ),
         ],
         defects=[
@@ -928,6 +1019,11 @@ def create_coordination_scenario() -> Scenario:
                 latitude=37.7760,
                 longitude=-122.4175,
                 priority=1,
+                inspection_altitude_agl=26.0,
+                orbit_radius_m=16.0,
+                dwell_time_s=16.0,
+                scale=1.2,
+                rotation_deg=20.0,
             ),
             SimulatedAsset(
                 asset_id="dense_array_2",
@@ -936,6 +1032,11 @@ def create_coordination_scenario() -> Scenario:
                 latitude=37.7762,
                 longitude=-122.4173,  # Very close to section 1
                 priority=1,
+                inspection_altitude_agl=26.0,
+                orbit_radius_m=16.0,
+                dwell_time_s=16.0,
+                scale=1.2,
+                rotation_deg=32.0,
             ),
             SimulatedAsset(
                 asset_id="dense_array_3",
@@ -944,6 +1045,11 @@ def create_coordination_scenario() -> Scenario:
                 latitude=37.7758,
                 longitude=-122.4177,  # Also close
                 priority=2,
+                inspection_altitude_agl=26.0,
+                orbit_radius_m=16.0,
+                dwell_time_s=16.0,
+                scale=1.2,
+                rotation_deg=8.0,
             ),
             SimulatedAsset(
                 asset_id="dense_array_4",
@@ -952,6 +1058,11 @@ def create_coordination_scenario() -> Scenario:
                 latitude=37.7764,
                 longitude=-122.4171,
                 priority=2,
+                inspection_altitude_agl=26.0,
+                orbit_radius_m=16.0,
+                dwell_time_s=16.0,
+                scale=1.2,
+                rotation_deg=42.0,
             ),
         ],
         defects=[
@@ -1014,6 +1125,327 @@ def create_coordination_scenario() -> Scenario:
     )
 
 
+def create_showcase_scenario() -> Scenario:
+    """High-polish demo scenario with diverse assets and clear visual beats."""
+    return Scenario(
+        scenario_id="showcase_001",
+        name="AegisAV Showcase",
+        description=(
+            "Curated multi-drone inspection run spanning solar, substation, wind, "
+            "and power line assets with staged anomalies."
+        ),
+        category=ScenarioCategory.NORMAL_OPERATIONS,
+        duration_minutes=18.0,
+        difficulty="normal",
+        tags=["showcase", "demo", "multi-drone", "vision"],
+        drones=[
+            SimulatedDrone(drone_id="delta", name="Delta-1", battery_percent=94.0),
+            SimulatedDrone(drone_id="echo", name="Echo-2", battery_percent=90.0),
+            SimulatedDrone(drone_id="foxtrot", name="Foxtrot-3", battery_percent=92.0),
+        ],
+        assets=[
+            SimulatedAsset(
+                asset_id="show_solar_west",
+                name="West Solar Array",
+                asset_type="solar_panel",
+                latitude=DOCK_LATITUDE + 0.0011,
+                longitude=DOCK_LONGITUDE + 0.0012,
+                priority=1,
+                has_anomaly=True,
+                anomaly_severity=0.42,
+                inspection_altitude_agl=28.0,
+                orbit_radius_m=18.0,
+                dwell_time_s=18.0,
+                scale=1.45,
+                rotation_deg=22.0,
+            ),
+            SimulatedAsset(
+                asset_id="show_substation",
+                name="Grid Substation Node",
+                asset_type="substation",
+                latitude=DOCK_LATITUDE + 0.0002,
+                longitude=DOCK_LONGITUDE + 0.0016,
+                priority=1,
+                has_anomaly=True,
+                anomaly_severity=0.68,
+                inspection_altitude_agl=38.0,
+                orbit_radius_m=26.0,
+                dwell_time_s=24.0,
+                scale=1.25,
+                rotation_deg=12.0,
+            ),
+            SimulatedAsset(
+                asset_id="show_wind_ridge",
+                name="Ridge Wind Turbine",
+                asset_type="wind_turbine",
+                latitude=DOCK_LATITUDE + 0.0020,
+                longitude=DOCK_LONGITUDE + 0.0024,
+                priority=2,
+                has_anomaly=True,
+                anomaly_severity=0.75,
+                inspection_altitude_agl=50.0,
+                orbit_radius_m=36.0,
+                dwell_time_s=26.0,
+                scale=1.15,
+                rotation_deg=8.0,
+            ),
+            SimulatedAsset(
+                asset_id="show_power_corridor",
+                name="Transmission Corridor",
+                asset_type="power_line",
+                latitude=DOCK_LATITUDE + 0.0016,
+                longitude=DOCK_LONGITUDE + 0.0006,
+                priority=3,
+                has_anomaly=False,
+                inspection_altitude_agl=42.0,
+                orbit_radius_m=32.0,
+                dwell_time_s=16.0,
+                scale=1.05,
+                rotation_deg=46.0,
+            ),
+        ],
+        defects=[
+            AssetDefect(
+                defect_id="defect_show_001",
+                asset_id="show_solar_west",
+                defect_type="debris",
+                severity=0.42,
+                confidence=0.9,
+                uv_x=0.62,
+                uv_y=0.35,
+                size=0.1,
+                description="Debris shading a cell string on the array edge",
+            ),
+            AssetDefect(
+                defect_id="defect_show_002",
+                asset_id="show_substation",
+                defect_type="corrosion",
+                severity=0.68,
+                confidence=0.86,
+                uv_x=0.28,
+                uv_y=0.55,
+                size=0.14,
+                description="Visible corrosion on substation panel housing",
+            ),
+            AssetDefect(
+                defect_id="defect_show_003",
+                asset_id="show_wind_ridge",
+                defect_type="crack",
+                severity=0.75,
+                confidence=0.82,
+                uv_x=0.74,
+                uv_y=0.32,
+                size=0.18,
+                description="Blade root crack detected under thermal sweep",
+            ),
+        ],
+        environment=EnvironmentConditions(
+            hour=16,
+            precipitation="haze",
+            visibility_m=9000.0,
+            wind_speed_ms=3.2,
+            wind_direction_deg=210.0,
+        ),
+        events=[
+            ScenarioEvent(0.0, "mission_start", "Showcase mission begins"),
+            ScenarioEvent(20.0, "decision", "Delta-1: Assigned to West Solar Array"),
+            ScenarioEvent(35.0, "decision", "Echo-2: Assigned to Substation Node"),
+            ScenarioEvent(50.0, "decision", "Foxtrot-3: Assigned to Ridge Turbine"),
+            ScenarioEvent(300.0, "alert", "Anomaly confirmed on substation housing"),
+            ScenarioEvent(420.0, "action", "Delta-1: Solar inspection complete"),
+            ScenarioEvent(540.0, "action", "Echo-2: Substation inspection complete"),
+            ScenarioEvent(700.0, "action", "Foxtrot-3: Turbine inspection complete"),
+            ScenarioEvent(900.0, "mission_end", "Showcase run complete - fleet returning"),
+        ],
+    )
+
+
+def create_patrol_recharge_scenario() -> Scenario:
+    """Extended patrol scenario where drones observe, return for battery, then resume.
+
+    This scenario demonstrates the full operational cycle:
+    1. Drones launch from dock and begin inspections
+    2. Battery drains faster than normal (2.5%/min) to accelerate the cycle
+    3. When battery drops below return threshold, drones RTL
+    4. Drones charge at dock (2%/min)
+    5. Once charged (~95%), drones resume patrol
+    6. Cycle continues throughout mission duration
+
+    Duration: 45 minutes to allow multiple charge cycles
+    """
+    return Scenario(
+        scenario_id="patrol_recharge_001",
+        name="Patrol & Recharge Cycle",
+        description=(
+            "Extended autonomous patrol demonstrating full operational cycle: "
+            "inspect assets, return to dock when battery low, recharge, and resume patrol. "
+            "Drones will complete multiple charge cycles over the mission duration."
+        ),
+        category=ScenarioCategory.NORMAL_OPERATIONS,
+        duration_minutes=45.0,
+        difficulty="normal",
+        tags=["patrol", "recharge", "endurance", "multi-drone", "autonomous"],
+        drones=[
+            SimulatedDrone(
+                drone_id="patrol_a",
+                name="Patrol Alpha",
+                battery_percent=55.0,  # Start at 55% to trigger first return sooner
+                battery_drain_rate=2.5,  # Faster drain (2.5% per minute) for demo
+                battery_critical_threshold=18.0,
+                # Starts at dock
+            ),
+            SimulatedDrone(
+                drone_id="patrol_b",
+                name="Patrol Bravo",
+                battery_percent=70.0,  # Staggered start - B has more battery
+                battery_drain_rate=2.2,  # Slightly slower drain
+                battery_critical_threshold=18.0,
+                # Starts at dock
+            ),
+            SimulatedDrone(
+                drone_id="patrol_c",
+                name="Patrol Charlie",
+                battery_percent=40.0,  # Low start - will return first
+                battery_drain_rate=2.8,  # Fastest drain
+                battery_critical_threshold=18.0,
+                # Starts at dock
+            ),
+        ],
+        assets=[
+            # Multiple assets spread across the area for continuous patrol
+            SimulatedAsset(
+                asset_id="patrol_solar_north",
+                name="North Solar Array",
+                asset_type="solar_panel",
+                latitude=DOCK_LATITUDE + 0.0018,  # ~200m north
+                longitude=DOCK_LONGITUDE + 0.0008,  # ~70m east
+                priority=1,
+                has_anomaly=True,
+                anomaly_severity=0.45,
+                inspection_altitude_agl=28.0,
+                orbit_radius_m=18.0,
+                dwell_time_s=20.0,
+                scale=1.3,
+                rotation_deg=15.0,
+            ),
+            SimulatedAsset(
+                asset_id="patrol_solar_east",
+                name="East Solar Field",
+                asset_type="solar_panel",
+                latitude=DOCK_LATITUDE + 0.0008,  # ~90m north
+                longitude=DOCK_LONGITUDE + 0.0020,  # ~170m east
+                priority=1,
+                has_anomaly=False,
+                inspection_altitude_agl=26.0,
+                orbit_radius_m=16.0,
+                dwell_time_s=18.0,
+                scale=1.25,
+                rotation_deg=25.0,
+            ),
+            SimulatedAsset(
+                asset_id="patrol_substation",
+                name="Central Substation",
+                asset_type="substation",
+                latitude=DOCK_LATITUDE + 0.0012,  # ~130m north
+                longitude=DOCK_LONGITUDE + 0.0014,  # ~120m east
+                priority=1,
+                has_anomaly=True,
+                anomaly_severity=0.55,
+                inspection_altitude_agl=36.0,
+                orbit_radius_m=24.0,
+                dwell_time_s=22.0,
+                scale=1.2,
+                rotation_deg=8.0,
+            ),
+            SimulatedAsset(
+                asset_id="patrol_turbine",
+                name="Patrol Wind Turbine",
+                asset_type="wind_turbine",
+                latitude=DOCK_LATITUDE + 0.0024,  # ~270m north
+                longitude=DOCK_LONGITUDE + 0.0006,  # ~50m east
+                priority=2,
+                has_anomaly=False,
+                inspection_altitude_agl=48.0,
+                orbit_radius_m=32.0,
+                dwell_time_s=24.0,
+                scale=1.1,
+                rotation_deg=0.0,
+            ),
+            SimulatedAsset(
+                asset_id="patrol_powerline",
+                name="South Power Corridor",
+                asset_type="power_line",
+                latitude=DOCK_LATITUDE - 0.0005,  # ~55m south
+                longitude=DOCK_LONGITUDE + 0.0018,  # ~150m east
+                priority=3,
+                has_anomaly=False,
+                inspection_altitude_agl=40.0,
+                orbit_radius_m=28.0,
+                dwell_time_s=16.0,
+                scale=1.0,
+                rotation_deg=45.0,
+            ),
+        ],
+        defects=[
+            AssetDefect(
+                defect_id="defect_patrol_001",
+                asset_id="patrol_solar_north",
+                defect_type="hotspot",
+                severity=0.45,
+                confidence=0.88,
+                uv_x=0.55,
+                uv_y=0.42,
+                size=0.12,
+                description="Thermal hotspot on north array panel",
+            ),
+            AssetDefect(
+                defect_id="defect_patrol_002",
+                asset_id="patrol_substation",
+                defect_type="corrosion",
+                severity=0.55,
+                confidence=0.85,
+                uv_x=0.32,
+                uv_y=0.60,
+                size=0.14,
+                description="Surface corrosion on substation housing",
+            ),
+        ],
+        environment=EnvironmentConditions(
+            hour=10,  # Late morning - good lighting for patrol
+            precipitation="none",
+            visibility_m=12000.0,
+            wind_speed_ms=3.5,
+            wind_direction_deg=180.0,  # Southerly wind
+        ),
+        events=[
+            ScenarioEvent(0.0, "mission_start", "Patrol & Recharge mission begins"),
+            ScenarioEvent(20.0, "decision", "Patrol Alpha: Assigned to North Solar Array"),
+            ScenarioEvent(30.0, "decision", "Patrol Bravo: Assigned to East Solar Field"),
+            ScenarioEvent(40.0, "decision", "Patrol Charlie: Assigned to Central Substation"),
+            # Charlie runs low first due to low start + fast drain
+            ScenarioEvent(180.0, "alert", "Patrol Charlie: Battery at return threshold - RTL"),
+            ScenarioEvent(220.0, "action", "Patrol Charlie: Docked and charging"),
+            # Alpha returns next
+            ScenarioEvent(360.0, "alert", "Patrol Alpha: Battery at return threshold - RTL"),
+            ScenarioEvent(400.0, "action", "Patrol Alpha: Docked and charging"),
+            # Charlie resumes after charging
+            ScenarioEvent(480.0, "decision", "Patrol Charlie: Charged - resuming patrol"),
+            # Bravo returns
+            ScenarioEvent(540.0, "alert", "Patrol Bravo: Battery at return threshold - RTL"),
+            ScenarioEvent(580.0, "action", "Patrol Bravo: Docked and charging"),
+            # Alpha resumes
+            ScenarioEvent(660.0, "decision", "Patrol Alpha: Charged - resuming patrol"),
+            # Second cycle continues...
+            ScenarioEvent(780.0, "decision", "Patrol Bravo: Charged - resuming patrol"),
+            ScenarioEvent(900.0, "alert", "Patrol Charlie: Second RTL for battery"),
+            ScenarioEvent(1200.0, "decision", "Patrol Charlie: Second charge complete"),
+            ScenarioEvent(1500.0, "alert", "Patrol Alpha: Second RTL for battery"),
+            ScenarioEvent(1800.0, "alert", "Patrol Bravo: Second RTL for battery"),
+            ScenarioEvent(2400.0, "mission_end", "Patrol mission complete - all drones to dock"),
+        ],
+    )
+
+
 # Scenario Registry
 
 PRELOADED_SCENARIOS: dict[str, Scenario] = {}
@@ -1054,6 +1486,8 @@ def initialize_preloaded_scenarios() -> None:
         create_sensor_cascade_scenario(),
         create_multi_anomaly_scenario(),
         create_coordination_scenario(),
+        create_showcase_scenario(),
+        create_patrol_recharge_scenario(),  # Patrol with battery recharge cycles
     ]
     for scenario in scenarios:
         register_scenario(scenario)

@@ -47,6 +47,7 @@ class DetectionClass(str, Enum):
     # Environmental
     BIRD_NEST = "bird_nest"
     DEBRIS = "debris"
+    SCENE_CHANGE = "scene_change"
 
     # Normal/OK
     NORMAL = "normal"

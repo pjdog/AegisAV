@@ -17,6 +17,7 @@ import yaml
 from pydantic import BaseModel
 
 from autonomy.path_planner import Obstacle, PathPlanner, PathPlannerConfig
+from mapping.decision_context import MapContext
 from autonomy.vehicle_state import Position
 from simulation.coordinate_utils import GeoReference
 
@@ -146,6 +147,11 @@ class MissionPlannerConfig:
     max_flight_time_s: float = 1800.0  # 30 minutes
     max_distance_m: float = 5000.0
 
+    # Navigation map usage
+    use_navigation_map: bool = True
+    map_stale_threshold_s: float = 60.0
+    map_min_quality_score: float = 0.3
+
 
 class MissionPlanner:
     """Plans and manages inspection missions.
@@ -173,7 +179,45 @@ class MissionPlanner:
         self._geo_ref: GeoReference | None = None
         self._path_planner: PathPlanner | None = None
         self._current_plan: MissionPlan | None = None
+        self._navigation_map: dict[str, Any] | None = None
 
+    def set_navigation_map(self, nav_map: dict[str, Any] | None) -> None:
+        """Update the navigation map used for obstacle-aware planning."""
+        self._navigation_map = nav_map
+        if self._path_planner:
+            self._apply_navigation_map()
+
+    def _apply_navigation_map(self) -> MapContext | None:
+        """Apply navigation map obstacles to the path planner if valid."""
+        if not self._path_planner or not self._navigation_map:
+            return None
+
+        map_context = MapContext.from_navigation_map(
+            self._navigation_map,
+            stale_threshold_s=self._config.map_stale_threshold_s,
+            min_quality_score=self._config.map_min_quality_score,
+        )
+
+        self._path_planner.clear_obstacles()
+        self._apply_mission_obstacles()
+
+        if not map_context.map_valid:
+            logger.info(
+                "navigation_map_skipped",
+                map_age_s=map_context.map_age_s,
+                quality=map_context.map_quality_score,
+            )
+            return map_context
+
+        loaded = self._path_planner.load_obstacles_from_map(self._navigation_map)
+        logger.info("navigation_map_applied", obstacle_count=loaded)
+        return map_context
+
+    def refresh_navigation_map(self) -> MapContext | None:
+        """Re-evaluate map validity and reapply obstacles."""
+        if self._navigation_map:
+            return self._apply_navigation_map()
+        return None
     def load_mission(self, config_path: str | Path) -> bool:
         """Load mission configuration from YAML file.
 
@@ -207,16 +251,7 @@ class MissionPlanner:
                 config=self._config.path_planner_config,
             )
 
-            # Load obstacles
-            for obs_data in self._mission_config.obstacles:
-                self._path_planner.add_obstacle_gps(
-                    latitude=obs_data.get("latitude", 0),
-                    longitude=obs_data.get("longitude", 0),
-                    radius_m=obs_data.get("radius_m", 20),
-                    height_m=obs_data.get("height_m", 30),
-                    obstacle_id=obs_data.get("id", ""),
-                    name=obs_data.get("name", ""),
-                )
+            self._apply_mission_obstacles()
 
             logger.info(f"Loaded mission: {self._mission_config.mission_name}")
             logger.info(f"  Targets: {len(self._mission_config.targets)}")
@@ -253,16 +288,7 @@ class MissionPlanner:
                 config=self._config.path_planner_config,
             )
 
-            # Load obstacles
-            for obs_data in self._mission_config.obstacles:
-                self._path_planner.add_obstacle_gps(
-                    latitude=obs_data.get("latitude", 0),
-                    longitude=obs_data.get("longitude", 0),
-                    radius_m=obs_data.get("radius_m", 20),
-                    height_m=obs_data.get("height_m", 30),
-                    obstacle_id=obs_data.get("id", ""),
-                    name=obs_data.get("name", ""),
-                )
+            self._apply_mission_obstacles()
 
             logger.info(f"Loaded mission from dict: {self._mission_config.mission_name}")
             return True
@@ -289,10 +315,25 @@ class MissionPlanner:
             battery_reserve_percent=data.get("battery", {}).get("reserve_percent", 20.0),
         )
 
+    def _apply_mission_obstacles(self) -> None:
+        """Apply mission-defined obstacles to the path planner."""
+        if not self._path_planner or not self._mission_config:
+            return
+        for obs_data in self._mission_config.obstacles:
+            self._path_planner.add_obstacle_gps(
+                latitude=obs_data.get("latitude", 0),
+                longitude=obs_data.get("longitude", 0),
+                radius_m=obs_data.get("radius_m", 20),
+                height_m=obs_data.get("height_m", 30),
+                obstacle_id=obs_data.get("id", ""),
+                name=obs_data.get("name", ""),
+            )
+
     def create_plan(
         self,
         current_position: Position | None = None,
         battery_percent: float = 100.0,
+        exclude_target_ids: set[str] | None = None,
     ) -> MissionPlan | None:
         """Create optimized mission plan.
 
@@ -308,6 +349,9 @@ class MissionPlanner:
             return None
 
         config = self._mission_config
+
+        if self._config.use_navigation_map:
+            self._apply_navigation_map()
 
         # Parse targets
         targets = []
@@ -328,6 +372,9 @@ class MissionPlanner:
                 priority=t.get("priority", 1),
             )
             targets.append(target)
+
+        if exclude_target_ids:
+            targets = [t for t in targets if t.target_id not in exclude_target_ids]
 
         if not targets:
             logger.warning("No targets in mission")

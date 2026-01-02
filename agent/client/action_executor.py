@@ -4,19 +4,20 @@ Translates high-level decisions from the agent server into
 MAVLink commands for the flight controller.
 """
 
+from __future__ import annotations
+
 import asyncio
 import logging
 import time
 from dataclasses import dataclass
 from enum import Enum
 from typing import TYPE_CHECKING
-
-from autonomy.mavlink_interface import MAVLinkInterface
 from autonomy.mission_primitives import MissionPrimitives, OrbitPlan, PrimitiveResult
 from autonomy.vehicle_state import Position
 
 if TYPE_CHECKING:
     from agent.client.vision_client import InspectionVisionResults, VisionClient
+    from autonomy.mavlink_interface import MAVLinkInterface
 
 logger = logging.getLogger(__name__)
 

@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import math
+import os
 from dataclasses import dataclass, replace
 from datetime import datetime
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 from typing import Any
 
 import numpy as np
@@ -19,6 +20,34 @@ from mapping.obstacle_extraction import (
 )
 
 logger = structlog.get_logger(__name__)
+
+
+def _normalize_wsl_path(path: Path) -> Path:
+    """Normalize a Path that may be a WSL UNC path.
+
+    Args:
+        path: Path that may contain Windows UNC components.
+
+    Returns:
+        Normalized Path with proper Linux paths if in WSL.
+    """
+    if not os.environ.get("WSL_DISTRO_NAME") and not os.environ.get("WSL_INTEROP"):
+        return path
+
+    path_str = str(path).lower()
+    if not (
+        path_str.startswith("\\\\wsl.localhost\\")
+        or path_str.startswith("\\\\wsl$\\")
+    ):
+        return path
+
+    win_path = PureWindowsPath(str(path))
+    if len(win_path.parts) < 2:
+        return path
+
+    # For UNC paths, parts[0] contains server+share (e.g., \\wsl.localhost\Ubuntu\)
+    # and parts[1:] contains the actual path components
+    return Path("/").joinpath(*win_path.parts[1:])
 
 
 @dataclass
@@ -196,7 +225,7 @@ class MapFusion:
         )
 
     def _load_point_cloud(self, path: Path) -> list[Point3D]:
-        path = Path(path)
+        path = _normalize_wsl_path(Path(path))
         if not path.exists():
             logger.warning("point_cloud_missing", path=str(path))
             return []

@@ -27,6 +27,18 @@ def _is_wsl() -> bool:
 
 
 def _normalize_wsl_unc_path(path_str: str) -> str | None:
+    r"""Convert a Windows WSL UNC path to a Linux path.
+
+    When running Python in WSL but accessed via Windows tools (like VSCode),
+    paths may arrive as UNC paths like \\wsl.localhost\Ubuntu\home\...
+    This function converts them to proper Linux paths like /home/...
+
+    Args:
+        path_str: Path string that may be a Windows UNC path.
+
+    Returns:
+        Normalized Linux path string, or None if not a WSL UNC path.
+    """
     if not _is_wsl():
         return None
     lower = path_str.lower()
@@ -35,8 +47,26 @@ def _normalize_wsl_unc_path(path_str: str) -> str | None:
     win_path = PureWindowsPath(path_str)
     if len(win_path.parts) < 2:
         return None
+    # For UNC paths, parts[0] contains server+share (e.g., \\wsl.localhost\Ubuntu\)
+    # and parts[1:] contains the actual path components
     linux_path = Path("/").joinpath(*win_path.parts[1:])
     return str(linux_path)
+
+
+def _normalize_path(path: Path) -> Path:
+    """Normalize a Path object, handling WSL UNC paths.
+
+    Args:
+        path: Path object that may contain Windows-style components.
+
+    Returns:
+        Normalized Path with proper Linux paths if in WSL.
+    """
+    path_str = str(path)
+    normalized = _normalize_wsl_unc_path(path_str)
+    if normalized:
+        return Path(normalized)
+    return path
 
 
 def get_default_server_url(host: str = "localhost", port: int | None = None) -> str:
@@ -422,13 +452,17 @@ class ConfigManager:
         """
         if config_dir is None:
             # Default to project root configs/
-            config_dir = Path(__file__).parent.parent.parent / "configs"
+            # Normalize path to handle WSL UNC paths from Windows tools
+            config_dir = _normalize_path(
+                Path(__file__).parent.parent.parent / "configs"
+            )
 
-        self.config_dir = Path(config_dir)
+        self.config_dir = _normalize_path(Path(config_dir))
         self.config_dir.mkdir(parents=True, exist_ok=True)
 
         # Store project root for resolving relative paths
-        self._project_root = self.config_dir.parent
+        # Normalize to ensure Linux paths in WSL environment
+        self._project_root = _normalize_path(self.config_dir.parent)
 
         self.config_file = self.config_dir / "aegis_config.yaml"
         self.config = AegisConfig()

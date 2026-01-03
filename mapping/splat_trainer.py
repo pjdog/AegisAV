@@ -14,12 +14,13 @@ import argparse
 import json
 import logging
 import math
+import os
 import shutil
 import subprocess
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 from typing import Any
 
 import numpy as np
@@ -28,6 +29,34 @@ import numpy.typing as npt
 from mapping.point_cloud import apply_pose, depth_to_points, write_ply
 
 logger = logging.getLogger(__name__)
+
+
+def _is_wsl() -> bool:
+    """Check if running inside WSL."""
+    return bool(os.environ.get("WSL_DISTRO_NAME") or os.environ.get("WSL_INTEROP"))
+
+
+def _normalize_wsl_path(path_str: str) -> str | None:
+    """Convert a Windows WSL UNC path to a Linux path.
+
+    Args:
+        path_str: Path string that may be a Windows UNC path.
+
+    Returns:
+        Normalized Linux path string, or None if not a WSL UNC path.
+    """
+    if not _is_wsl():
+        return None
+    lower = path_str.lower()
+    if not (lower.startswith("\\\\wsl.localhost\\") or lower.startswith("\\\\wsl$\\")):
+        return None
+    win_path = PureWindowsPath(path_str)
+    if len(win_path.parts) < 2:
+        return None
+    # For UNC paths, parts[0] contains server+share (e.g., \\wsl.localhost\Ubuntu\)
+    # and parts[1:] contains the actual path components
+    linux_path = Path("/").joinpath(*win_path.parts[1:])
+    return str(linux_path)
 
 
 # =============================================================================
@@ -801,8 +830,23 @@ def _load_pose_graph(path: Path) -> dict[str, Any]:
 
 
 def _resolve_path(base_dir: Path, path_str: str | None) -> Path | None:
+    """Resolve a path string, handling WSL UNC paths.
+
+    Args:
+        base_dir: Base directory for relative paths.
+        path_str: Path string to resolve (may be Windows UNC path).
+
+    Returns:
+        Resolved Path, or None if path_str is empty.
+    """
     if not path_str:
         return None
+
+    # Handle WSL UNC paths (e.g., \\wsl.localhost\Ubuntu\home\...)
+    normalized = _normalize_wsl_path(path_str)
+    if normalized:
+        return Path(normalized)
+
     path = Path(path_str)
     if path.is_absolute():
         return path

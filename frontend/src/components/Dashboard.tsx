@@ -4,6 +4,7 @@ import SpatialView from "./SpatialView";
 import DroneCameraPanel from "./DroneCameraPanel";
 import SplatMapViewer from "./SplatMapViewer";
 import ReasoningFeed, { DecisionEntry } from "./ReasoningFeed";
+import ChatPanel, { ChatMessage } from "./ChatPanel";
 import logo from "../assets/aegis_logo.svg";
 
 type RunSummary = {
@@ -1115,6 +1116,7 @@ const Dashboard = () => {
   const [runnerDecisions, setRunnerDecisions] = useState<DecisionEntry[]>([]);
   const [wsConnected, setWsConnected] = useState<boolean>(false);
   const [scenarioActive, setScenarioActive] = useState<boolean>(false);
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const wsRef = useRef<WebSocket | null>(null);
 
   // Reset all mission-related state when scenario stops/resets
@@ -1531,6 +1533,16 @@ const Dashboard = () => {
           setScenarioActive(true);
           setStatus("Live Scenario");
         }
+
+        // Handle chat messages
+        if (normalizedEvent === "chat_message" && data.message) {
+          setChatMessages((prev) => {
+            // Avoid duplicates by checking message ID
+            const exists = prev.some((m) => m.id === data.message.id);
+            if (exists) return prev;
+            return [...prev, data.message].slice(-100); // Keep last 100 messages
+          });
+        }
       } catch (e) {
         // Ignore parse errors for non-JSON messages
       }
@@ -1834,8 +1846,15 @@ const Dashboard = () => {
         </article>
       </section>
 
-      <section className="grid" style={{ gridTemplateColumns: '1fr' }}>
+      <section className="grid" style={{ gridTemplateColumns: '1fr 1fr' }}>
         <LogViewer logs={logs} />
+        <article className="card chat-card">
+          <ChatPanel
+            wsConnected={wsConnected}
+            runId={runData?.run_id}
+            externalMessages={chatMessages}
+          />
+        </article>
       </section>
     </main>
   );

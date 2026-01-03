@@ -34,6 +34,7 @@ from agent.server.airsim_support import (
     _sync_airsim_scene as _sync_airsim_scene_impl,
 )
 from agent.server.api_airsim import register_airsim_routes
+from agent.server.api_chat import register_chat_routes
 from agent.server.api_config import register_config_routes
 from agent.server.api_decision import register_decision_routes
 from agent.server.api_navigation import register_navigation_routes
@@ -129,6 +130,7 @@ add_dashboard_routes(app, server_state.log_dir / "scenarios")
 add_unreal_routes(app)
 
 register_airsim_routes(app)
+register_chat_routes(app)
 register_config_routes(app)
 register_decision_routes(app)
 register_navigation_routes(app)

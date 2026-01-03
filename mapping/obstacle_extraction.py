@@ -221,14 +221,12 @@ class ObstacleExtractor:
             return []
 
         # Filter by confidence
-        filtered = [
-            p for p in points
-            if p.confidence >= self.config.min_point_confidence
-        ]
+        filtered = [p for p in points if p.confidence >= self.config.min_point_confidence]
 
         # Filter ground points (keep obstacles above ground)
         obstacle_points = [
-            p for p in filtered
+            p
+            for p in filtered
             if p.z < self.config.ground_threshold_z  # In NED, negative z is above ground
         ]
 
@@ -246,7 +244,7 @@ class ObstacleExtractor:
                 continue
             if len(cluster) > self.config.max_cluster_points:
                 # Large cluster - might need subdivision
-                cluster = cluster[:self.config.max_cluster_points]
+                cluster = cluster[: self.config.max_cluster_points]
 
             obstacle = self._cluster_to_obstacle(cluster)
             if obstacle:
@@ -420,7 +418,7 @@ class ObstacleExtractor:
 
         # Compute quality score
         avg_confidence = sum(p.confidence for p in points) / len(points)
-        quality_score = (avg_confidence * 0.4 + slam_confidence * 0.3 + splat_quality * 0.3)
+        quality_score = avg_confidence * 0.4 + slam_confidence * 0.3 + splat_quality * 0.3
 
         return MapMetadataResult(
             map_id=map_id,

@@ -7,7 +7,6 @@ different platforms using the same API.
 
 from __future__ import annotations
 
-import asyncio
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -362,36 +361,28 @@ class FlightBackendBase(ABC):
 
     # Subclasses must implement these abstract methods
     @abstractmethod
-    async def connect(self) -> bool:
-        ...
+    async def connect(self) -> bool: ...
 
     @abstractmethod
-    async def disconnect(self) -> None:
-        ...
+    async def disconnect(self) -> None: ...
 
     @abstractmethod
-    async def arm(self) -> bool:
-        ...
+    async def arm(self) -> bool: ...
 
     @abstractmethod
-    async def disarm(self) -> bool:
-        ...
+    async def disarm(self) -> bool: ...
 
     @abstractmethod
-    async def takeoff(self, altitude_agl: float, timeout_s: float = 30.0) -> bool:
-        ...
+    async def takeoff(self, altitude_agl: float, timeout_s: float = 30.0) -> bool: ...
 
     @abstractmethod
-    async def land(self, timeout_s: float = 60.0) -> bool:
-        ...
+    async def land(self, timeout_s: float = 60.0) -> bool: ...
 
     @abstractmethod
-    async def hover(self) -> bool:
-        ...
+    async def hover(self) -> bool: ...
 
     @abstractmethod
-    async def emergency_stop(self) -> bool:
-        ...
+    async def emergency_stop(self) -> bool: ...
 
     @abstractmethod
     async def goto_position_gps(
@@ -401,8 +392,7 @@ class FlightBackendBase(ABC):
         altitude_msl: float,
         velocity: float = 5.0,
         timeout_s: float = 120.0,
-    ) -> bool:
-        ...
+    ) -> bool: ...
 
     @abstractmethod
     async def goto_position_ned(
@@ -412,12 +402,10 @@ class FlightBackendBase(ABC):
         down: float,
         velocity: float = 5.0,
         timeout_s: float = 120.0,
-    ) -> bool:
-        ...
+    ) -> bool: ...
 
     @abstractmethod
-    async def return_to_home(self, altitude_agl: float = 30.0) -> bool:
-        ...
+    async def return_to_home(self, altitude_agl: float = 30.0) -> bool: ...
 
     @abstractmethod
     async def orbit(
@@ -429,12 +417,10 @@ class FlightBackendBase(ABC):
         velocity: float = 3.0,
         duration_s: float = 30.0,
         clockwise: bool = True,
-    ) -> bool:
-        ...
+    ) -> bool: ...
 
     @abstractmethod
-    async def get_state(self) -> VehicleState | None:
-        ...
+    async def get_state(self) -> VehicleState | None: ...
 
 
 def create_backend(config: FlightBackendConfig) -> FlightBackend:

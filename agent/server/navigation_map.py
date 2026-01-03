@@ -17,7 +17,9 @@ DEFAULT_AVOIDANCE_RULES = {
 }
 
 
-def _geo_to_ned(lat: float, lon: float, origin_lat: float, origin_lon: float) -> tuple[float, float]:
+def _geo_to_ned(
+    lat: float, lon: float, origin_lat: float, origin_lon: float
+) -> tuple[float, float]:
     """Convert lat/lon to NED (North-East-Down) coordinates relative to origin.
 
     Returns (x_ned, y_ned) where x is North and y is East in meters.
@@ -75,7 +77,7 @@ def build_navigation_map(
         origin_lon = DEFAULT_DOCK_LON
 
     # Track bounds for metadata
-    min_x, max_x, min_y, max_y = float('inf'), float('-inf'), float('inf'), float('-inf')
+    min_x, max_x, min_y, max_y = float("inf"), float("-inf"), float("inf"), float("-inf")
 
     for asset in assets:
         asset_type = _normalize_asset_type(_get_asset_field(asset, "asset_type", ""))

@@ -14,7 +14,7 @@ from fastapi import FastAPI
 
 from agent.api_models import ActionType, VehicleStateRequest
 from agent.server.auth import AuthConfig
-from agent.server.config_manager import ConfigManager, DEFAULT_SERVER_PORT
+from agent.server.config_manager import DEFAULT_SERVER_PORT, ConfigManager
 from agent.server.persistence import InMemoryStore
 
 # Fixtures for server testing

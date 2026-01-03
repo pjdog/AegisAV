@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import math
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Iterable
 
 import numpy as np
 
@@ -92,7 +92,9 @@ def depth_to_points(
     return points.astype(np.float32)
 
 
-def apply_pose(points: np.ndarray, position: dict[str, float], orientation: dict[str, float]) -> np.ndarray:
+def apply_pose(
+    points: np.ndarray, position: dict[str, float], orientation: dict[str, float]
+) -> np.ndarray:
     """Transform points from camera frame into world frame."""
     if points.size == 0:
         return points

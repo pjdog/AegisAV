@@ -80,7 +80,9 @@ def run(args: argparse.Namespace) -> int:
     goal = _parse_point(args.goal) if args.goal else None
 
     if args.sequence_dir:
-        replay = CaptureReplay.from_directory(Path(args.sequence_dir), ReplayConfig(include_images=False))
+        replay = CaptureReplay.from_directory(
+            Path(args.sequence_dir), ReplayConfig(include_images=False)
+        )
         if replay.sequence.frames:
             start = start or (
                 replay.sequence.frames[0].pose.x,
@@ -167,7 +169,9 @@ def run(args: argparse.Namespace) -> int:
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run map planning benchmarks.")
     parser.add_argument("--point-cloud", required=True, help="Path to point cloud (PLY/NPY)")
-    parser.add_argument("--sequence-dir", default=None, help="Capture sequence directory for start/goal")
+    parser.add_argument(
+        "--sequence-dir", default=None, help="Capture sequence directory for start/goal"
+    )
     parser.add_argument("--start", default=None, help="Start NED 'north,east,down'")
     parser.add_argument("--goal", default=None, help="Goal NED 'north,east,down'")
     parser.add_argument("--map-id", default=None, help="Map identifier")

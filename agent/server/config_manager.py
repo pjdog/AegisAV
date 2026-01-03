@@ -38,9 +38,11 @@ def _normalize_wsl_unc_path(path_str: str) -> str | None:
     linux_path = Path("/").joinpath(*win_path.parts[1:])
     return str(linux_path)
 
+
 def get_default_server_url(host: str = "localhost", port: int | None = None) -> str:
     """Get the default server URL."""
     return f"http://{host}:{port or DEFAULT_SERVER_PORT}"
+
 
 def get_default_websocket_url(host: str = "localhost", port: int | None = None) -> str:
     """Get the default WebSocket URL for Unreal connections."""
@@ -254,8 +256,12 @@ class MappingSettings(BaseModel):
     max_points: int = Field(default=200000)
     min_points: int = Field(default=50)
     fused_map_dir: str = Field(default="data/maps/fused", description="Fused map artifact storage")
-    fused_map_max_versions: int | None = Field(default=None, description="Max fused map versions per map")
-    fused_map_max_age_days: int | None = Field(default=None, description="Max age in days for fused maps")
+    fused_map_max_versions: int | None = Field(
+        default=None, description="Max fused map versions per map"
+    )
+    fused_map_max_age_days: int | None = Field(
+        default=None, description="Max age in days for fused maps"
+    )
     fused_map_keep_last: int = Field(default=3, description="Keep last N fused map versions")
     slam_backend: str = Field(
         default="telemetry",
@@ -267,13 +273,21 @@ class MappingSettings(BaseModel):
     )
 
     # Proxy regeneration settings (Agent B Phase 3)
-    proxy_regeneration_enabled: bool = Field(default=True, description="Enable planning proxy regeneration")
-    proxy_regeneration_cadence_s: float = Field(default=30.0, description="Min interval between proxy regenerations")
+    proxy_regeneration_enabled: bool = Field(
+        default=True, description="Enable planning proxy regeneration"
+    )
+    proxy_regeneration_cadence_s: float = Field(
+        default=30.0, description="Min interval between proxy regenerations"
+    )
     proxy_max_points: int = Field(default=100000, description="Max points for planning proxy")
-    proxy_force_regenerate: bool = Field(default=False, description="Force regenerate proxy on every update")
+    proxy_force_regenerate: bool = Field(
+        default=False, description="Force regenerate proxy on every update"
+    )
 
     # Splat training settings
-    splat_backend: str = Field(default="stub", description="Splat training backend: stub, gsplat, nerfstudio")
+    splat_backend: str = Field(
+        default="stub", description="Splat training backend: stub, gsplat, nerfstudio"
+    )
     splat_iterations: int = Field(default=7000, description="Training iterations for real backends")
     splat_auto_train: bool = Field(default=False, description="Auto-train splat after SLAM capture")
     reset_on_scenario_start: bool = Field(
@@ -282,16 +296,24 @@ class MappingSettings(BaseModel):
     )
 
     # Preflight mapping pass
-    preflight_enabled: bool = Field(default=True, description="Run preflight map pass before targets")
-    preflight_altitude_agl: float = Field(default=20.0, description="Preflight mapping altitude AGL")
+    preflight_enabled: bool = Field(
+        default=True, description="Run preflight map pass before targets"
+    )
+    preflight_altitude_agl: float = Field(
+        default=20.0, description="Preflight mapping altitude AGL"
+    )
     preflight_step_m: float = Field(default=15.0, description="Step size along preflight path")
     preflight_velocity_ms: float = Field(default=4.0, description="Preflight mapping velocity")
     preflight_capture_interval_s: float = Field(default=0.4, description="Delay between captures")
     preflight_timeout_s: float = Field(default=180.0, description="Preflight mapping timeout")
     preflight_retry_count: int = Field(default=0, description="Preflight mapping retry count")
-    preflight_retry_delay_s: float = Field(default=5.0, description="Delay between preflight retries")
+    preflight_retry_delay_s: float = Field(
+        default=5.0, description="Delay between preflight retries"
+    )
     preflight_move_timeout_s: float = Field(default=30.0, description="Timeout per preflight move")
-    preflight_recovery_timeout_s: float = Field(default=60.0, description="Timeout for recovery move after failure")
+    preflight_recovery_timeout_s: float = Field(
+        default=60.0, description="Timeout for recovery move after failure"
+    )
     preflight_max_move_failures: int = Field(
         default=3,
         description="Max move failures before aborting preflight mapping",
@@ -300,7 +322,9 @@ class MappingSettings(BaseModel):
         default=5,
         description="Max capture failures before aborting preflight mapping",
     )
-    preflight_autorun: bool = Field(default=False, description="Auto-run preflight mapping on startup")
+    preflight_autorun: bool = Field(
+        default=False, description="Auto-run preflight mapping on startup"
+    )
     preflight_autorun_scenario_id: str | None = Field(
         default=None,
         description="Scenario id to use for autorun preflight mapping",
@@ -319,7 +343,9 @@ class MappingSettings(BaseModel):
     )
 
     # Splat proxy generation
-    proxy_regen_interval_s: float = Field(default=60.0, description="Min seconds between proxy rebuilds")
+    proxy_regen_interval_s: float = Field(
+        default=60.0, description="Min seconds between proxy rebuilds"
+    )
     proxy_max_points: int = Field(default=120000, description="Max points for splat planning proxy")
 
     # Real sensor capture (optional)

@@ -1,6 +1,5 @@
 """Tests for map fusion outputs and storage."""
 
-import time
 from datetime import datetime
 
 import numpy as np
@@ -189,7 +188,7 @@ def test_map_artifact_store_cleanup_dry_run(tmp_path) -> None:
     # Store 3 versions without cleanup (need to bypass auto-cleanup)
     map_dir = tmp_path / "map_dry_run_map"
     for i in range(3):
-        version_dir = map_dir / f"v{i+1}"
+        version_dir = map_dir / f"v{i + 1}"
         version_dir.mkdir(parents=True, exist_ok=True)
         (version_dir / "navigation_map.json").write_text("{}")
         (version_dir / "metadata.json").write_text("{}")

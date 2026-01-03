@@ -92,14 +92,12 @@ def get_llm_env_keys(
         if env_key:
             keys.add(env_key)
     if normalized == "openrouter":
-        keys.update(
-            {
-                _DEFAULT_API_KEY_ENV["openai"],
-                _DEFAULT_BASE_URL_ENV["openai"],
-                "OPENROUTER_API_KEY",
-                "OPENROUTER_BASE_URL",
-            }
-        )
+        keys.update({
+            _DEFAULT_API_KEY_ENV["openai"],
+            _DEFAULT_BASE_URL_ENV["openai"],
+            "OPENROUTER_API_KEY",
+            "OPENROUTER_BASE_URL",
+        })
     return keys
 
 

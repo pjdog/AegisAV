@@ -8,14 +8,13 @@ from __future__ import annotations
 
 import os
 import platform
-import shutil
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from typing import Callable
+    from collections.abc import Callable
 
 # Platform detection
 IS_WINDOWS = platform.system() == "Windows"
@@ -125,13 +124,13 @@ class WindowsShortcutCreator:
 
             # PowerShell script to create shortcut
             # Using COM object WScript.Shell
-            ps_script = f'''
+            ps_script = f"""
 $WshShell = New-Object -ComObject WScript.Shell
 $Shortcut = $WshShell.CreateShortcut("{shortcut_path}")
 $Shortcut.TargetPath = "{target_path}"
 $Shortcut.WorkingDirectory = "{working_dir}"
 $Shortcut.Description = "{config.description}"
-'''
+"""
             if config.arguments:
                 ps_script += f'$Shortcut.Arguments = "{config.arguments}"\n'
 
@@ -145,8 +144,10 @@ $Shortcut.Description = "{config.description}"
                 [
                     "powershell.exe",
                     "-NoProfile",
-                    "-ExecutionPolicy", "Bypass",
-                    "-Command", ps_script,
+                    "-ExecutionPolicy",
+                    "Bypass",
+                    "-Command",
+                    ps_script,
                 ],
                 capture_output=True,
                 text=True,
@@ -506,7 +507,8 @@ def create_shortcuts_for_platform(
     }
 
     shortcuts = [
-        s for s in all_shortcuts
+        s
+        for s in all_shortcuts
         if any(name_map.get(req, "") == s.name for req in shortcuts_to_create)
     ]
 
@@ -577,7 +579,9 @@ def remove_shortcuts(
 
                 # Remove from Start Menu
                 appdata = os.environ.get("APPDATA", "")
-                start_menu = Path(appdata) / "Microsoft" / "Windows" / "Start Menu" / "Programs" / "AegisAV"
+                start_menu = (
+                    Path(appdata) / "Microsoft" / "Windows" / "Start Menu" / "Programs" / "AegisAV"
+                )
                 shortcut = start_menu / f"{full_name}.lnk"
                 if shortcut.exists():
                     shortcut.unlink()

@@ -22,19 +22,19 @@ import shutil
 import socket
 import subprocess  # noqa: S404
 import sys
+import tempfile
 import threading
 import time
 import webbrowser
 from collections.abc import Callable
-from datetime import datetime
-import tempfile
 from dataclasses import dataclass, field
+from datetime import datetime
 from enum import Enum
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from typing import Literal
+    pass
 
 # Check for tkinter availability
 try:
@@ -47,13 +47,11 @@ except ImportError:
         "To install tkinter:",
     ]
     if platform.system() == "Linux":
-        error_lines.extend(
-            [
-                "  Ubuntu/Debian: sudo apt-get install python3-tk",
-                "  Fedora: sudo dnf install python3-tkinter",
-                "  Arch: sudo pacman -S tk",
-            ]
-        )
+        error_lines.extend([
+            "  Ubuntu/Debian: sudo apt-get install python3-tk",
+            "  Fedora: sudo dnf install python3-tkinter",
+            "  Arch: sudo pacman -S tk",
+        ])
     elif platform.system() == "Darwin":
         error_lines.append("  macOS: brew install python-tk")
     else:
@@ -210,9 +208,7 @@ class SetupConfig:
     # Desktop shortcut options
     create_desktop_shortcuts: bool = True
     create_start_menu_shortcuts: bool = True  # Windows only
-    shortcuts_to_create: list[str] = field(
-        default_factory=lambda: ["server", "dashboard", "demo"]
-    )
+    shortcuts_to_create: list[str] = field(default_factory=lambda: ["server", "dashboard", "demo"])
 
     # Launch options
     open_dashboard_on_start: bool = True
@@ -257,10 +253,10 @@ class SetupConfig:
             json.dump(self.to_dict(), f, indent=2)
 
     @classmethod
-    def load(cls, path: Path) -> "SetupConfig":
+    def load(cls, path: Path) -> SetupConfig:
         """Load configuration from a JSON file."""
         try:
-            with open(path, "r") as f:
+            with open(path) as f:
                 data = json.load(f)
 
             config = cls()
@@ -279,12 +275,23 @@ class SetupConfig:
 
             # Simple fields
             for key in [
-                "server_port", "use_redis", "use_gpu", "create_shortcuts",
-                "install_frontend", "simulation_enabled", "airsim_enabled",
-                "sitl_enabled", "build_airsim_overlay", "install_version",
-                "install_date", "theme_preference", "create_desktop_shortcuts",
-                "create_start_menu_shortcuts", "shortcuts_to_create",
-                "open_dashboard_on_start", "install_mode",
+                "server_port",
+                "use_redis",
+                "use_gpu",
+                "create_shortcuts",
+                "install_frontend",
+                "simulation_enabled",
+                "airsim_enabled",
+                "sitl_enabled",
+                "build_airsim_overlay",
+                "install_version",
+                "install_date",
+                "theme_preference",
+                "create_desktop_shortcuts",
+                "create_start_menu_shortcuts",
+                "shortcuts_to_create",
+                "open_dashboard_on_start",
+                "install_mode",
             ]:
                 if key in data:
                     setattr(config, key, data[key])
@@ -338,6 +345,7 @@ def detect_existing_installation() -> tuple[bool, SetupConfig | None, str | None
     # Try to import the agent module
     try:
         import importlib.util
+
         spec = importlib.util.find_spec("agent")
         if spec is not None:
             indicators += 1
@@ -355,7 +363,11 @@ def detect_existing_installation() -> tuple[bool, SetupConfig | None, str | None
     # Consider installed if we have at least 2 indicators
     is_installed = indicators >= 2
 
-    return is_installed, previous_config if is_installed else None, version if is_installed else None
+    return (
+        is_installed,
+        previous_config if is_installed else None,
+        version if is_installed else None,
+    )
 
 
 # =============================================================================
@@ -419,6 +431,7 @@ def run_command_stream(
     except Exception as e:
         return False, str(e), None
 
+
 def is_version_at_least(version: tuple[int, int, int], minimum: str) -> bool:
     """Compare a version tuple to a minimum version string."""
     parts = []
@@ -427,7 +440,7 @@ def is_version_at_least(version: tuple[int, int, int], minimum: str) -> bool:
             parts.append(int(item))
         except ValueError:
             parts.append(0)
-    return version[:len(parts)] >= tuple(parts)
+    return version[: len(parts)] >= tuple(parts)
 
 
 def find_uv_executable() -> str | None:
@@ -584,8 +597,12 @@ def detect_ardupilot_path() -> Path | None:
         # If running from WSL UNC, check for sibling in same distro
         project_str = str(PROJECT_ROOT)
         if project_str.startswith("\\\\wsl.localhost\\") or project_str.startswith("\\\\wsl$\\"):
-            prefix = "\\\\wsl.localhost\\" if project_str.startswith("\\\\wsl.localhost\\") else "\\\\wsl$\\"
-            remainder = project_str[len(prefix):]
+            prefix = (
+                "\\\\wsl.localhost\\"
+                if project_str.startswith("\\\\wsl.localhost\\")
+                else "\\\\wsl$\\"
+            )
+            remainder = project_str[len(prefix) :]
             parts = remainder.split("\\", 1)
             if len(parts) == 2:
                 distro = parts[0]
@@ -610,6 +627,7 @@ def wait_for_uv(timeout_seconds: int = 30) -> str | None:
         time.sleep(1)
     return None
 
+
 def check_command_exists(cmd: str) -> tuple[bool, str]:
     """Check if a command exists and return its path."""
     where_cmd = ["where", cmd] if IS_WINDOWS else ["which", cmd]
@@ -628,7 +646,7 @@ def _yaml_format_value(value: object) -> str:
     if value is None:
         return "null"
     text = str(value).replace("\\", "\\\\").replace('"', '\\"')
-    return f"\"{text}\""
+    return f'"{text}"'
 
 
 def _update_yaml_section(text: str, section: str, updates: dict[str, object]) -> str:
@@ -805,7 +823,7 @@ def get_dependencies() -> list[Dependency]:
             check_cmd=["uv", "--version"],
             required=False,
             install_cmd_linux="curl -LsSf https://astral.sh/uv/install.sh | sh",
-            install_cmd_windows="powershell -NoProfile -ExecutionPolicy Bypass -Command \"irm https://astral.sh/uv/install.ps1 | iex\"",
+            install_cmd_windows='powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://astral.sh/uv/install.ps1 | iex"',
         ),
     ]
 
@@ -843,12 +861,12 @@ def find_visual_studio_2022() -> tuple[Path | None, str | None]:
     # VS version folder names: VS 2026 = "18", VS 2022 = "2022", VS 2019 = "2019"
     # Check newer versions first
     vs_versions = [
-        ("18", "2026"),      # VS 2026 uses folder "18"
-        ("2026", "2026"),    # Also check in case they change it
-        ("2022", "2022"),    # VS 2022
-        ("2019", "2019"),    # VS 2019
-        ("17", "2022"),      # VS 2022 alternate folder name
-        ("16", "2019"),      # VS 2019 alternate folder name
+        ("18", "2026"),  # VS 2026 uses folder "18"
+        ("2026", "2026"),  # Also check in case they change it
+        ("2022", "2022"),  # VS 2022
+        ("2019", "2019"),  # VS 2019
+        ("17", "2022"),  # VS 2022 alternate folder name
+        ("16", "2019"),  # VS 2019 alternate folder name
     ]
     vs_roots = [
         Path("C:/Program Files/Microsoft Visual Studio"),
@@ -858,7 +876,9 @@ def find_visual_studio_2022() -> tuple[Path | None, str | None]:
     for vs_root in vs_roots:
         for folder_name, display_name in vs_versions:
             for edition in vs_editions:
-                vcvarsall = vs_root / folder_name / edition / "VC" / "Auxiliary" / "Build" / "vcvarsall.bat"
+                vcvarsall = (
+                    vs_root / folder_name / edition / "VC" / "Auxiliary" / "Build" / "vcvarsall.bat"
+                )
                 if vcvarsall.exists():
                     return vcvarsall, f"{display_name} {edition}"
 
@@ -1350,7 +1370,9 @@ class DependencyStep(StepFrame):
                 npm_parent = Path(npm_path).parent
                 if npm_parent.is_absolute():
                     os.environ["PATH"] = f"{npm_parent}{os.pathsep}{os.environ.get('PATH', '')}"
-                cmd = ["cmd", "/c", npm_path, "--version"] if IS_WINDOWS else [npm_path, "--version"]
+                cmd = (
+                    ["cmd", "/c", npm_path, "--version"] if IS_WINDOWS else [npm_path, "--version"]
+                )
                 success, stdout, stderr = run_command(cmd)
                 if success:
                     dep.found = True
@@ -1451,8 +1473,7 @@ class DependencyStep(StepFrame):
                 )
         elif IS_WINDOWS and dep.install_cmd_windows:
             if messagebox.askyesno(
-                "Install Dependency",
-                f"Run the following command?\n\n{dep.install_cmd_windows}"
+                "Install Dependency", f"Run the following command?\n\n{dep.install_cmd_windows}"
             ):
                 append_log(f"Running install command for {dep.name} (windows)")
                 thread = threading.Thread(
@@ -1742,6 +1763,7 @@ class PythonSetupStep(StepFrame):
     def _run_install(self) -> None:
         """Run the installation (background thread)."""
         try:
+
             def log_line(line: str) -> None:
                 self.after(0, lambda: self._log(line))
 
@@ -1764,7 +1786,9 @@ class PythonSetupStep(StepFrame):
                 else:
                     cmd = ["bash", "-lc", "curl -LsSf https://astral.sh/uv/install.sh | sh"]
                 self.after(0, lambda: self._log(f"Running: {' '.join(cmd)}"))
-                success, output, exit_code = run_command_stream(cmd, timeout=300, on_output=log_line)
+                success, output, exit_code = run_command_stream(
+                    cmd, timeout=300, on_output=log_line
+                )
                 if not output.strip():
                     self.after(0, lambda: self._log("uv installer produced no output."))
                 self.after(0, lambda: self._log(f"uv installer exit code: {exit_code}"))
@@ -1793,7 +1817,8 @@ class PythonSetupStep(StepFrame):
                 env = None
                 if IS_WINDOWS:
                     uv_root = self.uv_root_var.get().strip() or str(
-                        Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData" / "Local")) / "AegisAV"
+                        Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData" / "Local"))
+                        / "AegisAV"
                     )
                     uv_root_path = Path(uv_root)
                     self.config.uv_root = uv_root_path
@@ -1839,7 +1864,9 @@ class PythonSetupStep(StepFrame):
                 else:
                     self.after(0, lambda: self._install_failed("AirSim package install failed"))
             else:
-                if output and ("not enough space" in output.lower() or "os error 112" in output.lower()):
+                if output and (
+                    "not enough space" in output.lower() or "os error 112" in output.lower()
+                ):
                     self.after(
                         0,
                         lambda: messagebox.showwarning(
@@ -2034,7 +2061,9 @@ class UnrealSetupStep(StepFrame):
 
         # Default paths hint
         if IS_WINDOWS:
-            default_path = str(detected_path) if detected_path else "C:\\Program Files\\Epic Games\\UE_5.x"
+            default_path = (
+                str(detected_path) if detected_path else "C:\\Program Files\\Epic Games\\UE_5.x"
+            )
         else:
             default_path = "~/UnrealEngine or via Epic Games Launcher"
 
@@ -2197,7 +2226,9 @@ class AirSimSetupStep(StepFrame):
         canvas.configure(yscrollcommand=scrollbar.set)
 
         # Step 1: Choose Cosys-AirSim Setup Method
-        step1 = ttk.LabelFrame(content_frame, text="Step 1: Choose Cosys-AirSim Setup Method", padding=10)
+        step1 = ttk.LabelFrame(
+            content_frame, text="Step 1: Choose Cosys-AirSim Setup Method", padding=10
+        )
         step1.pack(fill="x", padx=20, pady=10)
 
         step1_text = """Cosys-AirSim is an actively maintained simulator for drones built on Unreal Engine.
@@ -2235,7 +2266,7 @@ Choose how to set up Cosys-AirSim:"""
         self.overlay_info = ttk.Label(
             step1,
             text="The AegisAV Overlay adds native Unreal widgets showing agent thinking,\n"
-                 "camera feeds, critic verdicts, telemetry, and battery status directly in AirSim.",
+            "camera feeds, critic verdicts, telemetry, and battery status directly in AirSim.",
             foreground="gray",
             justify="left",
         )
@@ -2299,7 +2330,9 @@ We'll create an optimized configuration for AegisAV."""
 
         # AirSim path
         path_frame = ttk.LabelFrame(
-            content_frame, text="AirSim Installation Path (Required when AirSim enabled)", padding=10
+            content_frame,
+            text="AirSim Installation Path (Required when AirSim enabled)",
+            padding=10,
         )
         path_frame.pack(fill="x", padx=20, pady=10)
 
@@ -2358,7 +2391,12 @@ We'll create an optimized configuration for AegisAV."""
                 }
             },
             "SubWindows": [
-                {"WindowID": 0, "CameraName": "front_center", "ImageType": 0, "VehicleName": "Drone1"}
+                {
+                    "WindowID": 0,
+                    "CameraName": "front_center",
+                    "ImageType": 0,
+                    "VehicleName": "Drone1",
+                }
             ],
             "Recording": {"RecordOnMove": False, "RecordInterval": 0.05},
         }
@@ -2415,19 +2453,17 @@ We'll create an optimized configuration for AegisAV."""
                 if success and "OK" in output:
                     self.connection_status.config(
                         text="✅ Connected to AirSim successfully! (uv environment)",
-                        foreground="green"
+                        foreground="green",
                     )
                     return
                 append_log(f"uv AirSim test failed: {output}")
                 self.connection_status.config(
-                    text="❌ AirSim not available in uv environment.",
-                    foreground="red"
+                    text="❌ AirSim not available in uv environment.", foreground="red"
                 )
                 return
 
             self.connection_status.config(
-                text="❌ airsim package not installed for this Python.",
-                foreground="red"
+                text="❌ airsim package not installed for this Python.", foreground="red"
             )
             return
 
@@ -2446,18 +2482,18 @@ We'll create an optimized configuration for AegisAV."""
     def _on_method_change(self) -> None:
         """Handle AirSim setup method change."""
         method = self.airsim_method_var.get()
-        self.config.build_airsim_overlay = (method == "build_overlay")
+        self.config.build_airsim_overlay = method == "build_overlay"
 
         if method == "build_overlay":
             self.overlay_info.config(
                 text="Will clone Cosys-AirSim (UE5.5 compatible), copy AegisAVOverlay plugin, and build.\n"
-                     "Requires: UE5, Visual Studio 2022, Git. Build takes ~15-30 minutes.",
+                "Requires: UE5, Visual Studio 2022, Git. Build takes ~15-30 minutes.",
                 foreground="blue",
             )
         else:
             self.overlay_info.config(
                 text="The AegisAV Overlay adds native Unreal widgets showing agent thinking,\n"
-                     "camera feeds, critic verdicts, telemetry, and battery status directly in AirSim.",
+                "camera feeds, critic verdicts, telemetry, and battery status directly in AirSim.",
                 foreground="gray",
             )
 
@@ -2465,7 +2501,7 @@ We'll create an optimized configuration for AegisAV."""
         if self.airsim_path_var.get():
             self.config.airsim_path = Path(self.airsim_path_var.get())
         # Save overlay build preference
-        self.config.build_airsim_overlay = (self.airsim_method_var.get() == "build_overlay")
+        self.config.build_airsim_overlay = self.airsim_method_var.get() == "build_overlay"
         return True
 
     def get_title(self) -> str:
@@ -2561,7 +2597,9 @@ class ConfigurationStep(StepFrame):
         shortcuts_frame = ttk.LabelFrame(self, text="Desktop Launchers", padding=15)
         shortcuts_frame.pack(fill="x", padx=50, pady=10)
 
-        self.create_desktop_shortcuts_var = tk.BooleanVar(value=self.config.create_desktop_shortcuts)
+        self.create_desktop_shortcuts_var = tk.BooleanVar(
+            value=self.config.create_desktop_shortcuts
+        )
         desktop_check = ttk.Checkbutton(
             shortcuts_frame,
             text="Create Desktop shortcuts",
@@ -2570,7 +2608,9 @@ class ConfigurationStep(StepFrame):
         desktop_check.pack(anchor="w")
 
         if IS_WINDOWS:
-            self.create_start_menu_var = tk.BooleanVar(value=self.config.create_start_menu_shortcuts)
+            self.create_start_menu_var = tk.BooleanVar(
+                value=self.config.create_start_menu_shortcuts
+            )
             start_menu_check = ttk.Checkbutton(
                 shortcuts_frame,
                 text="Create Start Menu shortcuts",
@@ -2896,10 +2936,10 @@ class InstallStep(StepFrame):
 
         # Define what to copy
         copy_items = [
-            ("agent", "agent"),           # Python package
-            ("configs", "configs"),       # Configuration files
-            ("shared", "shared"),         # Static assets
-            ("scenarios", "scenarios"),   # Scenario definitions
+            ("agent", "agent"),  # Python package
+            ("configs", "configs"),  # Configuration files
+            ("shared", "shared"),  # Static assets
+            ("scenarios", "scenarios"),  # Scenario definitions
         ]
 
         # Optional items (only if they exist)
@@ -2975,7 +3015,7 @@ class InstallStep(StepFrame):
                 if assets_dest.exists():
                     shutil.rmtree(assets_dest)
                 shutil.copytree(assets_src, assets_dest)
-                self._log(f"  ✓ Copied installer assets (icons)")
+                self._log("  ✓ Copied installer assets (icons)")
                 files_copied += 1
             except Exception as e:
                 self._log(f"  ⚠️ Failed to copy assets: {e}")
@@ -3138,25 +3178,29 @@ class InstallStep(StepFrame):
 
         def run_npm(args: list[str]) -> tuple[bool, str, int | None]:
             target_dir = staging_dir or frontend_dir
-            npm_logs = Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData" / "Local")) / "npm-cache" / "_logs"
+            npm_logs = (
+                Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData" / "Local"))
+                / "npm-cache"
+                / "_logs"
+            )
 
             def log_line(line: str) -> None:
                 if line:
                     self._log(f"  {line}")
 
             if IS_WINDOWS and str(target_dir).startswith("\\\\"):
-                cmd_str = " ".join([f"\"{npm_path}\"", *args])
+                cmd_str = " ".join([f'"{npm_path}"', *args])
                 self._log("  Using cmd pushd to handle UNC path for npm.")
                 targets = [str(target_dir)]
                 if str(target_dir).lower().startswith("\\\\wsl.localhost\\"):
-                    mapped = "\\\\wsl$\\" + str(target_dir)[len("\\\\wsl.localhost\\"):]
+                    mapped = "\\\\wsl$\\" + str(target_dir)[len("\\\\wsl.localhost\\") :]
                     targets.insert(0, mapped)
                 last_output = ""
                 last_code: int | None = None
                 for target in targets:
                     self._log(f"  npm working directory: {target}")
                     success, output, exit_code = run_command_stream(
-                        ["cmd", "/c", f"pushd \"{target}\" && {cmd_str}"],
+                        ["cmd", "/c", f'pushd "{target}" && {cmd_str}'],
                         timeout=300,
                         on_output=log_line,
                     )
@@ -3256,7 +3300,9 @@ class InstallStep(StepFrame):
                 time.sleep(0.5)
 
                 # Try PowerShell Remove-Item (more aggressive than rmdir)
-                ps_cmd = f'Remove-Item -Path "{dir_str}" -Recurse -Force -ErrorAction SilentlyContinue'
+                ps_cmd = (
+                    f'Remove-Item -Path "{dir_str}" -Recurse -Force -ErrorAction SilentlyContinue'
+                )
                 success, output, _ = run_command_stream(
                     ["powershell", "-Command", ps_cmd],
                     timeout=120,
@@ -3302,7 +3348,9 @@ class InstallStep(StepFrame):
         self._log(f"  Build overlay enabled: {self.config.build_airsim_overlay}")
         if not self.config.build_airsim_overlay:
             self._log("  Skipped (user selected pre-built option)")
-            self._log("  To build from source, re-run installer and select 'Build from source with AegisAV Overlay'")
+            self._log(
+                "  To build from source, re-run installer and select 'Build from source with AegisAV Overlay'"
+            )
             return True
 
         if not IS_WINDOWS:
@@ -3380,14 +3428,19 @@ class InstallStep(StepFrame):
             )
             remote_url = remote_url.strip() if remote_url else ""
 
-            if "Cosys-Lab/Cosys-AirSim" in remote_url or "cosys-lab/cosys-airsim" in remote_url.lower():
+            if (
+                "Cosys-Lab/Cosys-AirSim" in remote_url
+                or "cosys-lab/cosys-airsim" in remote_url.lower()
+            ):
                 # Correct repo, just update
                 self._log("  Cosys-AirSim already cloned, updating...")
                 success, output, _ = run_command_stream(
                     ["git", "pull", "origin", "main"],
                     cwd=str(local_airsim_dir),
                     timeout=120,
-                    on_output=lambda line: self.after(0, lambda msg=line: self._log(f"    {msg}")) if line else None,
+                    on_output=lambda line: self.after(0, lambda msg=line: self._log(f"    {msg}"))
+                    if line
+                    else None,
                 )
                 if not success:
                     self._log("  Warning: git pull failed, continuing with existing code")
@@ -3411,10 +3464,19 @@ class InstallStep(StepFrame):
             local_airsim_dir.parent.mkdir(parents=True, exist_ok=True)
             # Clone Cosys-AirSim (actively maintained fork with UE 5.5 support)
             success, output, _ = run_command_stream(
-                ["git", "clone", "--branch", "main", "https://github.com/Cosys-Lab/Cosys-AirSim.git", str(local_airsim_dir)],
+                [
+                    "git",
+                    "clone",
+                    "--branch",
+                    "main",
+                    "https://github.com/Cosys-Lab/Cosys-AirSim.git",
+                    str(local_airsim_dir),
+                ],
                 cwd=str(local_root),
                 timeout=600,
-                on_output=lambda line: self.after(0, lambda msg=line: self._log(f"    {msg}")) if line else None,
+                on_output=lambda line: self.after(0, lambda msg=line: self._log(f"    {msg}"))
+                if line
+                else None,
             )
             if not success:
                 self._log("  ERROR: Failed to clone Cosys-AirSim")
@@ -3469,7 +3531,7 @@ class InstallStep(StepFrame):
 
             # Create a wrapper batch file that sets up VS environment and runs build
             wrapper_script = local_airsim_dir / "build_wrapper.bat"
-            wrapper_content = f'''@echo off
+            wrapper_content = f"""@echo off
 echo Setting up Visual Studio x64 environment...
 call "{vcvarsall}" x64
 if errorlevel 1 (
@@ -3478,13 +3540,15 @@ if errorlevel 1 (
 )
 cd /d "{local_airsim_dir}"
 call build.cmd
-'''
+"""
             wrapper_script.write_text(wrapper_content)
             success, output, _ = run_command_stream(
                 ["cmd", "/c", str(wrapper_script)],
                 cwd=str(local_airsim_dir),
                 timeout=900,  # 15 minutes for full build
-                on_output=lambda line: self.after(0, lambda msg=line: self._log(f"    {msg}")) if line else None,
+                on_output=lambda line: self.after(0, lambda msg=line: self._log(f"    {msg}"))
+                if line
+                else None,
             )
             if success:
                 self._log("  ✓ AirSim native build completed")
@@ -3560,11 +3624,11 @@ call build.cmd
 
         # Copy AirSim plugin to Blocks/Plugins
         airsim_plugin_dst = blocks_plugins_dir / "AirSim"
-        self._log(f"  Copying AirSim plugin...")
+        self._log("  Copying AirSim plugin...")
         if airsim_plugin_dst.exists():
             try:
                 shutil.rmtree(airsim_plugin_dst)
-                self._log(f"  - Removed existing AirSim plugin")
+                self._log("  - Removed existing AirSim plugin")
             except Exception as e:
                 self._log(f"  ✗ FATAL: Failed to remove existing AirSim plugin: {e}")
                 return False
@@ -3574,10 +3638,10 @@ call build.cmd
             # Verify the copy succeeded
             airsim_uplugin = airsim_plugin_dst / "AirSim.uplugin"
             if not airsim_uplugin.exists():
-                self._log(f"  ✗ FATAL: AirSim.uplugin not found after copy!")
+                self._log("  ✗ FATAL: AirSim.uplugin not found after copy!")
                 self._log(f"  Expected at: {airsim_uplugin}")
                 return False
-            self._log(f"  ✓ AirSim plugin copied successfully")
+            self._log("  ✓ AirSim plugin copied successfully")
         except Exception as e:
             self._log("")
             self._log("  ╔════════════════════════════════════════════════════════════╗")
@@ -3589,11 +3653,11 @@ call build.cmd
 
         # Copy AegisAVOverlay plugin to Blocks/Plugins
         overlay_blocks_dst = blocks_plugins_dir / "AegisAVOverlay"
-        self._log(f"  Copying AegisAVOverlay plugin...")
+        self._log("  Copying AegisAVOverlay plugin...")
         if overlay_blocks_dst.exists():
             try:
                 shutil.rmtree(overlay_blocks_dst)
-                self._log(f"  - Removed existing AegisAVOverlay plugin")
+                self._log("  - Removed existing AegisAVOverlay plugin")
             except Exception as e:
                 self._log(f"  ✗ WARNING: Failed to remove existing AegisAVOverlay plugin: {e}")
                 # Non-fatal, try to continue
@@ -3603,10 +3667,10 @@ call build.cmd
             # Verify the copy succeeded
             overlay_uplugin = overlay_blocks_dst / "AegisAVOverlay.uplugin"
             if not overlay_uplugin.exists():
-                self._log(f"  ✗ WARNING: AegisAVOverlay.uplugin not found after copy")
+                self._log("  ✗ WARNING: AegisAVOverlay.uplugin not found after copy")
                 build_issues.append("AegisAVOverlay plugin copy may have failed")
             else:
-                self._log(f"  ✓ AegisAVOverlay plugin copied successfully")
+                self._log("  ✓ AegisAVOverlay plugin copied successfully")
         except Exception as e:
             self._log(f"  ✗ WARNING: Failed to copy AegisAVOverlay plugin: {e}")
             self._log("  The overlay features may not work, but AirSim should still function.")
@@ -3645,7 +3709,9 @@ call build.cmd
                     [str(uvs_path), "/projectfiles", str(blocks_project)],
                     cwd=str(blocks_project.parent),
                     timeout=120,
-                    on_output=lambda line: self.after(0, lambda msg=line: self._log(f"    {msg}")) if line else None,
+                    on_output=lambda line: self.after(0, lambda msg=line: self._log(f"    {msg}"))
+                    if line
+                    else None,
                 )
                 if success:
                     self._log("  ✓ Project files generated")
@@ -3655,10 +3721,18 @@ call build.cmd
                     self._log("  ✗ Project file generation FAILED")
             elif ubt_path.exists():
                 success, output, _ = run_command_stream(
-                    [str(ubt_path), "-projectfiles", f"-project={blocks_project}", "-game", "-engine"],
+                    [
+                        str(ubt_path),
+                        "-projectfiles",
+                        f"-project={blocks_project}",
+                        "-game",
+                        "-engine",
+                    ],
                     cwd=str(blocks_project.parent),
                     timeout=120,
-                    on_output=lambda line: self.after(0, lambda msg=line: self._log(f"    {msg}")) if line else None,
+                    on_output=lambda line: self.after(0, lambda msg=line: self._log(f"    {msg}"))
+                    if line
+                    else None,
                 )
                 if success:
                     self._log("  ✓ Project files generated")
@@ -3688,9 +3762,15 @@ call build.cmd
 
                         # Remove BuildEnvironment.Unique if present (doesn't work with launcher engine)
                         if "BuildEnvironment = TargetBuildEnvironment.Unique" in patched:
-                            self._log(f"  Removing incompatible BuildEnvironment from {target_file.name}...")
+                            self._log(
+                                f"  Removing incompatible BuildEnvironment from {target_file.name}..."
+                            )
                             lines = patched.split("\n")
-                            lines = [l for l in lines if "BuildEnvironment = TargetBuildEnvironment.Unique" not in l]
+                            lines = [
+                                l
+                                for l in lines
+                                if "BuildEnvironment = TargetBuildEnvironment.Unique" not in l
+                            ]
                             patched = "\n".join(lines)
                             made_changes = True
 
@@ -3699,7 +3779,11 @@ call build.cmd
                         # Extract UE version from path to determine target version
                         ue_version_str = str(ue5_path)
                         target_build_version = "V5"  # Default to V5 for compatibility
-                        if "5.7" in ue_version_str or "5.8" in ue_version_str or "5.9" in ue_version_str:
+                        if (
+                            "5.7" in ue_version_str
+                            or "5.8" in ue_version_str
+                            or "5.9" in ue_version_str
+                        ):
                             target_build_version = "V6"
                         elif "5.6" in ue_version_str:
                             target_build_version = "V5"  # 5.6 may or may not have V6
@@ -3708,8 +3792,12 @@ call build.cmd
                         for old_version in ["V2", "V4"]:
                             old_str = f"BuildSettingsVersion.{old_version}"
                             if old_str in patched:
-                                self._log(f"  Upgrading {target_file.name} to BuildSettingsVersion.{target_build_version}...")
-                                patched = patched.replace(old_str, f"BuildSettingsVersion.{target_build_version}")
+                                self._log(
+                                    f"  Upgrading {target_file.name} to BuildSettingsVersion.{target_build_version}..."
+                                )
+                                patched = patched.replace(
+                                    old_str, f"BuildSettingsVersion.{target_build_version}"
+                                )
                                 made_changes = True
 
                         if made_changes:
@@ -3738,7 +3826,11 @@ call build.cmd
 
             # Check for Windows SDK
             win_sdk_path = Path("C:/Program Files (x86)/Windows Kits/10/Include")
-            has_win_sdk = win_sdk_path.exists() and any(win_sdk_path.iterdir()) if win_sdk_path.exists() else False
+            has_win_sdk = (
+                win_sdk_path.exists() and any(win_sdk_path.iterdir())
+                if win_sdk_path.exists()
+                else False
+            )
 
             if not has_win_sdk:
                 self._log("  ⚠️ Windows SDK not found at expected location")
@@ -3751,7 +3843,7 @@ call build.cmd
                 uat_wrapper = local_airsim_dir / "uat_wrapper.bat"
                 output_dir = local_airsim_dir
                 if vcvarsall:
-                    uat_wrapper_content = f'''@echo off
+                    uat_wrapper_content = f"""@echo off
 echo Setting up Visual Studio x64 environment for UAT...
 call "{vcvarsall}" x64
 if errorlevel 1 (
@@ -3783,9 +3875,9 @@ if exist "{output_dir}\\Windows\\Blocks.exe" (
     echo Checking archive directory contents:
     dir "{output_dir}" /b
 )
-'''
+"""
                 else:
-                    uat_wrapper_content = f'''@echo off
+                    uat_wrapper_content = f"""@echo off
 echo.
 echo ================================================================
 echo Packaging Blocks.exe (this will take 10-30 minutes)...
@@ -3811,7 +3903,7 @@ if exist "{output_dir}\\Windows\\Blocks.exe" (
     echo Checking archive directory contents:
     dir "{output_dir}" /b
 )
-'''
+"""
                 uat_wrapper.write_text(uat_wrapper_content)
 
                 self._log(f"    Using UAT: {uat_path}")
@@ -3819,24 +3911,35 @@ if exist "{output_dir}\\Windows\\Blocks.exe" (
                     ["cmd", "/c", str(uat_wrapper)],
                     cwd=str(blocks_project.parent),
                     timeout=3600,  # 1 hour for full build
-                    on_output=lambda line: self.after(0, lambda msg=line: self._log(f"    {msg}")) if line else None,
+                    on_output=lambda line: self.after(0, lambda msg=line: self._log(f"    {msg}"))
+                    if line
+                    else None,
                 )
                 if success:
                     self._log("  ✓ Unreal project built successfully")
                     unreal_build_success = True
                 else:
-                    build_issues.append("UAT build failed - check Windows SDK and UE5 platform support")
+                    build_issues.append(
+                        "UAT build failed - check Windows SDK and UE5 platform support"
+                    )
                     self._log("  ✗ Unreal project build FAILED")
                     output_str = output or ""
 
                     # Check for specific known errors
                     if "Unable to find plugin" in output_str:
                         self._log("")
-                        self._log("  ╔════════════════════════════════════════════════════════════╗")
-                        self._log("  ║  PLUGIN NOT FOUND ERROR                                    ║")
-                        self._log("  ╚════════════════════════════════════════════════════════════╝")
+                        self._log(
+                            "  ╔════════════════════════════════════════════════════════════╗"
+                        )
+                        self._log(
+                            "  ║  PLUGIN NOT FOUND ERROR                                    ║"
+                        )
+                        self._log(
+                            "  ╚════════════════════════════════════════════════════════════╝"
+                        )
                         # Extract plugin name
                         import re
+
                         plugin_match = re.search(r"Unable to find plugin '([^']+)'", output_str)
                         if plugin_match:
                             missing_plugin = plugin_match.group(1)
@@ -3848,31 +3951,54 @@ if exist "{output_dir}\\Windows\\Blocks.exe" (
                             self._log("  Please report this bug with the full installer log.")
                         return False
 
-                    if "BuildSettingsVersion" in output_str and "does not contain a definition" in output_str:
+                    if (
+                        "BuildSettingsVersion" in output_str
+                        and "does not contain a definition" in output_str
+                    ):
                         self._log("")
-                        self._log("  ╔════════════════════════════════════════════════════════════╗")
-                        self._log("  ║  BUILDSETTINGSVERSION COMPATIBILITY ERROR                  ║")
-                        self._log("  ╚════════════════════════════════════════════════════════════╝")
-                        self._log("  The target files use a BuildSettingsVersion not supported by your UE version.")
+                        self._log(
+                            "  ╔════════════════════════════════════════════════════════════╗"
+                        )
+                        self._log(
+                            "  ║  BUILDSETTINGSVERSION COMPATIBILITY ERROR                  ║"
+                        )
+                        self._log(
+                            "  ╚════════════════════════════════════════════════════════════╝"
+                        )
+                        self._log(
+                            "  The target files use a BuildSettingsVersion not supported by your UE version."
+                        )
                         self._log("")
                         # Check which version they're using
                         if "V6" in output_str:
-                            self._log("  The project uses V6, but your UE version only supports up to V5.")
-                            self._log("  This usually means UE 5.5 is installed, but the files were patched for 5.7+")
+                            self._log(
+                                "  The project uses V6, but your UE version only supports up to V5."
+                            )
+                            self._log(
+                                "  This usually means UE 5.5 is installed, but the files were patched for 5.7+"
+                            )
                         self._log("")
-                        self._log("  Fix: Edit these files and change BuildSettingsVersion.V6 to V5:")
+                        self._log(
+                            "  Fix: Edit these files and change BuildSettingsVersion.V6 to V5:"
+                        )
                         self._log(f"    - {blocks_project.parent / 'Source' / 'Blocks.Target.cs'}")
-                        self._log(f"    - {blocks_project.parent / 'Source' / 'BlocksEditor.Target.cs'}")
+                        self._log(
+                            f"    - {blocks_project.parent / 'Source' / 'BlocksEditor.Target.cs'}"
+                        )
                         return False
 
                     if "Platform Win64 is not a valid platform" in output_str:
                         self._log("    ERROR: Win64 platform not available in your UE5 install")
-                        self._log("    Fix: Open Epic Games Launcher > UE5 > Options > Enable 'Windows' platform")
+                        self._log(
+                            "    Fix: Open Epic Games Launcher > UE5 > Options > Enable 'Windows' platform"
+                        )
                     elif "unique build environment" in output_str.lower():
                         self._log("")
                         self._log("  ⚠️ UE 5.7 + Installed Engine limitation!")
                         self._log("    Unique build environments require a source-built engine.")
-                        self._log("    The Epic Games Launcher version cannot compile this project.")
+                        self._log(
+                            "    The Epic Games Launcher version cannot compile this project."
+                        )
                         self._log("")
                         self._log("    Options:")
                         self._log("    1. Download pre-built Cosys-AirSim binaries (RECOMMENDED):")
@@ -3880,11 +4006,16 @@ if exist "{output_dir}\\Windows\\Blocks.exe" (
                         self._log("    2. Install UE 5.5 via Epic Games Launcher")
                         self._log("    3. Build UE 5.7 from source (advanced)")
                         self._log("")
-                    elif "UndefinedIdentifierWarningLevel" in output_str or "bOverrideBuildEnvironment" in output_str:
+                    elif (
+                        "UndefinedIdentifierWarningLevel" in output_str
+                        or "bOverrideBuildEnvironment" in output_str
+                    ):
                         self._log("")
                         self._log("  ⚠️ UE 5.7 compatibility issue detected!")
                         self._log("    Cosys-AirSim Blocks project was designed for UE 5.5")
-                        self._log("    UE 5.7 has stricter build settings that conflict with the project.")
+                        self._log(
+                            "    UE 5.7 has stricter build settings that conflict with the project."
+                        )
                         self._log("")
                         self._log("    Options:")
                         self._log("    1. Use UE 5.5 (recommended for Cosys-AirSim v3.3)")
@@ -3909,7 +4040,9 @@ if exist "{output_dir}\\Windows\\Blocks.exe" (
                     build_cmd,
                     cwd=str(blocks_project.parent),
                     timeout=1800,  # 30 minutes
-                    on_output=lambda line: self.after(0, lambda msg=line: self._log(f"    {msg}")) if line else None,
+                    on_output=lambda line: self.after(0, lambda msg=line: self._log(f"    {msg}"))
+                    if line
+                    else None,
                 )
                 if success:
                     self._log("  ✓ Unreal Editor target built successfully")
@@ -3945,7 +4078,15 @@ if exist "{output_dir}\\Windows\\Blocks.exe" (
             exe_path = local_airsim_dir / "Build" / "WindowsNoEditor" / "Blocks.exe"
         if not exe_path.exists():
             # Check editor build output
-            exe_path = local_airsim_dir / "Unreal" / "Environments" / "Blocks" / "Binaries" / "Win64" / "Blocks.exe"
+            exe_path = (
+                local_airsim_dir
+                / "Unreal"
+                / "Environments"
+                / "Blocks"
+                / "Binaries"
+                / "Win64"
+                / "Blocks.exe"
+            )
 
         # Final status report
         self._log("")
@@ -3953,7 +4094,7 @@ if exist "{output_dir}\\Windows\\Blocks.exe" (
         if all_success:
             self._log("  ✅ AirSim with AegisAVOverlay FULLY BUILT!")
             if exe_path.exists():
-                self._log(f"  ✅ Blocks.exe packaged successfully!")
+                self._log("  ✅ Blocks.exe packaged successfully!")
                 self._log(f"     Executable: {exe_path}")
                 self._log("")
                 self._log("  The 'Start AirSim' button on the dashboard should now work!")
@@ -3964,7 +4105,9 @@ if exist "{output_dir}\\Windows\\Blocks.exe" (
             self._log("  ⚠️ AirSim setup completed with issues:")
             for issue in build_issues:
                 self._log(f"    - {issue}")
-        self._log(f"  Project location: {blocks_project.parent if blocks_project.exists() else local_airsim_dir}")
+        self._log(
+            f"  Project location: {blocks_project.parent if blocks_project.exists() else local_airsim_dir}"
+        )
 
         if not unreal_build_success:
             self._log("")
@@ -4020,7 +4163,10 @@ if exist "{output_dir}\\Windows\\Blocks.exe" (
                 self.config.airsim_path = airsim_root
                 return airsim_root, None
 
-        return None, "AirSim installation path not set. Browse to AirSimNH folder or build from source."
+        return (
+            None,
+            "AirSim installation path not set. Browse to AirSimNH folder or build from source.",
+        )
 
     def _create_scripts(self) -> bool:
         """Create launch scripts."""
@@ -4055,7 +4201,7 @@ if exist "{output_dir}\\Windows\\Blocks.exe" (
         if IS_WINDOWS:
             # Windows batch scripts
             # Use the local Windows install directory, not WSL paths
-            python_cmd = f"\"{python_exec}\""
+            python_cmd = f'"{python_exec}"'
             port = self.config.server_port
             project_root_str = str(install_root)
 
@@ -4301,7 +4447,7 @@ echo.
                 scripts_created.append("start_airsim.bat")
         else:
             # Linux/Mac shell scripts
-            python_cmd = f"\"{python_exec}\""
+            python_cmd = f'"{python_exec}"'
             port = self.config.server_port
             start_server = scripts_dir / "start_server.sh"
             start_server.write_text(f"""#!/bin/bash
@@ -4337,7 +4483,9 @@ kill $SERVER_PID
         # Final summary
         if scripts_failed:
             self._log("")
-            self._log(f"  ⚠️ Scripts summary: {len(scripts_created)} created, {len(scripts_failed)} failed")
+            self._log(
+                f"  ⚠️ Scripts summary: {len(scripts_created)} created, {len(scripts_failed)} failed"
+            )
             for name in scripts_failed:
                 self._log(f"    ✗ {name}")
         else:
@@ -4375,6 +4523,7 @@ kill $SERVER_PID
         except Exception as e:
             self._log(f"  ✗ FAILED to load shortcut module: {e}")
             import traceback
+
             self._log(f"    {traceback.format_exc()}")
             self._log("    Desktop shortcuts will NOT be created")
             return False  # This is a real failure, report it
@@ -4532,7 +4681,9 @@ class CompleteStep(StepFrame):
                 items.append(f"Desktop shortcuts created ({shortcut_count})")
 
         for item in items:
-            ttk.Label(summary_frame, text=f"✅ {item}", font=("Helvetica", 11)).pack(anchor="w", pady=2)
+            ttk.Label(summary_frame, text=f"✅ {item}", font=("Helvetica", 11)).pack(
+                anchor="w", pady=2
+            )
 
         # Shortcuts detail section (if shortcuts were created)
         if self.config.create_desktop_shortcuts and self.config.shortcuts_to_create:
@@ -4562,7 +4713,9 @@ class CompleteStep(StepFrame):
                     "airsim": "Launch AirSim",
                 }
                 name = name_map.get(shortcut, shortcut)
-                ttk.Label(shortcuts_frame, text=f"  • {name}", font=("Helvetica", 10)).pack(anchor="w")
+                ttk.Label(shortcuts_frame, text=f"  • {name}", font=("Helvetica", 10)).pack(
+                    anchor="w"
+                )
 
         # Next steps
         next_frame = ttk.LabelFrame(self, text="Next Steps", padding=15)
@@ -4641,13 +4794,13 @@ class CompleteStep(StepFrame):
                     ["cmd", "/c", str(script)],
                     start_new_session=True,
                     env=env,
-                )  # noqa: S603, S607
+                )
             else:
                 project_root_str = str(PROJECT_ROOT)
                 root_a = project_root_str
                 root_b = project_root_str
                 if project_root_str.lower().startswith("\\\\wsl.localhost\\"):
-                    root_a = "\\\\wsl$\\" + project_root_str[len("\\\\wsl.localhost\\"):]
+                    root_a = "\\\\wsl$\\" + project_root_str[len("\\\\wsl.localhost\\") :]
                     root_b = project_root_str
                 subprocess.Popen(
                     [
@@ -4663,14 +4816,14 @@ class CompleteStep(StepFrame):
                         "AEGIS_RELOAD=0",
                         "&&",
                         "pushd",
-                        f"\"{root_a}\"",
+                        f'"{root_a}"',
                         "2>nul",
                         "||",
                         "pushd",
-                        f"\"{root_b}\"",
+                        f'"{root_b}"',
                         "2>nul",
                         "&&",
-                        f"\"{python_exec}\" -m agent.server.main",
+                        f'"{python_exec}" -m agent.server.main',
                     ],
                     start_new_session=True,
                     env=env,
@@ -4682,14 +4835,14 @@ class CompleteStep(StepFrame):
                     ["bash", str(script)],
                     start_new_session=True,
                     env=env,
-                )  # noqa: S603, S607
+                )
             else:
                 subprocess.Popen(
                     [
                         "bash",
                         "-c",
                         f"export AEGIS_PORT={port} "
-                        f"AEGIS_HOST=0.0.0.0; cd {PROJECT_ROOT} && \"{python_exec}\" -m agent.server.main",
+                        f'AEGIS_HOST=0.0.0.0; cd {PROJECT_ROOT} && "{python_exec}" -m agent.server.main',
                     ],
                     start_new_session=True,
                     env=env,
@@ -4701,7 +4854,9 @@ class CompleteStep(StepFrame):
         self.after(3000, lambda: open_url(f"http://localhost:{port}/overlay/"))
 
         if self.config.install_frontend:
-            notice = "Server is starting in a new terminal.\n\nDashboard and overlay will open shortly."
+            notice = (
+                "Server is starting in a new terminal.\n\nDashboard and overlay will open shortly."
+            )
         else:
             notice = "Server is starting in a new terminal.\n\nOverlay will open shortly."
         messagebox.showinfo(
@@ -4880,7 +5035,7 @@ class SetupWizard:
         """Add the AegisAV logo and title to the header."""
         try:
             # Try to import branding module
-            from branding import load_logo_image, create_logo_canvas, ASSETS_DIR
+            from branding import ASSETS_DIR, create_logo_canvas, load_logo_image
 
             # Try to load PNG logo
             logo_path = ASSETS_DIR / "aegis_logo_48.png"

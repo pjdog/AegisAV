@@ -61,7 +61,9 @@ class SplatChangeResult:
         }
 
 
-def _geo_to_ned(lat: float, lon: float, origin_lat: float, origin_lon: float) -> tuple[float, float]:
+def _geo_to_ned(
+    lat: float, lon: float, origin_lat: float, origin_lon: float
+) -> tuple[float, float]:
     """Convert lat/lon to NED (North-East-Down) coordinates relative to origin."""
     lat_diff = lat - origin_lat
     lon_diff = lon - origin_lon
@@ -128,19 +130,17 @@ def detect_splat_changes(
                 nearest_id = ref_obs.get("obstacle_id") or ref_obs.get("asset_id")
 
         if nearest_distance is None or nearest_distance > cfg.match_distance_m:
-            changes.append(
-                {
-                    "source": "airsim_depth",
-                    "x_ned": xy[0],
-                    "y_ned": xy[1],
-                    "latitude": obstacle.get("latitude"),
-                    "longitude": obstacle.get("longitude"),
-                    "radius_m": obstacle.get("radius_m"),
-                    "height_m": obstacle.get("height_m"),
-                    "distance_to_reference_m": nearest_distance,
-                    "nearest_obstacle_id": nearest_id,
-                }
-            )
+            changes.append({
+                "source": "airsim_depth",
+                "x_ned": xy[0],
+                "y_ned": xy[1],
+                "latitude": obstacle.get("latitude"),
+                "longitude": obstacle.get("longitude"),
+                "radius_m": obstacle.get("radius_m"),
+                "height_m": obstacle.get("height_m"),
+                "distance_to_reference_m": nearest_distance,
+                "nearest_obstacle_id": nearest_id,
+            })
         if len(changes) >= cfg.max_changes:
             break
 

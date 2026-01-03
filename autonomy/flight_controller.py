@@ -8,11 +8,12 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from pydantic import BaseModel
 
@@ -30,10 +31,9 @@ from autonomy.mission_planner import (
     MissionPlannerConfig,
     MissionWaypoint,
 )
-from autonomy.path_planner import FlightPath, PathPlanner, PathPlannerConfig
+from autonomy.path_planner import PathPlanner, PathPlannerConfig
 from autonomy.state_estimator import (
     EstimatedState,
-    LocalizationMode,
     StateEstimator,
     StateEstimatorConfig,
 )
@@ -616,7 +616,9 @@ class FlightController:
                 logger.warning(f"Path planning failed: {path.status}")
                 # Fall back to direct flight
                 return await self._backend.goto_position_gps(
-                    latitude, longitude, altitude_msl,
+                    latitude,
+                    longitude,
+                    altitude_msl,
                     velocity=self._config.default_velocity_ms,
                 )
 
@@ -628,7 +630,9 @@ class FlightController:
 
                     wp_lat, wp_lon, wp_alt = self._geo_ref.ned_to_gps(*wp_ned)
                     success = await self._backend.goto_position_gps(
-                        wp_lat, wp_lon, wp_alt,
+                        wp_lat,
+                        wp_lon,
+                        wp_alt,
                         velocity=self._config.default_velocity_ms,
                     )
                     if not success:
@@ -639,7 +643,9 @@ class FlightController:
         else:
             # Direct flight without path planning
             return await self._backend.goto_position_gps(
-                latitude, longitude, altitude_msl,
+                latitude,
+                longitude,
+                altitude_msl,
                 velocity=self._config.default_velocity_ms,
             )
 
@@ -722,9 +728,7 @@ class FlightController:
             return False
 
         self._set_phase(FlightPhase.RETURNING)
-        success = await self._backend.return_to_home(
-            altitude_agl=self._config.return_altitude_agl
-        )
+        success = await self._backend.return_to_home(altitude_agl=self._config.return_altitude_agl)
         self._set_phase(FlightPhase.IDLE)
 
         return success
@@ -808,8 +812,13 @@ class FlightController:
                 await self.return_to_home()
 
         # Check altitude
-        if state.position.altitude_agl and state.position.altitude_agl > self._config.max_altitude_agl:
-            logger.warning(f"Altitude {state.position.altitude_agl}m exceeds max {self._config.max_altitude_agl}m")
+        if (
+            state.position.altitude_agl
+            and state.position.altitude_agl > self._config.max_altitude_agl
+        ):
+            logger.warning(
+                f"Altitude {state.position.altitude_agl}m exceeds max {self._config.max_altitude_agl}m"
+            )
 
         # Check geofence (simple circular check)
         if self._geo_ref and self.is_flying:

@@ -11,21 +11,20 @@ import structlog
 import yaml
 from fastapi import FastAPI
 
+from agent.server.airsim_support import (
+    _schedule_airsim_connect,
+    _stop_airsim_bridge,
+    _sync_airsim_scene,
+)
+from agent.server.config_manager import get_config_manager
 from agent.server.critics import AuthorityModel, CriticOrchestrator
 from agent.server.llm_config import apply_llm_settings, resolve_llm_model
 from agent.server.persistence import RedisConfig, create_store
 from agent.server.risk_evaluator import RiskEvaluator, RiskThresholds
+from agent.server.scenarios import get_scenario
 from agent.server.state import scenario_run_state, scenario_runner_state, server_state
 from agent.server.unreal_stream import unreal_manager
 from agent.server.vision.vision_service import VisionService, VisionServiceConfig
-from agent.server.config_manager import get_config_manager
-from agent.server.airsim_support import (
-    _schedule_airsim_connect,
-    _start_airsim_bridge,
-    _stop_airsim_bridge,
-    _sync_airsim_scene,
-)
-from agent.server.scenarios import get_scenario
 from mapping.map_update import MapUpdateConfig, MapUpdateService
 from mapping.safety_gates import PlannerSafetyGate, SafetyGateConfig
 
@@ -103,6 +102,7 @@ async def lifespan(_app: FastAPI):
                     if not scene_path:
                         return None
                     return config_manager.resolve_path(str(scene_path))
+
                 server_state.vision_service = VisionService(
                     world_model=server_state.world_model,
                     config=vision_service_config,
@@ -217,7 +217,9 @@ async def lifespan(_app: FastAPI):
 
     async def _autorun_preflight_mapping() -> None:
         mapping_cfg = config.mapping
-        if not (mapping_cfg.enabled and mapping_cfg.preflight_enabled and mapping_cfg.preflight_autorun):
+        if not (
+            mapping_cfg.enabled and mapping_cfg.preflight_enabled and mapping_cfg.preflight_autorun
+        ):
             return
 
         scenario_id = mapping_cfg.preflight_autorun_scenario_id
@@ -231,16 +233,24 @@ async def lifespan(_app: FastAPI):
             return
 
         max_attempts = max(1, int(getattr(mapping_cfg, "preflight_autorun_max_attempts", 1)))
-        retry_delay_s = max(2.0, float(getattr(mapping_cfg, "preflight_autorun_retry_delay_s", 15.0)))
+        retry_delay_s = max(
+            2.0, float(getattr(mapping_cfg, "preflight_autorun_retry_delay_s", 15.0))
+        )
         attempt = 0
 
         while attempt < max_attempts:
             if scenario_run_state.running or scenario_runner_state.is_running:
-                logger.info("preflight_autorun_skipped", scenario_id=scenario_id, reason="scenario_running")
+                logger.info(
+                    "preflight_autorun_skipped", scenario_id=scenario_id, reason="scenario_running"
+                )
                 return
 
             bridge = server_state.airsim_bridge
-            if bridge and getattr(bridge, "connected", False) and server_state.airsim_action_executor:
+            if (
+                bridge
+                and getattr(bridge, "connected", False)
+                and server_state.airsim_action_executor
+            ):
                 delay_s = max(0.0, float(mapping_cfg.preflight_autorun_delay_s))
                 if delay_s:
                     await asyncio.sleep(delay_s)
@@ -272,7 +282,9 @@ async def lifespan(_app: FastAPI):
 
                 status = (server_state.preflight_status or {}).get("status")
                 if status == "complete" and server_state.navigation_map:
-                    logger.info("preflight_autorun_complete", scenario_id=scenario_id, attempt=attempt + 1)
+                    logger.info(
+                        "preflight_autorun_complete", scenario_id=scenario_id, attempt=attempt + 1
+                    )
                     return
 
                 attempt += 1
@@ -290,7 +302,9 @@ async def lifespan(_app: FastAPI):
 
             await asyncio.sleep(2.0)
 
-        logger.warning("preflight_autorun_exhausted", scenario_id=scenario_id, attempts=max_attempts)
+        logger.warning(
+            "preflight_autorun_exhausted", scenario_id=scenario_id, attempts=max_attempts
+        )
 
     if config.mapping.preflight_autorun:
         autorun_task = asyncio.create_task(_autorun_preflight_mapping())

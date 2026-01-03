@@ -1,5 +1,4 @@
-"""
-AirSim Action Executor - Translates scenario decisions to AirSim flight commands.
+"""AirSim Action Executor - Translates scenario decisions to AirSim flight commands.
 
 This module bridges the gap between high-level autonomous decisions made by the
 scenario runner/goal selector and low-level AirSim flight commands.
@@ -30,15 +29,17 @@ Example:
         "reasoning": "Scheduled inspection of Solar Farm Alpha"
     })
 """
+
 from __future__ import annotations
 
 import asyncio
 import logging
 import math
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import TYPE_CHECKING, Any, Callable, Optional
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from .realtime_bridge import RealtimeAirSimBridge
@@ -50,6 +51,7 @@ logger = logging.getLogger(__name__)
 
 class ExecutionStatus(Enum):
     """Status of action execution."""
+
     PENDING = "pending"
     IN_PROGRESS = "in_progress"
     COMPLETED = "completed"
@@ -60,11 +62,12 @@ class ExecutionStatus(Enum):
 @dataclass
 class ExecutionResult:
     """Result of executing an action."""
+
     status: ExecutionStatus
     action: str
     drone_id: str = ""
     duration_s: float = 0.0
-    error: Optional[str] = None
+    error: str | None = None
     details: dict = field(default_factory=dict)
     timestamp: datetime = field(default_factory=datetime.now)
 
@@ -77,13 +80,14 @@ class ExecutionResult:
             "duration_s": round(self.duration_s, 2),
             "error": self.error,
             "details": self.details,
-            "timestamp": self.timestamp.isoformat()
+            "timestamp": self.timestamp.isoformat(),
         }
 
 
 @dataclass
 class FlightConfig:
     """Configuration for flight parameters."""
+
     default_altitude_agl: float = 30.0  # meters
     default_velocity: float = 5.0  # m/s
     max_velocity: float = 15.0  # m/s
@@ -98,8 +102,7 @@ class FlightConfig:
 
 
 class AirSimActionExecutor:
-    """
-    Translates high-level decisions from the scenario runner into
+    """Translates high-level decisions from the scenario runner into
     low-level AirSim flight commands.
 
     This is the critical missing link that makes the drone actually fly
@@ -112,11 +115,10 @@ class AirSimActionExecutor:
         geo_ref: GeoReference,
         config: FlightConfig | None = None,
         drone_id: str = "Drone1",
-        on_execution_start: Optional[Callable[[str, dict], None]] = None,
-        on_execution_complete: Optional[Callable[[str, ExecutionResult], None]] = None,
+        on_execution_start: Callable[[str, dict], None] | None = None,
+        on_execution_complete: Callable[[str, ExecutionResult], None] | None = None,
     ):
-        """
-        Initialize the action executor.
+        """Initialize the action executor.
 
         Args:
             bridge: Connected RealtimeAirSimBridge instance
@@ -134,11 +136,11 @@ class AirSimActionExecutor:
         self.on_execution_complete = on_execution_complete
 
         # State tracking
-        self._current_action: Optional[str] = None
+        self._current_action: str | None = None
         self._is_flying = False
         self._is_armed = False
-        self._home_ned: Optional[tuple[float, float, float]] = None
-        self._current_task: Optional[asyncio.Task] = None
+        self._home_ned: tuple[float, float, float] | None = None
+        self._current_task: asyncio.Task | None = None
 
         # Action handlers mapping
         self._handlers = {
@@ -152,7 +154,6 @@ class AirSimActionExecutor:
             "abort": self._handle_abort,
             "recharge": self._handle_recharge,
             "none": self._handle_none,
-
             # ActionType values (from api_models.py)
             "goto": self._handle_goto,
             "takeoff": self._handle_takeoff,
@@ -178,7 +179,7 @@ class AirSimActionExecutor:
         return self._is_flying
 
     @property
-    def current_action(self) -> Optional[str]:
+    def current_action(self) -> str | None:
         """Get currently executing action."""
         return self._current_action
 
@@ -211,8 +212,7 @@ class AirSimActionExecutor:
         self.set_avoid_zones(navigation_map.get("obstacles", []), buffer_m=buffer_m)
 
     async def execute(self, decision: dict) -> ExecutionResult:
-        """
-        Execute a decision from the scenario runner.
+        """Execute a decision from the scenario runner.
 
         This is the main entry point. It:
         1. Parses the decision
@@ -329,7 +329,7 @@ class AirSimActionExecutor:
             return ExecutionResult(
                 status=ExecutionStatus.COMPLETED,
                 action="takeoff",
-                details={"already_flying": True, "altitude_agl": altitude}
+                details={"already_flying": True, "altitude_agl": altitude},
             )
 
         logger.info(f"Taking off to {altitude}m AGL")
@@ -345,7 +345,9 @@ class AirSimActionExecutor:
                     pos = await self.bridge.get_position()
                     if pos:
                         self._home_ned = (pos.x_val, pos.y_val, pos.z_val)
-                        logger.info(f"Home position set: NED({pos.x_val:.1f}, {pos.y_val:.1f}, {pos.z_val:.1f})")
+                        logger.info(
+                            f"Home position set: NED({pos.x_val:.1f}, {pos.y_val:.1f}, {pos.z_val:.1f})"
+                        )
                     else:
                         self._home_ned = (0, 0, 0)
                 else:
@@ -357,13 +359,11 @@ class AirSimActionExecutor:
             return ExecutionResult(
                 status=ExecutionStatus.COMPLETED,
                 action="takeoff",
-                details={"altitude_agl": altitude}
+                details={"altitude_agl": altitude},
             )
         else:
             return ExecutionResult(
-                status=ExecutionStatus.FAILED,
-                action="takeoff",
-                error="Takeoff command failed"
+                status=ExecutionStatus.FAILED, action="takeoff", error="Takeoff command failed"
             )
 
     async def _handle_inspect_asset(self, decision: dict) -> ExecutionResult:
@@ -382,10 +382,13 @@ class AirSimActionExecutor:
             return ExecutionResult(
                 status=ExecutionStatus.FAILED,
                 action="inspect_asset",
-                error="No target position provided in decision"
+                error="No target position provided in decision",
             )
 
-        if self.config.inspection_altitude_agl_cap is not None and alt > self.config.inspection_altitude_agl_cap:
+        if (
+            self.config.inspection_altitude_agl_cap is not None
+            and alt > self.config.inspection_altitude_agl_cap
+        ):
             logger.info(
                 "inspection_altitude_clamped",
                 asset_id=asset_id,
@@ -394,7 +397,10 @@ class AirSimActionExecutor:
             )
             alt = self.config.inspection_altitude_agl_cap
 
-        if self.config.inspection_orbit_radius_cap is not None and orbit_radius > self.config.inspection_orbit_radius_cap:
+        if (
+            self.config.inspection_orbit_radius_cap is not None
+            and orbit_radius > self.config.inspection_orbit_radius_cap
+        ):
             logger.info(
                 "inspection_orbit_radius_clamped",
                 asset_id=asset_id,
@@ -407,9 +413,7 @@ class AirSimActionExecutor:
 
         # Ensure we're airborne
         if not self._is_flying:
-            takeoff_result = await self._handle_takeoff({
-                "parameters": {"altitude_agl": alt}
-            })
+            takeoff_result = await self._handle_takeoff({"parameters": {"altitude_agl": alt}})
             if takeoff_result.status != ExecutionStatus.COMPLETED:
                 return takeoff_result
 
@@ -422,9 +426,11 @@ class AirSimActionExecutor:
         )
 
         # Fly to position with obstacle avoidance
-        if hasattr(self.bridge, 'move_to_position_with_obstacle_avoidance'):
+        if hasattr(self.bridge, "move_to_position_with_obstacle_avoidance"):
             move_success = await self.bridge.move_to_position_with_obstacle_avoidance(
-                north, east, down,
+                north,
+                east,
+                down,
                 velocity=self.config.default_velocity,
                 obstacle_distance_m=15.0,
                 avoidance_step_m=10.0,
@@ -432,27 +438,26 @@ class AirSimActionExecutor:
         else:
             # Fallback to standard movement
             move_success = await self.bridge.move_to_position(
-                north, east, down,
-                self.config.default_velocity
+                north, east, down, self.config.default_velocity
             )
 
         if not move_success:
             return ExecutionResult(
                 status=ExecutionStatus.FAILED,
                 action="inspect_asset",
-                error=f"Failed to fly to asset {asset_id}"
+                error=f"Failed to fly to asset {asset_id}",
             )
 
         # Perform inspection orbit
-        logger.info(
-            f"Performing inspection orbit: radius={orbit_radius}m, dwell={dwell_time}s"
-        )
+        logger.info(f"Performing inspection orbit: radius={orbit_radius}m, dwell={dwell_time}s")
 
         orbit_success = await self.bridge.orbit(
-            north, east, down,
+            north,
+            east,
+            down,
             radius=orbit_radius,
             velocity=self.config.orbit_velocity,
-            duration=dwell_time
+            duration=dwell_time,
         )
 
         return ExecutionResult(
@@ -466,7 +471,7 @@ class AirSimActionExecutor:
                 "dwell_time_s": dwell_time,
                 "avoidance": avoidance,
             },
-            error=None if orbit_success else "Orbit failed"
+            error=None if orbit_success else "Orbit failed",
         )
 
     async def _handle_inspect_anomaly(self, decision: dict) -> ExecutionResult:
@@ -493,25 +498,24 @@ class AirSimActionExecutor:
             return ExecutionResult(
                 status=ExecutionStatus.COMPLETED,
                 action="return",
-                details={"reason": reason, "already_landed": True}
+                details={"reason": reason, "already_landed": True},
             )
 
         # Return to home position (origin in NED)
         safe_altitude = -self.config.default_altitude_agl
 
         # First go to safe altitude above home with obstacle avoidance
-        if hasattr(self.bridge, 'move_to_position_with_obstacle_avoidance'):
+        if hasattr(self.bridge, "move_to_position_with_obstacle_avoidance"):
             await self.bridge.move_to_position_with_obstacle_avoidance(
-                0, 0, safe_altitude,
+                0,
+                0,
+                safe_altitude,
                 velocity=self.config.default_velocity,
                 obstacle_distance_m=15.0,
                 avoidance_step_m=10.0,
             )
         else:
-            await self.bridge.move_to_position(
-                0, 0, safe_altitude,
-                self.config.default_velocity
-            )
+            await self.bridge.move_to_position(0, 0, safe_altitude, self.config.default_velocity)
 
         # Land
         land_success = await self.bridge.land()
@@ -524,7 +528,7 @@ class AirSimActionExecutor:
             status=ExecutionStatus.COMPLETED if land_success else ExecutionStatus.FAILED,
             action="return",
             details={"reason": reason},
-            error=None if land_success else "Landing failed"
+            error=None if land_success else "Landing failed",
         )
 
     async def _handle_goto(self, decision: dict) -> ExecutionResult:
@@ -539,18 +543,14 @@ class AirSimActionExecutor:
 
         if lat is None or lon is None:
             return ExecutionResult(
-                status=ExecutionStatus.FAILED,
-                action="goto",
-                error="No position provided"
+                status=ExecutionStatus.FAILED, action="goto", error="No position provided"
             )
 
         lat, lon, alt, avoidance = self._apply_avoidance(lat, lon, alt, "waypoint")
 
         # Ensure flying
         if not self._is_flying:
-            takeoff_result = await self._handle_takeoff({
-                "parameters": {"altitude_agl": alt}
-            })
+            takeoff_result = await self._handle_takeoff({"parameters": {"altitude_agl": alt}})
             if takeoff_result.status != ExecutionStatus.COMPLETED:
                 return takeoff_result
 
@@ -560,9 +560,11 @@ class AirSimActionExecutor:
         logger.info(f"Flying to ({lat:.6f}, {lon:.6f}) at {velocity} m/s")
 
         # Use obstacle-aware movement if available
-        if hasattr(self.bridge, 'move_to_position_with_obstacle_avoidance'):
+        if hasattr(self.bridge, "move_to_position_with_obstacle_avoidance"):
             success = await self.bridge.move_to_position_with_obstacle_avoidance(
-                north, east, down,
+                north,
+                east,
+                down,
                 velocity=velocity,
                 obstacle_distance_m=15.0,
                 avoidance_step_m=10.0,
@@ -579,7 +581,7 @@ class AirSimActionExecutor:
                 "velocity": velocity,
                 "avoidance": avoidance,
             },
-            error=None if success else "Move to position failed"
+            error=None if success else "Move to position failed",
         )
 
     async def _handle_orbit(self, decision: dict) -> ExecutionResult:
@@ -601,16 +603,14 @@ class AirSimActionExecutor:
         duration = params.get("duration_s", self.config.inspection_dwell_time)
 
         success = await self.bridge.orbit(
-            center_x, center_y, center_z,
-            radius=radius,
-            duration=duration
+            center_x, center_y, center_z, radius=radius, duration=duration
         )
 
         return ExecutionResult(
             status=ExecutionStatus.COMPLETED if success else ExecutionStatus.FAILED,
             action="orbit",
             details={"radius_m": radius, "duration_s": duration},
-            error=None if success else "Orbit failed"
+            error=None if success else "Orbit failed",
         )
 
     async def _handle_land(self, decision: dict) -> ExecutionResult:
@@ -626,7 +626,7 @@ class AirSimActionExecutor:
         return ExecutionResult(
             status=ExecutionStatus.COMPLETED if success else ExecutionStatus.FAILED,
             action="land",
-            error=None if success else "Landing failed"
+            error=None if success else "Landing failed",
         )
 
     async def _handle_rtl(self, decision: dict) -> ExecutionResult:
@@ -646,9 +646,7 @@ class AirSimActionExecutor:
         await asyncio.sleep(duration)
 
         return ExecutionResult(
-            status=ExecutionStatus.COMPLETED,
-            action="wait",
-            details={"duration_s": duration}
+            status=ExecutionStatus.COMPLETED, action="wait", details={"duration_s": duration}
         )
 
     async def _handle_abort(self, decision: dict) -> ExecutionResult:
@@ -668,7 +666,7 @@ class AirSimActionExecutor:
             status=ExecutionStatus.COMPLETED if success else ExecutionStatus.FAILED,
             action="abort",
             details={"reason": reason},
-            error=None if success else "Emergency landing failed"
+            error=None if success else "Emergency landing failed",
         )
 
     async def _handle_recharge(self, decision: dict) -> ExecutionResult:
@@ -684,17 +682,12 @@ class AirSimActionExecutor:
         await asyncio.sleep(5.0)
 
         return ExecutionResult(
-            status=ExecutionStatus.COMPLETED,
-            action="recharge",
-            details={"recharged": True}
+            status=ExecutionStatus.COMPLETED, action="recharge", details={"recharged": True}
         )
 
     async def _handle_none(self, decision: dict) -> ExecutionResult:
         """No action required."""
-        return ExecutionResult(
-            status=ExecutionStatus.COMPLETED,
-            action="none"
-        )
+        return ExecutionResult(status=ExecutionStatus.COMPLETED, action="none")
 
     async def _handle_unknown(self, decision: dict) -> ExecutionResult:
         """Handle unknown action types."""
@@ -704,7 +697,7 @@ class AirSimActionExecutor:
         return ExecutionResult(
             status=ExecutionStatus.FAILED,
             action=str(action),
-            error=f"Unknown action type: {action}"
+            error=f"Unknown action type: {action}",
         )
 
     # =========================================================================
@@ -712,13 +705,9 @@ class AirSimActionExecutor:
     # =========================================================================
 
     def _extract_target(
-        self,
-        target_asset: dict | None,
-        position: dict | None,
-        params: dict
+        self, target_asset: dict | None, position: dict | None, params: dict
     ) -> tuple[float | None, float | None, float, float, float, str]:
-        """
-        Extract target position from various decision formats.
+        """Extract target position from various decision formats.
 
         Returns:
             Tuple of (lat, lon, alt, orbit_radius, dwell_time, asset_id)
@@ -742,7 +731,7 @@ class AirSimActionExecutor:
 
             alt = target_asset.get(
                 "inspection_altitude_agl",
-                target_asset.get("altitude_agl", self.config.default_altitude_agl)
+                target_asset.get("altitude_agl", self.config.default_altitude_agl),
             )
             orbit_radius = target_asset.get("orbit_radius_m", self.config.inspection_orbit_radius)
             dwell_time = target_asset.get("dwell_time_s", self.config.inspection_dwell_time)
@@ -826,9 +815,7 @@ class AirSimActionExecutor:
                 })
 
         if adjusted:
-            lat, lon, _ = self.geo_ref.ned_to_gps(
-                target_n, target_e, self.geo_ref.altitude + alt
-            )
+            lat, lon, _ = self.geo_ref.ned_to_gps(target_n, target_e, self.geo_ref.altitude + alt)
             logger.info(
                 "avoidance_adjusted_target",
                 asset_id=asset_id,

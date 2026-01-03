@@ -29,23 +29,23 @@ class AegisTheme:
     """
 
     # Background colors
-    bg_deep: str = "#09090B"        # Primary dark background
-    bg_onyx: str = "#18181B"        # Elevated surface
-    bg_elevated: str = "#27272A"    # Card/panel backgrounds
-    bg_input: str = "#3F3F46"       # Input field background
+    bg_deep: str = "#09090B"  # Primary dark background
+    bg_onyx: str = "#18181B"  # Elevated surface
+    bg_elevated: str = "#27272A"  # Card/panel backgrounds
+    bg_input: str = "#3F3F46"  # Input field background
 
     # Text colors
-    text_primary: str = "#FAFAFA"   # Primary text (white)
-    text_secondary: str = "#D4D4D8" # Secondary text
-    text_muted: str = "#71717A"     # Muted/placeholder text
-    text_dim: str = "#52525B"       # Very dim text
+    text_primary: str = "#FAFAFA"  # Primary text (white)
+    text_secondary: str = "#D4D4D8"  # Secondary text
+    text_muted: str = "#71717A"  # Muted/placeholder text
+    text_dim: str = "#52525B"  # Very dim text
 
     # Accent colors
-    accent_cyber: str = "#06B6D4"   # Primary cyan accent
+    accent_cyber: str = "#06B6D4"  # Primary cyan accent
     accent_security: str = "#10B981"  # Green (success)
-    accent_alert: str = "#EF4444"     # Red (error/danger)
-    accent_warning: str = "#F59E0B"   # Orange (warning)
-    accent_purple: str = "#8B5CF6"    # Purple (info)
+    accent_alert: str = "#EF4444"  # Red (error/danger)
+    accent_warning: str = "#F59E0B"  # Orange (warning)
+    accent_purple: str = "#8B5CF6"  # Purple (info)
 
     # Borders
     border_subtle: str = "#27272A"
@@ -138,9 +138,10 @@ class ThemeManager:
         if system == "Windows":
             try:
                 import winreg
+
                 key = winreg.OpenKey(
                     winreg.HKEY_CURRENT_USER,
-                    r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize"
+                    r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize",
                 )
                 value, _ = winreg.QueryValueEx(key, "AppsUseLightTheme")
                 winreg.CloseKey(key)
@@ -151,6 +152,7 @@ class ThemeManager:
         elif system == "Darwin":
             try:
                 import subprocess
+
                 result = subprocess.run(
                     ["defaults", "read", "-g", "AppleInterfaceStyle"],
                     capture_output=True,
@@ -164,6 +166,7 @@ class ThemeManager:
             # Check common desktop environment settings
             try:
                 import subprocess
+
                 # Try GNOME
                 result = subprocess.run(
                     ["gsettings", "get", "org.gnome.desktop.interface", "color-scheme"],
@@ -527,14 +530,22 @@ def create_logo_canvas(
 
     # Draw simplified shield outline
     shield_points = [
-        cx, int(4 * s),           # Top center
-        int(cx + 26 * s), int(10 * s),   # Top right
-        int(cx + 28 * s), int(20 * s),   # Right upper
-        int(cx + 24 * s), int(40 * s),   # Right lower
-        cx, int(60 * s),          # Bottom point
-        int(cx - 24 * s), int(40 * s),   # Left lower
-        int(cx - 28 * s), int(20 * s),   # Left upper
-        int(cx - 26 * s), int(10 * s),   # Top left
+        cx,
+        int(4 * s),  # Top center
+        int(cx + 26 * s),
+        int(10 * s),  # Top right
+        int(cx + 28 * s),
+        int(20 * s),  # Right upper
+        int(cx + 24 * s),
+        int(40 * s),  # Right lower
+        cx,
+        int(60 * s),  # Bottom point
+        int(cx - 24 * s),
+        int(40 * s),  # Left lower
+        int(cx - 28 * s),
+        int(20 * s),  # Left upper
+        int(cx - 26 * s),
+        int(10 * s),  # Top left
     ]
 
     canvas.create_polygon(
@@ -550,24 +561,30 @@ def create_logo_canvas(
 
     # Upper right line
     canvas.create_line(
-        cx, cy,
-        cx + int(line_len * 0.707), cy - int(line_len * 0.707),
+        cx,
+        cy,
+        cx + int(line_len * 0.707),
+        cy - int(line_len * 0.707),
         fill=theme.accent_cyber,
         width=line_width,
     )
 
     # Upper left line
     canvas.create_line(
-        cx, cy,
-        cx - int(line_len * 0.707), cy - int(line_len * 0.707),
+        cx,
+        cy,
+        cx - int(line_len * 0.707),
+        cy - int(line_len * 0.707),
         fill=theme.accent_cyber,
         width=line_width,
     )
 
     # Down line
     canvas.create_line(
-        cx, cy,
-        cx, cy + int(16 * s),
+        cx,
+        cy,
+        cx,
+        cy + int(16 * s),
         fill=theme.accent_cyber,
         width=line_width,
     )
@@ -575,8 +592,10 @@ def create_logo_canvas(
     # Center circle
     r = int(6 * s)
     canvas.create_oval(
-        cx - r, cy - r,
-        cx + r, cy + r,
+        cx - r,
+        cy - r,
+        cx + r,
+        cy + r,
         fill=theme.accent_cyber,
         outline=theme.text_primary,
         width=max(1, int(0.5 * s)),

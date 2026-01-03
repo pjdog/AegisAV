@@ -9,7 +9,6 @@ from __future__ import annotations
 import asyncio
 import logging
 import math
-from datetime import datetime
 
 from autonomy.flight_backend import (
     ArduPilotBackendConfig,
@@ -18,7 +17,6 @@ from autonomy.flight_backend import (
 )
 from autonomy.mavlink_interface import ConnectionState, MAVLinkConfig, MAVLinkInterface
 from autonomy.vehicle_state import (
-    FlightMode,
     Position,
     VehicleState,
 )
@@ -242,8 +240,7 @@ class ArduPilotBackend(FlightBackendBase):
                 state = self._mavlink.get_current_state()
                 if state:
                     if not state.in_air or (
-                        state.position.altitude_agl
-                        and state.position.altitude_agl < 0.5
+                        state.position.altitude_agl and state.position.altitude_agl < 0.5
                     ):
                         self._flying = False
                         logger.info("Landing complete")

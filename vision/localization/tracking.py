@@ -7,14 +7,14 @@ from __future__ import annotations
 
 import logging
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
 
 import cv2
 import numpy as np
 from pydantic import BaseModel
 
-from vision.localization.features import FrameFeatures, FeaturePoint
+from vision.localization.features import FrameFeatures
 
 logger = logging.getLogger(__name__)
 
@@ -185,18 +185,14 @@ class FeatureTracker:
                 logger.warning("Optical flow requires images, falling back to descriptor matching")
                 method = TrackingMethod.DESCRIPTOR_MATCH
             else:
-                matches = self._track_optical_flow(
-                    prev_features, prev_image, curr_image
-                )
+                matches = self._track_optical_flow(prev_features, prev_image, curr_image)
 
         if method == TrackingMethod.DESCRIPTOR_MATCH:
             matches = self._track_descriptors(prev_features, curr_features)
 
         elif method == TrackingMethod.HYBRID:
             if prev_image is not None and curr_image is not None:
-                matches = self._track_hybrid(
-                    prev_features, curr_features, prev_image, curr_image
-                )
+                matches = self._track_hybrid(prev_features, curr_features, prev_image, curr_image)
             else:
                 matches = self._track_descriptors(prev_features, curr_features)
 
@@ -293,7 +289,7 @@ class FeatureTracker:
 
         # Build matches
         matches = []
-        for i, (st, e) in enumerate(zip(status.flatten(), err.flatten())):
+        for i, (st, e) in enumerate(zip(status.flatten(), err.flatten(), strict=False)):
             if st == 1:
                 prev_pt = tuple(prev_pts[i, 0])
                 curr_pt = tuple(curr_pts[i, 0])
@@ -405,7 +401,8 @@ class FeatureTracker:
                             curr_features.keypoints[best_idx].y,
                         ),
                         distance=best_dist,
-                        confidence=match.confidence * (1.0 - best_dist / self._config.max_descriptor_distance),
+                        confidence=match.confidence
+                        * (1.0 - best_dist / self._config.max_descriptor_distance),
                     )
                 )
             else:

@@ -14,10 +14,11 @@ import asyncio
 import json
 import math
 import time
+from collections.abc import AsyncIterator, Callable, Iterator
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, AsyncIterator, Callable, Iterator
+from typing import Any
 
 import structlog
 
@@ -315,7 +316,9 @@ class CaptureReplay:
                                     )
                                 )
                     except Exception as exc:
-                        logger.warning("manifest_pose_load_failed", path=str(pose_path), error=str(exc))
+                        logger.warning(
+                            "manifest_pose_load_failed", path=str(pose_path), error=str(exc)
+                        )
 
             if position is None:
                 position = [0.0, 0.0, 0.0]
@@ -334,7 +337,9 @@ class CaptureReplay:
                 blur_score=entry.blur_score,
             )
 
-            frame_id = Path(entry.image_path).stem if entry.image_path else f"frame_{entry.frame_index}"
+            frame_id = (
+                Path(entry.image_path).stem if entry.image_path else f"frame_{entry.frame_index}"
+            )
             frames.append(
                 CaptureFrame(
                     frame_index=entry.frame_index,
@@ -358,7 +363,9 @@ class CaptureReplay:
         return frames
 
     @staticmethod
-    def _quat_to_euler_deg(qw: float, qx: float, qy: float, qz: float) -> tuple[float, float, float]:
+    def _quat_to_euler_deg(
+        qw: float, qx: float, qy: float, qz: float
+    ) -> tuple[float, float, float]:
         """Convert quaternion (w, x, y, z) to Euler angles in degrees."""
         # Roll (x-axis rotation)
         sinr_cosp = 2.0 * (qw * qx + qy * qz)
@@ -619,8 +626,7 @@ class CaptureIntegrityResult:
             "frames_with_depth": self.frames_with_depth,
             "frames_with_images": self.frames_with_images,
             "timestamp_gaps": [
-                {"frame_index": idx, "gap_s": gap}
-                for idx, gap in self.timestamp_gaps
+                {"frame_index": idx, "gap_s": gap} for idx, gap in self.timestamp_gaps
             ],
             "intrinsics_consistent": self.intrinsics_consistent,
             "avg_frame_rate": self.avg_frame_rate,
@@ -716,9 +722,7 @@ class CaptureIntegrityChecker:
                         )
                     elif gap > self.max_timestamp_gap_s:
                         timestamp_gaps.append((i, gap))
-                        warnings.append(
-                            f"Large timestamp gap at frame {i}: {gap:.2f}s"
-                        )
+                        warnings.append(f"Large timestamp gap at frame {i}: {gap:.2f}s")
 
                 prev_timestamp = frame.timestamp_s
 
@@ -742,14 +746,11 @@ class CaptureIntegrityChecker:
 
         # Validate requirements
         if frame_count < self.min_frames:
-            errors.append(
-                f"Insufficient frames: {frame_count} < {self.min_frames}"
-            )
+            errors.append(f"Insufficient frames: {frame_count} < {self.min_frames}")
 
         if frames_with_timestamps < frame_count * 0.9:
             errors.append(
-                f"Too few frames with valid timestamps: "
-                f"{frames_with_timestamps}/{frame_count}"
+                f"Too few frames with valid timestamps: " f"{frames_with_timestamps}/{frame_count}"
             )
 
         if self.require_intrinsics and frames_with_intrinsics == 0:
@@ -758,14 +759,10 @@ class CaptureIntegrityChecker:
             warnings.append("Camera intrinsics vary across frames")
 
         if self.require_depth and frames_with_depth < frame_count * 0.8:
-            errors.append(
-                f"Insufficient depth data: {frames_with_depth}/{frame_count}"
-            )
+            errors.append(f"Insufficient depth data: {frames_with_depth}/{frame_count}")
 
         if frames_with_images < frame_count * 0.9:
-            errors.append(
-                f"Too many missing images: {frames_with_images}/{frame_count}"
-            )
+            errors.append(f"Too many missing images: {frames_with_images}/{frame_count}")
 
         # Calculate average frame rate
         avg_frame_rate = 0.0

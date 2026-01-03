@@ -16,15 +16,16 @@ import asyncio
 import logging
 import math
 import threading
+from collections.abc import Awaitable, Callable
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import Any, Callable, Awaitable
-
-from concurrent.futures import ThreadPoolExecutor
+from typing import Any
 
 try:
     import cosysairsim as airsim
+
     AIRSIM_AVAILABLE = True
 except ImportError:
     AIRSIM_AVAILABLE = False
@@ -41,13 +42,14 @@ _client_lock = threading.Lock()
 
 class VehicleState(str, Enum):
     """State of a managed vehicle."""
+
     UNKNOWN = "unknown"
     AVAILABLE = "available"  # Discovered, not assigned
-    ASSIGNED = "assigned"    # Assigned to a scenario drone
-    ACTIVE = "active"        # Currently flying/operating
+    ASSIGNED = "assigned"  # Assigned to a scenario drone
+    ACTIVE = "active"  # Currently flying/operating
     RETURNING = "returning"  # Returning to dock
-    LANDED = "landed"        # On ground
-    ERROR = "error"          # Error state
+    LANDED = "landed"  # On ground
+    ERROR = "error"  # Error state
 
 
 @dataclass
@@ -137,6 +139,7 @@ class MultiVehicleManager:
         host: str = "127.0.0.1",
         vehicle_mapping: dict[str, str] | None = None,
         auto_assign: bool = True,
+        rpc_timeout_s: float = 10.0,
     ) -> None:
         """Initialize the multi-vehicle manager.
 
@@ -149,6 +152,7 @@ class MultiVehicleManager:
         self.connected = False
         self.auto_assign = auto_assign
         self.pose_supported: bool | None = None
+        self.rpc_timeout_s = max(1.0, float(rpc_timeout_s))
 
         # Vehicle storage
         self._vehicles: dict[str, ManagedVehicle] = {}  # airsim_name -> ManagedVehicle
@@ -185,7 +189,9 @@ class MultiVehicleManager:
             }
 
         self._drone_to_vehicle = config_mapping.copy()
-        self._vehicle_to_drone = {vehicle_name: drone_id for drone_id, vehicle_name in config_mapping.items()}
+        self._vehicle_to_drone = {
+            vehicle_name: drone_id for drone_id, vehicle_name in config_mapping.items()
+        }
 
         for vehicle in self._vehicles.values():
             mapped_drone = self._vehicle_to_drone.get(vehicle.airsim_name)
@@ -216,7 +222,10 @@ class MultiVehicleManager:
             def _connect():
                 global _airsim_client
                 with _client_lock:
-                    client = airsim.MultirotorClient(ip=self.host)
+                    client = airsim.MultirotorClient(
+                        ip=self.host,
+                        timeout_value=self.rpc_timeout_s,
+                    )
                     client.confirmConnection()
                     _airsim_client = client
                     return True
@@ -408,9 +417,7 @@ class MultiVehicleManager:
         # Check if already assigned
         vehicle = self._vehicles[airsim_name]
         if vehicle.scenario_drone_id is not None and vehicle.scenario_drone_id != scenario_drone_id:
-            logger.warning(
-                f"Vehicle {airsim_name} already assigned to {vehicle.scenario_drone_id}"
-            )
+            logger.warning(f"Vehicle {airsim_name} already assigned to {vehicle.scenario_drone_id}")
             return False
 
         # Update mappings
@@ -422,7 +429,9 @@ class MultiVehicleManager:
         vehicle.state = VehicleState.ASSIGNED
         vehicle.assigned_at = datetime.now()
 
-        logger.info(f"Assigned scenario drone '{scenario_drone_id}' to AirSim vehicle '{airsim_name}'")
+        logger.info(
+            f"Assigned scenario drone '{scenario_drone_id}' to AirSim vehicle '{airsim_name}'"
+        )
         return True
 
     def auto_assign_scenario_drones(self, drone_ids: list[str]) -> dict[str, str]:
@@ -440,7 +449,8 @@ class MultiVehicleManager:
 
         # Get available vehicles (not yet assigned)
         available = [
-            v for v in self._vehicles.values()
+            v
+            for v in self._vehicles.values()
             if v.scenario_drone_id is None and v.state == VehicleState.AVAILABLE
         ]
 
@@ -621,8 +631,7 @@ class MultiVehicleManager:
                 with _client_lock:
                     if _airsim_client:
                         future = _airsim_client.takeoffAsync(
-                            timeout_sec=timeout,
-                            vehicle_name=vehicle.airsim_name
+                            timeout_sec=timeout, vehicle_name=vehicle.airsim_name
                         )
                         future.join()
                         return True
@@ -657,8 +666,7 @@ class MultiVehicleManager:
                 with _client_lock:
                     if _airsim_client:
                         future = _airsim_client.landAsync(
-                            timeout_sec=timeout,
-                            vehicle_name=vehicle.airsim_name
+                            timeout_sec=timeout, vehicle_name=vehicle.airsim_name
                         )
                         future.join()
                         return True
@@ -727,9 +735,7 @@ class MultiVehicleManager:
                 with _client_lock:
                     if _airsim_client:
                         future = _airsim_client.moveToPositionAsync(
-                            x, y, z, velocity,
-                            timeout_sec=timeout,
-                            vehicle_name=vehicle.airsim_name
+                            x, y, z, velocity, timeout_sec=timeout, vehicle_name=vehicle.airsim_name
                         )
                         future.join()
                         return True
@@ -780,7 +786,7 @@ class MultiVehicleManager:
                         # Create pose
                         pose = airsim.Pose(
                             airsim.Vector3r(x, y, z),
-                            airsim.to_quaternion(0, 0, math.radians(yaw_deg))
+                            airsim.to_quaternion(0, 0, math.radians(yaw_deg)),
                         )
                         if hasattr(_airsim_client, "simSetVehiclePose"):
                             _airsim_client.simSetVehiclePose(
@@ -840,9 +846,10 @@ class MultiVehicleManager:
 
         for vehicle in self.get_assigned_vehicles():
             if vehicle.scenario_drone_id:
-                tasks.append(
-                    (vehicle.scenario_drone_id, self.takeoff(vehicle.scenario_drone_id, altitude))
-                )
+                tasks.append((
+                    vehicle.scenario_drone_id,
+                    self.takeoff(vehicle.scenario_drone_id, altitude),
+                ))
 
         for drone_id, task in tasks:
             results[drone_id] = await task

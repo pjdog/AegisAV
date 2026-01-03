@@ -38,10 +38,22 @@ class SensorCalibration:
     # Camera-to-body transform (4x4 matrix, row-major)
     T_body_camera: list[float] = field(
         default_factory=lambda: [
-            1.0, 0.0, 0.0, 0.0,
-            0.0, 1.0, 0.0, 0.0,
-            0.0, 0.0, 1.0, 0.0,
-            0.0, 0.0, 0.0, 1.0,
+            1.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            1.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            1.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            1.0,
         ]
     )
 
@@ -256,7 +268,9 @@ class DatasetManifest:
             width=intrinsics.get("width", 1280),
             height=intrinsics.get("height", 720),
             distortion=cal_data.get("distortion", [0.0] * 5),
-            T_body_camera=cal_data.get("T_body_camera", [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]),
+            T_body_camera=cal_data.get(
+                "T_body_camera", [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]
+            ),
             T_body_imu=cal_data.get("T_body_imu"),
             depth_scale=depth_data.get("scale", 1.0),
             depth_min_m=depth_data.get("min_m", 0.1),
@@ -267,19 +281,21 @@ class DatasetManifest:
         frames = []
         for f_data in data.get("frames", []):
             quality = f_data.get("quality", {})
-            frames.append(ManifestEntry(
-                frame_index=f_data.get("frame_index", 0),
-                timestamp_s=f_data.get("timestamp_s", 0.0),
-                image_path=f_data.get("image_path", ""),
-                depth_path=f_data.get("depth_path"),
-                pose_path=f_data.get("pose_path"),
-                position=f_data.get("position"),
-                orientation=f_data.get("orientation"),
-                is_keyframe=f_data.get("is_keyframe", False),
-                keyframe_index=f_data.get("keyframe_index"),
-                blur_score=quality.get("blur_score", 0.0),
-                feature_count=quality.get("feature_count", 0),
-            ))
+            frames.append(
+                ManifestEntry(
+                    frame_index=f_data.get("frame_index", 0),
+                    timestamp_s=f_data.get("timestamp_s", 0.0),
+                    image_path=f_data.get("image_path", ""),
+                    depth_path=f_data.get("depth_path"),
+                    pose_path=f_data.get("pose_path"),
+                    position=f_data.get("position"),
+                    orientation=f_data.get("orientation"),
+                    is_keyframe=f_data.get("is_keyframe", False),
+                    keyframe_index=f_data.get("keyframe_index"),
+                    blur_score=quality.get("blur_score", 0.0),
+                    feature_count=quality.get("feature_count", 0),
+                )
+            )
 
         # Parse coordinate frame
         coord_data = data.get("coordinate_frame", {})

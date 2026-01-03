@@ -16,15 +16,17 @@ from agent.server.goals import Goal, GoalType
 from agent.server.models import DecisionFeedback
 from agent.server.state import connection_manager, server_state
 from agent.server.unreal_stream import (
-    CriticVerdict,
     CognitiveLevel as UnrealCognitiveLevel,
+)
+from agent.server.unreal_stream import (
+    CriticVerdict,
     thinking_tracker,
     unreal_manager,
 )
 from autonomy.vehicle_state import Position
-from metrics.logger import DecisionLogContext
 from mapping.decision_context import MapContext, map_decision_logger
 from mapping.safety_gates import PlannerSafetyGate, SafetyGateResult
+from metrics.logger import DecisionLogContext
 from vision.data_models import DetectionResult
 
 logger = structlog.get_logger(__name__)
@@ -320,7 +322,9 @@ async def _process_state(state: VehicleStateRequest, *, source: str) -> Decision
                 "reasoning_context": {
                     "available_assets": len(getattr(snapshot, "assets", []) or []),
                     "pending_inspections": len(
-                        snapshot.get_pending_assets() if hasattr(snapshot, "get_pending_assets") else []
+                        snapshot.get_pending_assets()
+                        if hasattr(snapshot, "get_pending_assets")
+                        else []
                     ),
                     "fleet_in_progress": 0,
                     "fleet_completed": getattr(snapshot.mission, "assets_inspected", 0)
@@ -331,7 +335,9 @@ async def _process_state(state: VehicleStateRequest, *, source: str) -> Decision
                     "weather_ok": (
                         getattr(getattr(snapshot, "environment", None), "wind_speed_ms", 0.0) < 12
                     ),
-                    "wind_speed": getattr(getattr(snapshot, "environment", None), "wind_speed_ms", 0.0),
+                    "wind_speed": getattr(
+                        getattr(snapshot, "environment", None), "wind_speed_ms", 0.0
+                    ),
                 },
                 "target_asset": (
                     {

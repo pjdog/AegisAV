@@ -27,7 +27,6 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from simulation.asset_manager import (
     AssetManager,
     AssetType,
-    AssetFormat,
     get_asset_manager,
 )
 
@@ -92,7 +91,7 @@ async def download_all_assets(manager: AssetManager) -> None:
         else:
             failed += 1
 
-    print(f"\n=== Download Summary ===")
+    print("\n=== Download Summary ===")
     print(f"  Successful: {success}")
     print(f"  Failed: {failed}")
 
@@ -114,7 +113,7 @@ def setup_unreal_project(manager: AssetManager, project_path: Path) -> None:
     aegis_assets_dir = content_dir / "AegisAV" / "Assets"
     aegis_assets_dir.mkdir(parents=True, exist_ok=True)
 
-    print(f"\n=== Setting Up Unreal Project ===")
+    print("\n=== Setting Up Unreal Project ===")
     print(f"Project: {project_path}")
     print(f"Assets Dir: {aegis_assets_dir}\n")
 
@@ -154,12 +153,12 @@ def setup_unreal_project(manager: AssetManager, project_path: Path) -> None:
         # Update asset metadata with expected UE path
         manager.set_unreal_asset_path(asset.asset_id, ue_path)
 
-    print(f"\n=== Summary ===")
+    print("\n=== Summary ===")
     print(f"  Copied: {copied}")
     print(f"  Skipped: {skipped}")
 
     # Generate import instructions
-    print(f"""
+    print("""
 === Next Steps ===
 
 1. Open your Unreal Engine project

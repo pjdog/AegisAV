@@ -13,12 +13,12 @@ It provides:
 
 from __future__ import annotations
 
-import asyncio
 import logging
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import Any, Callable, Awaitable
+from typing import Any
 
 # Agent imports
 from agent.api_models import ActionType
@@ -27,18 +27,6 @@ from agent.server.scenarios import DOCK_ALTITUDE, DOCK_LATITUDE, DOCK_LONGITUDE
 
 # Simulation imports
 try:
-    from simulation.drone_coordinator import (
-        DroneCoordinator,
-        DroneAssignment,
-        CoordinatorState,
-        get_drone_coordinator,
-    )
-    from simulation.multi_vehicle_manager import (
-        MultiVehicleManager,
-        ManagedVehicle,
-        VehicleState,
-        get_multi_vehicle_manager,
-    )
     from simulation.airsim_action_executor import (
         AirSimActionExecutor,
         ExecutionResult,
@@ -46,12 +34,25 @@ try:
         FlightConfig,
     )
     from simulation.coordinate_utils import GeoReference
+    from simulation.drone_coordinator import (
+        CoordinatorState,
+        DroneAssignment,
+        DroneCoordinator,
+        get_drone_coordinator,
+    )
+    from simulation.multi_vehicle_manager import (
+        ManagedVehicle,
+        MultiVehicleManager,
+        VehicleState,
+        get_multi_vehicle_manager,
+    )
     from simulation.realtime_bridge import (
         RealtimeAirSimBridge,
         RealtimeBridgeConfig,
-        create_multi_vehicle_bridges,
         connect_all_bridges,
+        create_multi_vehicle_bridges,
     )
+
     MULTI_DRONE_AVAILABLE = True
 except ImportError as e:
     MULTI_DRONE_AVAILABLE = False
@@ -62,6 +63,7 @@ logger = logging.getLogger(__name__)
 
 class FleetState(str, Enum):
     """State of the fleet bridge."""
+
     DISCONNECTED = "disconnected"
     CONNECTING = "connecting"
     READY = "ready"

@@ -3,13 +3,11 @@ Tests for AirSim flight control integration.
 
 Tests coordinate conversion, action execution, and flight command translation.
 """
+
 from __future__ import annotations
 
-import asyncio
-import math
 from dataclasses import dataclass, field
-from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -24,7 +22,6 @@ from simulation.coordinate_utils import (
     haversine_distance,
     initial_bearing,
 )
-
 
 # =============================================================================
 # Coordinate Utils Tests
@@ -143,8 +140,10 @@ class TestHaversineDistance:
         """Test with known distance (roughly 1km)."""
         # Approximately 1km north
         distance = haversine_distance(
-            47.641468, -122.140165,
-            47.650468, -122.140165,
+            47.641468,
+            -122.140165,
+            47.650468,
+            -122.140165,
         )
         # Should be approximately 1km (9 * 111m per degree latitude)
         assert 900 < distance < 1100
@@ -230,8 +229,11 @@ class MockRealtimeAirSimBridge:
         timeout: float = 60.0,
     ) -> bool:
         self.move_to_position_calls.append({
-            "x": x, "y": y, "z": z,
-            "velocity": velocity, "timeout": timeout,
+            "x": x,
+            "y": y,
+            "z": z,
+            "velocity": velocity,
+            "timeout": timeout,
         })
         self.current_position.x = x
         self.current_position.y = y

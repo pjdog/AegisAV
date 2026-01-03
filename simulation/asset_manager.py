@@ -15,12 +15,9 @@ This module provides the download/cache layer and metadata management.
 
 from __future__ import annotations
 
-import asyncio
 import hashlib
 import json
 import logging
-import shutil
-import tempfile
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
@@ -108,7 +105,7 @@ class AssetMetadata:
         }
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "AssetMetadata":
+    def from_dict(cls, data: dict[str, Any]) -> AssetMetadata:
         """Create from dictionary."""
         return cls(
             asset_id=data["asset_id"],
@@ -734,6 +731,7 @@ def get_asset_manager(
     global _global_manager
     if _global_manager is None:
         import os
+
         token = sketchfab_token or os.environ.get("SKETCHFAB_TOKEN")
         _global_manager = AssetManager(cache_dir=cache_dir, sketchfab_token=token)
     return _global_manager

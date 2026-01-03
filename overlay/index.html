@@ -1231,6 +1231,92 @@
       z-index: 50;
     }
 
+    /* AirSim Controls styling */
+    .airsim-status-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 10px;
+      padding: 6px 8px;
+      background: rgba(0, 0, 0, 0.3);
+      border-radius: 4px;
+    }
+
+    .airsim-status-label {
+      font-size: 0.7rem;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .airsim-status-value {
+      font-size: 0.75rem;
+      font-weight: 600;
+      color: var(--text-primary);
+    }
+
+    .airsim-status-value.connected {
+      color: var(--accent-security);
+    }
+
+    .airsim-status-value.disconnected {
+      color: var(--accent-alert);
+    }
+
+    .airsim-status-value.connecting {
+      color: var(--accent-warning);
+    }
+
+    .airsim-btn-row {
+      display: flex;
+      gap: 6px;
+      margin-bottom: 6px;
+    }
+
+    .airsim-btn-row:last-child {
+      margin-bottom: 0;
+    }
+
+    .airsim-btn {
+      flex: 1;
+      padding: 6px 8px;
+      font-size: 0.65rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      background: rgba(0, 212, 255, 0.15);
+      border: 1px solid rgba(0, 212, 255, 0.3);
+      color: var(--accent-cyber);
+      border-radius: 3px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .airsim-btn:hover {
+      background: rgba(0, 212, 255, 0.25);
+      border-color: rgba(0, 212, 255, 0.5);
+    }
+
+    .airsim-btn:active {
+      transform: scale(0.98);
+    }
+
+    .airsim-btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    .airsim-btn.warn {
+      background: rgba(255, 51, 68, 0.15);
+      border-color: rgba(255, 51, 68, 0.3);
+      color: var(--accent-alert);
+    }
+
+    .airsim-btn.warn:hover {
+      background: rgba(255, 51, 68, 0.25);
+      border-color: rgba(255, 51, 68, 0.5);
+    }
+
     /* SLAM controls styling */
     .slam-controls-row {
       display: flex;
@@ -1614,6 +1700,44 @@
           </div>
           <div class="preflight-message" id="preflightMessage" style="display: none;">
             <span class="preflight-message-text"></span>
+          </div>
+        </div>
+      </div>
+
+      <!-- AirSim Controls -->
+      <div class="sidebar-section">
+        <div class="section-header" data-section="airsimcontrols">
+          <span class="section-title">AirSim Controls</span>
+          <button class="section-toggle">-</button>
+        </div>
+        <div class="section-content" id="airsimControlsSection">
+          <div class="airsim-status-row">
+            <span class="airsim-status-label">Status:</span>
+            <span class="airsim-status-value" id="airsimStatusValue">Unknown</span>
+          </div>
+          <div class="airsim-btn-row">
+            <button class="btn airsim-btn" id="airsimLaunchBtn" title="Launch AirSim application">
+              Launch
+            </button>
+            <button class="btn airsim-btn" id="airsimReconnectBtn" title="Reconnect to AirSim">
+              Reconnect
+            </button>
+          </div>
+          <div class="airsim-btn-row">
+            <button class="btn airsim-btn" id="airsimResetDroneBtn" title="Reset drone to starting position">
+              Reset Drone
+            </button>
+            <button class="btn airsim-btn warn" id="airsimForceCloseBtn" title="Force close AirSim (taskkill)">
+              Force Close
+            </button>
+          </div>
+          <div class="airsim-btn-row">
+            <button class="btn airsim-btn" id="refreshOverlayBtn" title="Refresh overlay and reconnect WebSocket">
+              Refresh UI
+            </button>
+            <button class="btn airsim-btn" id="syncSceneBtn" title="Sync scenario scene to AirSim">
+              Sync Scene
+            </button>
           </div>
         </div>
       </div>
@@ -4827,6 +4951,145 @@
     // Initialize SLAM config controls
     initSlamConfigControls();
 
+    // ========== AIRSIM CONTROLS ==========
+    const airsimStatusValue = document.getElementById('airsimStatusValue');
+    const airsimLaunchBtn = document.getElementById('airsimLaunchBtn');
+    const airsimReconnectBtn = document.getElementById('airsimReconnectBtn');
+    const airsimResetDroneBtn = document.getElementById('airsimResetDroneBtn');
+    const airsimForceCloseBtn = document.getElementById('airsimForceCloseBtn');
+    const refreshOverlayBtn = document.getElementById('refreshOverlayBtn');
+    const syncSceneBtn = document.getElementById('syncSceneBtn');
+
+    async function refreshAirsimStatus() {
+      try {
+        const resp = await fetch(`${CONFIG.httpBase}/api/airsim/status`);
+        if (resp.ok) {
+          const data = await resp.json();
+          const connected = data.bridge_connected;
+          airsimStatusValue.textContent = connected ? 'Connected' : 'Disconnected';
+          airsimStatusValue.className = `airsim-status-value ${connected ? 'connected' : 'disconnected'}`;
+        }
+      } catch (e) {
+        airsimStatusValue.textContent = 'Error';
+        airsimStatusValue.className = 'airsim-status-value disconnected';
+      }
+    }
+
+    // Launch AirSim
+    airsimLaunchBtn?.addEventListener('click', async () => {
+      airsimLaunchBtn.disabled = true;
+      airsimLaunchBtn.textContent = 'Launching...';
+      try {
+        const resp = await fetch(`${CONFIG.httpBase}/api/airsim/start`, { method: 'POST' });
+        const data = await resp.json();
+        appendLog(`AirSim: ${data.launch_message || 'Launch initiated'}`, data.launch_started ? 'info' : 'warning');
+        // Wait a bit then check status
+        setTimeout(refreshAirsimStatus, 3000);
+      } catch (e) {
+        appendLog(`AirSim launch error: ${e.message}`, 'error');
+      } finally {
+        airsimLaunchBtn.disabled = false;
+        airsimLaunchBtn.textContent = 'Launch';
+      }
+    });
+
+    // Reconnect to AirSim
+    airsimReconnectBtn?.addEventListener('click', async () => {
+      airsimReconnectBtn.disabled = true;
+      airsimReconnectBtn.textContent = 'Connecting...';
+      airsimStatusValue.textContent = 'Connecting...';
+      airsimStatusValue.className = 'airsim-status-value connecting';
+      try {
+        const resp = await fetch(`${CONFIG.httpBase}/api/airsim/reconnect`, { method: 'POST' });
+        const data = await resp.json();
+        appendLog(`AirSim reconnect: ${data.status || 'attempted'}`, data.connected ? 'info' : 'warning');
+        await refreshAirsimStatus();
+      } catch (e) {
+        appendLog(`AirSim reconnect error: ${e.message}`, 'error');
+        airsimStatusValue.textContent = 'Error';
+        airsimStatusValue.className = 'airsim-status-value disconnected';
+      } finally {
+        airsimReconnectBtn.disabled = false;
+        airsimReconnectBtn.textContent = 'Reconnect';
+      }
+    });
+
+    // Reset drone position
+    airsimResetDroneBtn?.addEventListener('click', async () => {
+      airsimResetDroneBtn.disabled = true;
+      airsimResetDroneBtn.textContent = 'Resetting...';
+      try {
+        const resp = await fetch(`${CONFIG.httpBase}/api/airsim/reset?altitude=5`, { method: 'POST' });
+        const data = await resp.json();
+        appendLog(`Drone reset: ${data.message || data.status}`, data.status === 'success' ? 'info' : 'warning');
+      } catch (e) {
+        appendLog(`Drone reset error: ${e.message}`, 'error');
+      } finally {
+        airsimResetDroneBtn.disabled = false;
+        airsimResetDroneBtn.textContent = 'Reset Drone';
+      }
+    });
+
+    // Force close AirSim (taskkill)
+    airsimForceCloseBtn?.addEventListener('click', async () => {
+      if (!confirm('Force close AirSim? This will terminate the Blocks.exe process.')) return;
+      airsimForceCloseBtn.disabled = true;
+      airsimForceCloseBtn.textContent = 'Closing...';
+      try {
+        // Try to call a force close endpoint, or use a generic approach
+        const resp = await fetch(`${CONFIG.httpBase}/api/airsim/force_close`, { method: 'POST' });
+        if (resp.ok) {
+          const data = await resp.json();
+          appendLog(`AirSim force close: ${data.message || 'sent'}`, 'warning');
+        } else {
+          // Endpoint might not exist, inform user
+          appendLog('Force close: Use Task Manager to close Blocks.exe', 'warning');
+        }
+        setTimeout(refreshAirsimStatus, 2000);
+      } catch (e) {
+        appendLog('Force close: Use Task Manager to close Blocks.exe', 'warning');
+      } finally {
+        airsimForceCloseBtn.disabled = false;
+        airsimForceCloseBtn.textContent = 'Force Close';
+      }
+    });
+
+    // Refresh overlay UI
+    refreshOverlayBtn?.addEventListener('click', () => {
+      appendLog('Refreshing overlay...', 'info');
+      // Close existing WebSocket
+      if (state.socket) {
+        state.socket.close();
+      }
+      // Clear state and reconnect
+      resetCameraState();
+      handleScenarioReset();
+      setTimeout(() => {
+        connect();
+        refreshScenarioStatus();
+        refreshAirsimStatus();
+      }, 500);
+    });
+
+    // Sync scene to AirSim
+    syncSceneBtn?.addEventListener('click', async () => {
+      syncSceneBtn.disabled = true;
+      syncSceneBtn.textContent = 'Syncing...';
+      try {
+        const resp = await fetch(`${CONFIG.httpBase}/api/airsim/scene/sync`, { method: 'POST' });
+        const data = await resp.json();
+        appendLog(`Scene sync: ${data.message || data.status || 'completed'}`, 'info');
+      } catch (e) {
+        appendLog(`Scene sync error: ${e.message}`, 'error');
+      } finally {
+        syncSceneBtn.disabled = false;
+        syncSceneBtn.textContent = 'Sync Scene';
+      }
+    });
+
+    // Poll AirSim status periodically
+    setInterval(refreshAirsimStatus, 10000);
+
     // ========== WEBSOCKET ==========
     function connect() {
       updateStatus('connecting');
@@ -4881,6 +5144,7 @@
       refreshScenarioStatus();
       refreshMapPreview();
       refreshSlamData();
+      refreshAirsimStatus();
       setInterval(refreshScenarioStatus, 5000);
       setInterval(refreshMapPreview, 6000);
       setInterval(refreshSlamData, 10000);

@@ -7,8 +7,9 @@ import logging
 import os
 import shutil
 import subprocess
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
 from agent.server.config_manager import AegisConfig
 
@@ -36,7 +37,7 @@ def _resolve_windows_user() -> str | None:
             return value
     if _is_wsl():
         try:
-            result = subprocess.run(  # noqa: S603, S607
+            result = subprocess.run(  # noqa: S603
                 ["cmd.exe", "/c", "echo", "%USERNAME%"],
                 capture_output=True,
                 text=True,
@@ -186,16 +187,14 @@ def _build_vehicle_payload(
     }
 
     if vehicle_type.lower() == "arducopter":
-        payload.update(
-            {
-                "UseSerial": False,
-                "LocalHostIp": "127.0.0.1",
-                "UdpIp": "127.0.0.1",
-                "UdpPort": BASE_UDP_PORT + index,
-                "SitlPort": BASE_SITL_PORT + index,
-                "ControlPort": BASE_CONTROL_PORT + index,
-            }
-        )
+        payload.update({
+            "UseSerial": False,
+            "LocalHostIp": "127.0.0.1",
+            "UdpIp": "127.0.0.1",
+            "UdpPort": BASE_UDP_PORT + index,
+            "SitlPort": BASE_SITL_PORT + index,
+            "ControlPort": BASE_CONTROL_PORT + index,
+        })
 
     return payload
 
@@ -230,8 +229,10 @@ def _build_settings_payload(
 def _summarize_settings(payload: dict[str, Any]) -> dict[str, Any]:
     vehicles = payload.get("Vehicles", {}) or {}
     vehicle_names = list(vehicles.keys())
-    vehicle_types = {name: (data.get("VehicleType") if isinstance(data, dict) else None)
-                     for name, data in vehicles.items()}
+    vehicle_types = {
+        name: (data.get("VehicleType") if isinstance(data, dict) else None)
+        for name, data in vehicles.items()
+    }
     camera_resolution = None
     if vehicle_names:
         first_vehicle = vehicles.get(vehicle_names[0], {})

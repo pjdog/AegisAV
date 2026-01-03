@@ -168,9 +168,7 @@ class DecisionLogger:
         map_data = map_context.to_dict() if map_context and hasattr(map_context, "to_dict") else {}
 
         assets = getattr(world, "assets", []) or []
-        pending_assets = (
-            world.get_pending_assets() if hasattr(world, "get_pending_assets") else []
-        )
+        pending_assets = world.get_pending_assets() if hasattr(world, "get_pending_assets") else []
         mission = getattr(world, "mission", None)
         battery_percent = world.vehicle.battery.remaining_percent
         wind_speed = getattr(getattr(world, "environment", None), "wind_speed_ms", None)

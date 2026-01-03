@@ -8,10 +8,11 @@ import asyncio
 import logging
 import tempfile
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable
+from typing import TYPE_CHECKING, Any
 
 from agent.server.models.vision_models import (
     CameraMetadata,
@@ -254,7 +255,10 @@ class VisionService:
         metadata["splat_change"] = change_result.to_dict()
 
         detections = list(detection.detections)
-        if change_result.available and change_result.change_score >= self.config.splat_change_threshold:
+        if (
+            change_result.available
+            and change_result.change_score >= self.config.splat_change_threshold
+        ):
             detections.append(
                 Detection(
                     detection_class=DetectionClass.SCENE_CHANGE,
@@ -431,12 +435,10 @@ class VisionService:
             )
 
             # Broadcast to all connected Unreal clients
-            await self.unreal_manager.broadcast(
-                {
-                    "type": UnrealMessageType.ANOMALY_DETECTED.value,
-                    **message.model_dump(),
-                }
-            )
+            await self.unreal_manager.broadcast({
+                "type": UnrealMessageType.ANOMALY_DETECTED.value,
+                **message.model_dump(),
+            })
 
             self.logger.debug(
                 "Broadcast anomaly %s to Unreal (asset: %s, defect: %s)",

@@ -110,4 +110,3 @@ Frontend plan:
 ## Notes on Edge Hardware “Reasonableness”
 
 The existing profiles (`fc_only`, `mcu_*`, `sbc_*`, `jetson_full`) are a good “bolt-on drone compute” ladder. The next realism improvements should focus on *tradeoffs* (latency vs quality vs energy vs bandwidth) rather than trying to fully emulate real embedded stacks.
-

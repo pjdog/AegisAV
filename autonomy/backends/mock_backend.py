@@ -245,9 +245,7 @@ class MockBackend(FlightBackendBase):
         logger.info(f"Mock: Returning to home at {altitude_agl}m")
 
         # Climb to RTH altitude
-        await self.goto_position_ned(
-            self._position_ned[0], self._position_ned[1], -altitude_agl
-        )
+        await self.goto_position_ned(self._position_ned[0], self._position_ned[1], -altitude_agl)
 
         # Fly to home
         await self.goto_position_ned(0.0, 0.0, -altitude_agl)

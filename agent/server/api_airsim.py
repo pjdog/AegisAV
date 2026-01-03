@@ -349,9 +349,8 @@ async def airsim_move(x: float, y: float, z: float, velocity: float = 5.0) -> di
 
         # Enable API control directly here as a test
         import asyncio
-        await asyncio.to_thread(
-            bridge.client.enableApiControl, True, bridge.config.vehicle_name
-        )
+
+        await asyncio.to_thread(bridge.client.enableApiControl, True, bridge.config.vehicle_name)
         logger.info("airsim_move_api_control_enabled")
 
         if hasattr(bridge, "move_to_position_with_obstacle_avoidance"):
@@ -449,7 +448,9 @@ async def airsim_flight_status() -> dict:
             "latitude": geo_ref.latitude,
             "longitude": geo_ref.longitude,
             "altitude": geo_ref.altitude,
-        } if geo_ref else None,
+        }
+        if geo_ref
+        else None,
     }
 
 
@@ -586,9 +587,7 @@ async def get_camera_status() -> dict:
     elif bridge and hasattr(bridge, "vehicle_names"):
         available_vehicles = list(bridge.vehicle_names)
     elif scenario_runner_state.runner and scenario_runner_state.runner.scenario:
-        available_vehicles = [
-            d.drone_id for d in scenario_runner_state.runner.scenario.drones
-        ]
+        available_vehicles = [d.drone_id for d in scenario_runner_state.runner.scenario.drones]
 
     return {
         "bridge_connected": bridge_connected,
@@ -649,10 +648,7 @@ async def update_dock_status(
     except ValueError:
         raise HTTPException(
             status_code=400,
-            detail=(
-                "Invalid status. Must be one of: "
-                f"{[s.value for s in DockStatus]}"
-            ),
+            detail=("Invalid status. Must be one of: " f"{[s.value for s in DockStatus]}"),
         ) from None
 
     await broadcast_dock_state(
@@ -829,6 +825,7 @@ def register_airsim_routes(app: FastAPI) -> None:
     app.post("/api/airsim/scene/sync")(sync_airsim_scene)
     app.post("/api/unreal/sync-scene")(sync_unreal_scene)
     app.get("/api/unreal/scene-state")(get_unreal_scene_state)
+
     async def manual_fly_scenario() -> dict:
         """Manually trigger flying through all scenario assets."""
         if not scenario_run_state.running:
@@ -883,7 +880,7 @@ def register_airsim_routes(app: FastAPI) -> None:
                 # Fly to each asset
                 for i, asset in enumerate(scenario.assets):
                     logger.info(
-                        f"manual_fly_asset_{i+1}",
+                        f"manual_fly_asset_{i + 1}",
                         asset_id=asset.asset_id,
                         lat=asset.latitude,
                         lon=asset.longitude,
@@ -903,11 +900,11 @@ def register_airsim_routes(app: FastAPI) -> None:
                             "orbit_radius_m": 20.0,
                             "dwell_time_s": 10.0,
                         },
-                        "reasoning": f"Manual fly - asset {i+1}/{len(scenario.assets)}",
+                        "reasoning": f"Manual fly - asset {i + 1}/{len(scenario.assets)}",
                         "confidence": 1.0,
                     })
                     logger.info(
-                        f"manual_fly_asset_{i+1}_result",
+                        f"manual_fly_asset_{i + 1}_result",
                         status=result.status.value,
                         error=result.error,
                         details=result.details,
@@ -997,9 +994,7 @@ def register_airsim_routes(app: FastAPI) -> None:
             steps.append("enableApiControl: OK")
 
             # Step 2: Arm
-            await asyncio.to_thread(
-                bridge.client.armDisarm, True, bridge.config.vehicle_name
-            )
+            await asyncio.to_thread(bridge.client.armDisarm, True, bridge.config.vehicle_name)
             steps.append("armDisarm: OK")
 
             # Step 3: Takeoff (non-blocking)
@@ -1015,7 +1010,9 @@ def register_airsim_routes(app: FastAPI) -> None:
             # Step 5: Move up with velocity if not rising
             if alt < 1.0:
                 steps.append("trying moveByVelocityAsync to go up")
-                bridge.client.moveByVelocityAsync(0, 0, -5, 5, vehicle_name=bridge.config.vehicle_name)
+                bridge.client.moveByVelocityAsync(
+                    0, 0, -5, 5, vehicle_name=bridge.config.vehicle_name
+                )
                 await asyncio.sleep(5)
                 state = bridge.client.getMultirotorState(vehicle_name=bridge.config.vehicle_name)
                 alt = -state.kinematics_estimated.position.z_val
@@ -1024,7 +1021,7 @@ def register_airsim_routes(app: FastAPI) -> None:
             return {"status": "completed", "steps": steps, "final_altitude": alt}
         except Exception as exc:
             logger.exception("debug_takeoff_error", error=str(exc))
-            steps.append(f"ERROR: {str(exc)}")
+            steps.append(f"ERROR: {exc!s}")
             return {"status": "failed", "steps": steps, "error": str(exc)}
 
     async def debug_fly_to(north: float = 50, east: float = 50, down: float = -30) -> dict:
@@ -1060,9 +1057,7 @@ def register_airsim_routes(app: FastAPI) -> None:
             # Now move to target position
             steps.append(f"moving to N={north}, E={east}, D={down}")
             bridge.client.moveToPositionAsync(
-                north, east, down, 5.0,
-                timeout_sec=30,
-                vehicle_name=bridge.config.vehicle_name
+                north, east, down, 5.0, timeout_sec=30, vehicle_name=bridge.config.vehicle_name
             )
 
             # Wait and check progress
@@ -1070,12 +1065,12 @@ def register_airsim_routes(app: FastAPI) -> None:
                 await asyncio.sleep(2)
                 state = bridge.client.getMultirotorState(vehicle_name=bridge.config.vehicle_name)
                 pos = state.kinematics_estimated.position
-                steps.append(f"t={i*2}s: N={pos.x_val:.1f}, E={pos.y_val:.1f}, D={pos.z_val:.1f}")
+                steps.append(f"t={i * 2}s: N={pos.x_val:.1f}, E={pos.y_val:.1f}, D={pos.z_val:.1f}")
 
             return {"status": "completed", "steps": steps}
         except Exception as exc:
             logger.exception("debug_fly_to_error", error=str(exc))
-            steps.append(f"ERROR: {str(exc)}")
+            steps.append(f"ERROR: {exc!s}")
             return {"status": "failed", "steps": steps, "error": str(exc)}
 
     async def reset_drone(altitude: float = 5.0) -> dict:
@@ -1101,7 +1096,7 @@ def register_airsim_routes(app: FastAPI) -> None:
                         "east": pos.y_val,
                         "down": pos.z_val,
                         "altitude_agl": -pos.z_val,
-                    }
+                    },
                 }
             else:
                 return {"status": "failed", "message": "Reset failed - check logs"}

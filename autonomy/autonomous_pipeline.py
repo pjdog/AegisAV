@@ -13,34 +13,33 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from dataclasses import dataclass, field
+from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable
+from typing import TYPE_CHECKING, Any
 
-from autonomy.flight_backend import FlightBackend, create_backend
+from autonomy.flight_backend import FlightBackend
 from autonomy.flight_controller import (
     FlightController,
     FlightControllerConfig,
     FlightControllerEvent,
-    FlightPhase,
 )
 from autonomy.mission_planner import (
+    InspectionTarget,
+    MissionConfig,
+    MissionPlan,
     MissionPlanner,
     MissionPlannerConfig,
-    MissionPlan,
-    MissionConfig,
-    InspectionTarget,
-    load_mission_config,
 )
-from autonomy.path_planner import PathPlanner, PathPlannerConfig, Obstacle
-from autonomy.state_estimator import StateEstimator, StateEstimatorConfig, LocalizationMode
-from autonomy.vehicle_state import VehicleState, Position
+from autonomy.path_planner import PathPlanner, PathPlannerConfig
+from autonomy.state_estimator import StateEstimator
+from autonomy.vehicle_state import Position
 
 if TYPE_CHECKING:
-    from simulation.realtime_bridge import RealtimeAirSimBridge
     from simulation.coordinate_utils import GeoReference
+    from simulation.realtime_bridge import RealtimeAirSimBridge
 
 logger = logging.getLogger(__name__)
 
@@ -89,7 +88,9 @@ class PipelineStatus:
                 "lat": self.position.latitude,
                 "lon": self.position.longitude,
                 "alt_agl": self.position.altitude_agl,
-            } if self.position else None,
+            }
+            if self.position
+            else None,
             "localization_mode": self.localization_mode,
             "flight_phase": self.flight_phase,
             "error_message": self.error_message,
@@ -163,7 +164,7 @@ class AutonomousPipeline:
         self,
         config: AutonomousPipelineConfig | None = None,
         backend: FlightBackend | None = None,
-        geo_ref: "GeoReference | None" = None,
+        geo_ref: GeoReference | None = None,
     ) -> None:
         """Initialize the autonomous pipeline.
 
@@ -209,8 +210,8 @@ class AutonomousPipeline:
 
     async def initialize(
         self,
-        airsim_bridge: "RealtimeAirSimBridge | None" = None,
-        geo_ref: "GeoReference | None" = None,
+        airsim_bridge: RealtimeAirSimBridge | None = None,
+        geo_ref: GeoReference | None = None,
     ) -> bool:
         """Initialize pipeline components.
 
@@ -232,10 +233,12 @@ class AutonomousPipeline:
             if self._backend is None:
                 if airsim_bridge:
                     from autonomy.backends.airsim_backend import AirSimBackend
+
                     self._backend = AirSimBackend(airsim_bridge, self._geo_ref)
                 else:
                     # Create mock backend for testing
                     from autonomy.backends.mock_backend import MockFlightBackend
+
                     self._backend = MockFlightBackend()
                     logger.warning("Using MockFlightBackend - no real flight")
 
@@ -382,6 +385,7 @@ class AutonomousPipeline:
             # If no targets, create a simple patrol pattern
             if not config.targets:
                 import math
+
                 radius = 50.0  # meters
                 for i in range(4):
                     angle = math.radians(i * 90)
@@ -389,16 +393,18 @@ class AutonomousPipeline:
                     dlat = (radius * math.cos(angle)) / 111000
                     dlon = (radius * math.sin(angle)) / (111000 * math.cos(math.radians(home_lat)))
 
-                    config.targets.append(InspectionTarget(
-                        target_id=f"patrol_{i}",
-                        name=f"Patrol Point {i+1}",
-                        latitude=home_lat + dlat,
-                        longitude=home_lon + dlon,
-                        altitude_agl=self._config.default_altitude_agl,
-                        priority=1,
-                        orbit_radius=10.0,
-                        dwell_time=10.0,
-                    ))
+                    config.targets.append(
+                        InspectionTarget(
+                            target_id=f"patrol_{i}",
+                            name=f"Patrol Point {i + 1}",
+                            latitude=home_lat + dlat,
+                            longitude=home_lon + dlon,
+                            altitude_agl=self._config.default_altitude_agl,
+                            priority=1,
+                            orbit_radius=10.0,
+                            dwell_time=10.0,
+                        )
+                    )
 
             # Plan mission
             self._mission = self._mission_planner.plan_mission(config)
@@ -510,9 +516,11 @@ class AutonomousPipeline:
 
         # Update from backend
         if self._backend:
-            state = asyncio.get_event_loop().run_until_complete(
-                self._backend.get_state()
-            ) if asyncio.get_event_loop().is_running() else None
+            state = (
+                asyncio.get_event_loop().run_until_complete(self._backend.get_state())
+                if asyncio.get_event_loop().is_running()
+                else None
+            )
             if state:
                 self._status.position = state.position
                 self._status.battery_percent = state.battery.remaining_percent
@@ -554,7 +562,9 @@ class AutonomousPipeline:
             # Load mission into flight controller
             if self._mission_config_path:
                 if not self._flight_controller.load_mission(self._mission_config_path):
-                    self._update_state(PipelineState.ERROR, error="Failed to load mission into flight controller")
+                    self._update_state(
+                        PipelineState.ERROR, error="Failed to load mission into flight controller"
+                    )
                     return
             else:
                 self._update_state(PipelineState.ERROR, error="No mission config path set")
@@ -626,8 +636,8 @@ class AutonomousPipeline:
 
 # Factory function for easy creation
 async def create_autonomous_pipeline(
-    airsim_bridge: "RealtimeAirSimBridge | None" = None,
-    geo_ref: "GeoReference | None" = None,
+    airsim_bridge: RealtimeAirSimBridge | None = None,
+    geo_ref: GeoReference | None = None,
     mission_config_path: str | Path | None = None,
     config: AutonomousPipelineConfig | None = None,
 ) -> AutonomousPipeline:

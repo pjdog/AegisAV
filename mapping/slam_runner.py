@@ -113,7 +113,9 @@ def _collect_point_cloud(
             "cx": frame.cx,
             "cy": frame.cy,
         }
-        cam_points = depth_to_points(depth, intrinsics, subsample=subsample, max_points=max_per_frame)
+        cam_points = depth_to_points(
+            depth, intrinsics, subsample=subsample, max_points=max_per_frame
+        )
         if cam_points.size == 0:
             continue
 
@@ -212,7 +214,9 @@ def _build_status_from_pose_graph(
     data = _read_json(pose_graph_path)
     frames = data.get("frames", [])
     keyframes = data.get("keyframes", [])
-    keyframe_count = len(keyframes) if isinstance(keyframes, list) else int(data.get("keyframe_count", 0))
+    keyframe_count = (
+        len(keyframes) if isinstance(keyframes, list) else int(data.get("keyframe_count", 0))
+    )
     frame_count = int(data.get("frame_count", len(frames)))
     map_point_count = _count_points_in_cloud(point_cloud_path)
 
@@ -272,7 +276,9 @@ def run(args: argparse.Namespace) -> int:
                         point_cloud = Path(candidate)
                         if not point_cloud.is_absolute():
                             point_cloud = external_pose_graph.parent / point_cloud
-                status = _build_status_from_pose_graph(external_pose_graph, args.backend, point_cloud, metrics)
+                status = _build_status_from_pose_graph(
+                    external_pose_graph, args.backend, point_cloud, metrics
+                )
                 external_status.write_text(json.dumps(status, indent=2))
             logger.info("External SLAM output detected, skipping telemetry fallback.")
             return 0
@@ -290,12 +296,16 @@ def run(args: argparse.Namespace) -> int:
     frame_entries: list[dict[str, Any]] = []
     for idx, frame in enumerate(frames):
         is_keyframe = idx in keyframes
-        frame_entries.append(_pose_graph_entry(frame, is_keyframe, "selected" if is_keyframe else None))
+        frame_entries.append(
+            _pose_graph_entry(frame, is_keyframe, "selected" if is_keyframe else None)
+        )
 
     point_cloud_path = None
     point_count = 0
     if not args.no_pointcloud:
-        points = _collect_point_cloud(frames, keyframe_indices, args.max_points, args.depth_subsample)
+        points = _collect_point_cloud(
+            frames, keyframe_indices, args.max_points, args.depth_subsample
+        )
         point_count = points.shape[0]
         point_cloud_path = output_dir / "map_points.ply"
         write_ply(points, point_cloud_path)
@@ -366,7 +376,9 @@ def parse_args() -> argparse.Namespace:
         help="Disable telemetry fallback for external backends",
     )
     parser.add_argument("--no-pointcloud", action="store_true", help="Disable sparse PLY output")
-    parser.add_argument("--max-points", type=int, default=200000, help="Maximum points in PLY output")
+    parser.add_argument(
+        "--max-points", type=int, default=200000, help="Maximum points in PLY output"
+    )
     parser.add_argument("--depth-subsample", type=int, default=6, help="Depth image subsample step")
 
     parser.add_argument("--min-time-interval-s", type=float, default=None)

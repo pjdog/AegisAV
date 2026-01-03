@@ -474,9 +474,7 @@ class UnrealConnectionManager:
         for conn_id in disconnected:
             self.disconnect(conn_id)
 
-    async def broadcast_raw(
-        self, message: dict[str, Any], drone_id: str | None = None
-    ) -> None:
+    async def broadcast_raw(self, message: dict[str, Any], drone_id: str | None = None) -> None:
         """Broadcast a pre-formatted payload to all Unreal clients."""
         payload = dict(message)
         if "sequence" not in payload:

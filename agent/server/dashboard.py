@@ -824,11 +824,14 @@ def add_dashboard_routes(app: FastAPI, log_dir: Path, store: Any = None) -> None
                 )
                 spatial_assets.append({
                     "id": asset.asset_id,
-                    "type": asset.asset_type.value if hasattr(asset.asset_type, 'value') else str(asset.asset_type),
+                    "type": asset.asset_type.value
+                    if hasattr(asset.asset_type, "value")
+                    else str(asset.asset_type),
                     "x": rel["x"],
                     "y": rel["y"],
                     "name": asset.name,
-                    "has_anomaly": asset.asset_id in [a.asset_id for a in world_snap.get_anomaly_assets()],
+                    "has_anomaly": asset.asset_id
+                    in [a.asset_id for a in world_snap.get_anomaly_assets()],
                 })
 
         return JSONResponse({
@@ -938,7 +941,9 @@ def add_dashboard_routes(app: FastAPI, log_dir: Path, store: Any = None) -> None
             metrics["total_anomalies_detected"] = anomalies_detected
             metrics["total_anomalies_expected"] = anomalies_expected
             metrics["defects_by_type"] = defects_by_type
-            metrics["anomalies_pending"] = anomalies_detected  # All detected are pending until resolved
+            metrics["anomalies_pending"] = (
+                anomalies_detected  # All detected are pending until resolved
+            )
 
             # Mission completion based on inspection progress
             metrics["mission_completion_percent"] = metrics["inspection_coverage_percent"]

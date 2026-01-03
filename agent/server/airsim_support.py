@@ -36,14 +36,15 @@ from agent.server.unreal_stream import (
 
 # Multi-drone support (optional)
 try:
-    from simulation.drone_coordinator import (
-        DroneCoordinator,
-        get_drone_coordinator,
-    )
     from agent.server.fleet_bridge import (
         AgentFleetBridge,
         get_fleet_bridge,
     )
+    from simulation.drone_coordinator import (
+        DroneCoordinator,
+        get_drone_coordinator,
+    )
+
     MULTI_DRONE_AVAILABLE = True
 except ImportError:
     MULTI_DRONE_AVAILABLE = False
@@ -311,7 +312,7 @@ async def _sync_airsim_scene(
     # Spawn dock and asset markers in AirSim
     spawn_results = {"dock": False, "assets": 0}
     geo_ref = server_state.airsim_geo_ref
-    if geo_ref and hasattr(bridge, 'spawn_scene_objects'):
+    if geo_ref and hasattr(bridge, "spawn_scene_objects"):
         try:
             # Convert assets to dict format for spawning
             asset_dicts = [
@@ -330,7 +331,9 @@ async def _sync_airsim_scene(
                 geo_ref=geo_ref,
             )
             spawn_results["dock"] = results.get("dock", False)
-            spawn_results["assets"] = len([a for a in results.get("assets", []) if a.get("success")])
+            spawn_results["assets"] = len([
+                a for a in results.get("assets", []) if a.get("success")
+            ])
             logger.info(
                 "airsim_objects_spawned",
                 dock=spawn_results["dock"],
@@ -394,6 +397,7 @@ async def sync_multi_drone_scenario(
     )
 
     try:
+
         async def _refresh_fleet_bridge() -> AgentFleetBridge | None:
             try:
                 from agent.server.fleet_bridge import reset_fleet_bridge  # noqa: PLC0415
@@ -478,7 +482,7 @@ async def sync_multi_drone_scenario(
         spawn_results = {"dock": False, "assets": 0}
         geo_ref = server_state.airsim_geo_ref
         bridge = server_state.airsim_bridge
-        if geo_ref and bridge and hasattr(bridge, 'spawn_scene_objects'):
+        if geo_ref and bridge and hasattr(bridge, "spawn_scene_objects"):
             try:
                 asset_dicts = [
                     {
@@ -496,7 +500,9 @@ async def sync_multi_drone_scenario(
                     geo_ref=geo_ref,
                 )
                 spawn_results["dock"] = results.get("dock", False)
-                spawn_results["assets"] = len([a for a in results.get("assets", []) if a.get("success")])
+                spawn_results["assets"] = len([
+                    a for a in results.get("assets", []) if a.get("success")
+                ])
             except Exception as exc:
                 logger.warning("multi_drone_spawn_objects_failed", error=str(exc))
 
@@ -920,7 +926,7 @@ def _kill_airsim_processes() -> dict[str, object]:
     for exe_name in exe_names:
         try:
             if is_wsl:
-                completed = subprocess.run(  # noqa: S603, S607
+                completed = subprocess.run(  # noqa: S603
                     ["cmd.exe", "/c", "taskkill", "/F", "/T", "/IM", exe_name],
                     capture_output=True,
                     text=True,
@@ -933,14 +939,12 @@ def _kill_airsim_processes() -> dict[str, object]:
                     text=True,
                     timeout=8,
                 )
-            results.append(
-                {
-                    "exe": exe_name,
-                    "returncode": completed.returncode,
-                    "stdout": completed.stdout.strip(),
-                    "stderr": completed.stderr.strip(),
-                }
-            )
+            results.append({
+                "exe": exe_name,
+                "returncode": completed.returncode,
+                "stdout": completed.stdout.strip(),
+                "stderr": completed.stderr.strip(),
+            })
         except Exception as exc:
             results.append({"exe": exe_name, "error": str(exc)})
 
@@ -1038,7 +1042,7 @@ def _launch_airsim_process() -> tuple[bool, bool, str]:
             win_path = _wsl_to_windows_path(script_path)
             logger.info("launching_airsim_from_wsl", windows_path=win_path)
             # Use 'start' to open in a visible console window so user can see errors
-            subprocess.Popen(  # noqa: S603, S607
+            subprocess.Popen(  # noqa: S603
                 ["cmd.exe", "/c", "start", "AegisAV AirSim Launcher", "cmd", "/c", win_path],
                 cwd=str(script_path.parent),
                 stdout=subprocess.DEVNULL,
@@ -1246,6 +1250,7 @@ async def _airsim_depth_mapping_loop() -> None:
 
     try:
         import numpy as np
+
         from mapping.map_fusion import MapFusion, MapFusionConfig
         from mapping.point_cloud import apply_pose, depth_to_points
     except Exception as exc:
@@ -1586,8 +1591,8 @@ async def _capture_airsim_depth_obstacles(
         return {"success": False, "error": "no_bridge"}
 
     try:
-        import numpy as np
         import cosysairsim as airsim  # type: ignore
+        import numpy as np
     except Exception as exc:
         return {"success": False, "error": f"depth_dependencies_unavailable: {exc}"}
 
@@ -1627,7 +1632,7 @@ async def _capture_airsim_depth_obstacles(
     window_w = max(1, int(w * window_ratio))
     h0 = (h - window_h) // 2
     w0 = (w - window_w) // 2
-    window = depth[h0:h0 + window_h, w0:w0 + window_w]
+    window = depth[h0 : h0 + window_h, w0 : w0 + window_w]
 
     valid = window[np.isfinite(window)]
     valid = valid[valid > 0.5]
@@ -1721,9 +1726,7 @@ async def _capture_airsim_vision(decision: dict, result) -> None:
         )
         detection_count = len(observation.detections)
         defect_classes = [
-            d.get("detection_class")
-            for d in observation.detections
-            if d.get("detection_class")
+            d.get("detection_class") for d in observation.detections if d.get("detection_class")
         ]
         logger.info(
             "vision_observation_created",
@@ -1802,7 +1805,9 @@ async def _capture_airsim_vision(decision: dict, result) -> None:
 
 def seed_navigation_map_from_assets(scenario: Scenario) -> dict[str, object] | None:
     if server_state.vision_enabled and server_state.vision_service:
-        return server_state.vision_service.seed_navigation_map(scenario.assets, scenario.scenario_id)
+        return server_state.vision_service.seed_navigation_map(
+            scenario.assets, scenario.scenario_id
+        )
     return build_navigation_map(
         scenario.assets,
         scenario.scenario_id,

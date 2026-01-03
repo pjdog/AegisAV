@@ -137,7 +137,9 @@ class MapContext:
 class MapDecisionEvent:
     """Event logged when a map-based decision is made."""
 
-    event_type: str  # map_update, map_query, obstacle_avoidance, path_replan, planner_gate, map_decision
+    event_type: (
+        str  # map_update, map_query, obstacle_avoidance, path_replan, planner_gate, map_decision
+    )
     timestamp: str = field(default_factory=lambda: datetime.now().isoformat())
     decision_id: str | None = None
 
@@ -425,7 +427,7 @@ class MapDecisionLogger:
         """Add event to history, maintaining max size."""
         self._events.append(event)
         if len(self._events) > self._max_events:
-            self._events = self._events[-self._max_events:]
+            self._events = self._events[-self._max_events :]
 
     def get_recent_events(self, count: int = 100) -> list[MapDecisionEvent]:
         """Get recent events."""

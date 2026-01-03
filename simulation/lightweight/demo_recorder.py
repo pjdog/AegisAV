@@ -9,10 +9,9 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -161,13 +160,18 @@ class DemoRecorder:
 
             # Subsequent lines are events
             for event in self._events:
-                f.write(json.dumps({
-                    "t": event.timestamp_ms,
-                    "type": event.event_type,
-                    "data": event.data,
-                }) + "\n")
+                f.write(
+                    json.dumps({
+                        "t": event.timestamp_ms,
+                        "type": event.event_type,
+                        "data": event.data,
+                    })
+                    + "\n"
+                )
 
-        logger.info(f"Saved demo to {filepath} ({len(self._events)} events, {duration_ms/1000:.1f}s)")
+        logger.info(
+            f"Saved demo to {filepath} ({len(self._events)} events, {duration_ms / 1000:.1f}s)"
+        )
 
         return filepath
 

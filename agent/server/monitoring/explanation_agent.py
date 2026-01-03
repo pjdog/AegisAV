@@ -14,6 +14,7 @@ except ImportError:  # pragma: no cover - optional dependency
     Agent = None
 
 from agent.server.decision import Decision
+from agent.server.llm_config import get_default_llm_model
 from agent.server.models.audit_models import (
     AuditTrail,
     CounterfactualScenario,
@@ -22,7 +23,6 @@ from agent.server.models.audit_models import (
 )
 from agent.server.models.critic_models import EscalationDecision
 from agent.server.monitoring.cost_tracker import CallDetails, estimate_tokens, get_cost_tracker
-from agent.server.llm_config import get_default_llm_model
 from agent.server.risk_evaluator import RiskAssessment
 from agent.server.world_model import WorldSnapshot
 

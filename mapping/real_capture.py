@@ -5,10 +5,11 @@ from __future__ import annotations
 import argparse
 import json
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 import structlog
 
@@ -83,6 +84,7 @@ class RealSensorCapture:
 
             # Save image
             import cv2  # type: ignore
+
             cv2.imwrite(str(rgb_path), frame)
 
             metadata = {
@@ -98,8 +100,12 @@ class RealSensorCapture:
                         "fy": self._intrinsics.fy if self._intrinsics else 0.0,
                         "cx": self._intrinsics.cx if self._intrinsics else 0.0,
                         "cy": self._intrinsics.cy if self._intrinsics else 0.0,
-                        "width": self._intrinsics.width if self._intrinsics else int(frame.shape[1]),
-                        "height": self._intrinsics.height if self._intrinsics else int(frame.shape[0]),
+                        "width": self._intrinsics.width
+                        if self._intrinsics
+                        else int(frame.shape[1]),
+                        "height": self._intrinsics.height
+                        if self._intrinsics
+                        else int(frame.shape[0]),
                     },
                     "pose": None,
                 },

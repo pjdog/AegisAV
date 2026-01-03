@@ -268,8 +268,7 @@ class MapArtifactStore:
             # Check if map directory is now empty
             if not dry_run:
                 versions_remaining = [
-                    c for c in map_dir.iterdir()
-                    if c.is_dir() and c.name.startswith("v")
+                    c for c in map_dir.iterdir() if c.is_dir() and c.name.startswith("v")
                 ]
                 if not versions_remaining:
                     try:

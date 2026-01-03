@@ -56,6 +56,13 @@ except ImportError:
 
 # New autonomous flight components
 try:
+    from autonomy.autonomous_pipeline import (  # noqa: F401
+        AutonomousPipeline,
+        AutonomousPipelineConfig,
+        PipelineState,
+        PipelineStatus,
+        create_autonomous_pipeline,
+    )
     from autonomy.flight_backend import (  # noqa: F401
         AirSimBackendConfig,
         ArduPilotBackendConfig,
@@ -66,6 +73,20 @@ try:
         WaypointGPS,
         WaypointNED,
         create_backend,
+    )
+    from autonomy.flight_controller import (  # noqa: F401
+        AbortReason,
+        FlightController,
+        FlightControllerConfig,
+        FlightControllerEvent,
+        FlightPhase,
+    )
+    from autonomy.mission_planner import (  # noqa: F401
+        InspectionTarget,
+        MissionPlan,
+        MissionPlanner,
+        MissionPlannerConfig,
+        MissionWaypoint,
     )
     from autonomy.path_planner import (  # noqa: F401
         FlightPath,
@@ -80,69 +101,48 @@ try:
         StateEstimator,
         StateEstimatorConfig,
     )
-    from autonomy.mission_planner import (  # noqa: F401
-        InspectionTarget,
-        MissionPlan,
-        MissionPlanner,
-        MissionPlannerConfig,
-        MissionWaypoint,
-    )
-    from autonomy.flight_controller import (  # noqa: F401
-        AbortReason,
-        FlightController,
-        FlightControllerConfig,
-        FlightControllerEvent,
-        FlightPhase,
-    )
-    from autonomy.autonomous_pipeline import (  # noqa: F401
-        AutonomousPipeline,
-        AutonomousPipelineConfig,
-        PipelineState,
-        PipelineStatus,
-        create_autonomous_pipeline,
-    )
 
     __all__.extend([
+        # Flight Controller
+        "AbortReason",
         # Flight Backend
         "AirSimBackendConfig",
         "ArduPilotBackendConfig",
+        # Autonomous Pipeline
+        "AutonomousPipeline",
+        "AutonomousPipelineConfig",
         "BackendType",
         "ConnectionStatus",
-        "FlightBackend",
-        "FlightBackendConfig",
-        "WaypointGPS",
-        "WaypointNED",
-        "create_backend",
-        # Path Planner
-        "FlightPath",
-        "Obstacle",
-        "PathPlanner",
-        "PathPlannerConfig",
-        "Waypoint",
         # State Estimator
         "EstimatedState",
-        "LocalizationMode",
-        "StateEstimator",
-        "StateEstimatorConfig",
+        "FlightBackend",
+        "FlightBackendConfig",
+        "FlightController",
+        "FlightControllerConfig",
+        "FlightControllerEvent",
+        # Path Planner
+        "FlightPath",
+        "FlightPhase",
         # Mission Planner
         "InspectionTarget",
+        "LocalizationMode",
         "MissionPlan",
         "MissionPlanner",
         "MissionPlannerConfig",
         "MissionWaypoint",
-        # Flight Controller
-        "AbortReason",
-        "FlightController",
-        "FlightControllerConfig",
-        "FlightControllerEvent",
-        "FlightPhase",
-        # Autonomous Pipeline
-        "AutonomousPipeline",
-        "AutonomousPipelineConfig",
+        "Obstacle",
+        "PathPlanner",
+        "PathPlannerConfig",
         "PipelineState",
         "PipelineStatus",
+        "StateEstimator",
+        "StateEstimatorConfig",
+        "Waypoint",
+        "WaypointGPS",
+        "WaypointNED",
         "create_autonomous_pipeline",
+        "create_backend",
     ])
-except ImportError as e:
+except ImportError:
     # Some dependencies missing for autonomous flight components
     pass

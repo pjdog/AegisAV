@@ -1,7 +1,5 @@
 """Tests for splat proxy output and storage."""
 
-import json
-
 from mapping.splat_storage import SplatMetadata, SplatScene, SplatStorage
 
 

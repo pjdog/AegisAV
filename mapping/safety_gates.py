@@ -385,8 +385,10 @@ class PlannerSafetyGate:
                 return result
 
         # Check SLAM confidence
-        if (self.config.require_slam_for_planning and
-                map_context.slam_confidence < self.config.min_slam_confidence):
+        if (
+            self.config.require_slam_for_planning
+            and map_context.slam_confidence < self.config.min_slam_confidence
+        ):
             result = GateCheckResult(
                 result=SafetyGateResult.FREEZE,
                 gate_name="slam_confidence",

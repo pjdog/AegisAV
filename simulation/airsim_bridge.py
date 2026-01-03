@@ -141,7 +141,11 @@ class AirSimBridge:
                 self.client.enableApiControl(False, self.config.vehicle_name)
             except Exception as exc:
                 logger.warning("Failed to release API control: %s", exc)
-            for handle in (self.client, getattr(self.client, "client", None), getattr(self.client, "_client", None)):
+            for handle in (
+                self.client,
+                getattr(self.client, "client", None),
+                getattr(self.client, "_client", None),
+            ):
                 if handle and hasattr(handle, "close"):
                     try:
                         handle.close()

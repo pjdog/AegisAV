@@ -130,9 +130,13 @@ def parse_args() -> argparse.Namespace:
     group.add_argument("--scene", help="Path to scene.json for a splat run")
     group.add_argument("--preview", help="Path to a preview point cloud (.ply/.npy/.npz)")
 
-    parser.add_argument("--output-dir", default=None, help="Output directory for navigation_map.json")
+    parser.add_argument(
+        "--output-dir", default=None, help="Output directory for navigation_map.json"
+    )
     parser.add_argument("--map-id", default=None, help="Override map_id in metadata")
-    parser.add_argument("--scenario-id", default=None, help="Scenario ID to attach to navigation map")
+    parser.add_argument(
+        "--scenario-id", default=None, help="Scenario ID to attach to navigation map"
+    )
     parser.add_argument("--source", default="splat_proxy", help="Source label for map metadata")
     parser.add_argument("--splat-quality", type=float, default=1.0, help="Quality score override")
 

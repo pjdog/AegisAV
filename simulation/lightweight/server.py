@@ -41,7 +41,10 @@ def _ensure_system_log_handler() -> None:
     LOG_ROOT.mkdir(parents=True, exist_ok=True)
     root_logger = logging.getLogger()
     for handler in root_logger.handlers:
-        if isinstance(handler, logging.FileHandler) and Path(handler.baseFilename) == SYSTEM_LOG_FILE:
+        if (
+            isinstance(handler, logging.FileHandler)
+            and Path(handler.baseFilename) == SYSTEM_LOG_FILE
+        ):
             return
 
     handler = logging.FileHandler(SYSTEM_LOG_FILE)
@@ -231,6 +234,7 @@ def _describe_log_sources() -> dict[str, dict[str, Any]]:
 # Scenario Definitions (embedded for self-contained operation)
 # =========================================================================
 
+
 @dataclass
 class ScenarioConfig:
     """Configuration for a simulation scenario."""
@@ -341,12 +345,24 @@ SCENARIOS = [
 ]
 
 EDGE_PROFILES = [
-    {"id": "FC_ONLY", "name": "FC Only", "description": "Flight controller only - no vision processing"},
-    {"id": "MCU_HEURISTIC", "name": "MCU Heuristic", "description": "Basic heuristics on microcontroller"},
+    {
+        "id": "FC_ONLY",
+        "name": "FC Only",
+        "description": "Flight controller only - no vision processing",
+    },
+    {
+        "id": "MCU_HEURISTIC",
+        "name": "MCU Heuristic",
+        "description": "Basic heuristics on microcontroller",
+    },
     {"id": "MCU_TINY_CNN", "name": "MCU Tiny CNN", "description": "TinyML CNN for basic detection"},
     {"id": "SBC_CPU", "name": "SBC CPU", "description": "Raspberry Pi class CPU inference"},
     {"id": "SBC_ACCEL", "name": "SBC Accelerated", "description": "SBC with Coral/NPU accelerator"},
-    {"id": "JETSON_FULL", "name": "Jetson Full", "description": "Full Jetson GPU inference pipeline"},
+    {
+        "id": "JETSON_FULL",
+        "name": "Jetson Full",
+        "description": "Full Jetson GPU inference pipeline",
+    },
 ]
 
 
@@ -371,6 +387,7 @@ simulator: LightweightSim | None = None
 # =========================================================================
 # Agent Server Bridge
 # =========================================================================
+
 
 class AgentBridge:
     """Bridge between lightweight sim and agent server for live reasoning."""
@@ -461,7 +478,9 @@ class AgentBridge:
                             "velocity": state.velocity.tolist(),
                             "battery_percent": state.battery_percent,
                             "armed": state.armed,
-                            "flight_mode": state.flight_mode.value if hasattr(state.flight_mode, 'value') else str(state.flight_mode),
+                            "flight_mode": state.flight_mode.value
+                            if hasattr(state.flight_mode, "value")
+                            else str(state.flight_mode),
                         }
                         if self.ws:
                             await self.ws.send(json.dumps(telemetry))
@@ -1084,11 +1103,14 @@ def create_app(sim: LightweightSim | None = None) -> FastAPI:
                 for drone_id, drone in simulator.drones.items():
                     states[drone_id] = simulator._get_drone_state_dict(drone)
 
-                demo_recorder.record_event("state_update", {
-                    "type": "state_update",
-                    "sim_time": simulator._sim_time,
-                    "drones": states,
-                })
+                demo_recorder.record_event(
+                    "state_update",
+                    {
+                        "type": "state_update",
+                        "sim_time": simulator._sim_time,
+                        "drones": states,
+                    },
+                )
 
     return app
 
@@ -1263,9 +1285,7 @@ async def handle_override_response(cmd: dict[str, Any], websocket: WebSocket) ->
     approved = cmd.get("approved", False)
     timeout = cmd.get("timeout", False)
 
-    logger.info(
-        f"Override response: id={override_id}, approved={approved}, timeout={timeout}"
-    )
+    logger.info(f"Override response: id={override_id}, approved={approved}, timeout={timeout}")
 
     # Acknowledge the response
     ack = {
@@ -1334,11 +1354,17 @@ async def handle_chat_message(cmd: dict[str, Any], websocket: WebSocket) -> None
                     response["drone_id"] = drone_id
                     executed = True
                 else:
-                    response["message"] = f"Cannot dispatch {drone_id} right now - it may be busy or not ready."
+                    response["message"] = (
+                        f"Cannot dispatch {drone_id} right now - it may be busy or not ready."
+                    )
             else:
-                response["message"] = f"Asset '{asset_id}' not found. Available: {', '.join(simulator.world.assets.keys())}"
+                response["message"] = (
+                    f"Asset '{asset_id}' not found. Available: {', '.join(simulator.world.assets.keys())}"
+                )
         else:
-            response["message"] = "Which asset should I inspect? Try: 'inspect solar_001' or 'check tank_001'"
+            response["message"] = (
+                "Which asset should I inspect? Try: 'inspect solar_001' or 'check tank_001'"
+            )
 
     # Return home / RTL command
     elif any(word in message for word in ["home", "return", "rtl", "come back", "dock"]):
@@ -1367,7 +1393,9 @@ async def handle_chat_message(cmd: dict[str, Any], websocket: WebSocket) -> None
         if drone_id in simulator.drones:
             drone = simulator.drones[drone_id]
             pos = drone.physics.state.position
-            response["message"] = f"{drone_id} is at position ({pos[0]:.1f}, {pos[1]:.1f}, {-pos[2]:.1f}m), mode: {drone.mode}"
+            response["message"] = (
+                f"{drone_id} is at position ({pos[0]:.1f}, {pos[1]:.1f}, {-pos[2]:.1f}m), mode: {drone.mode}"
+            )
         else:
             response["message"] = f"Drone {drone_id} not found."
 

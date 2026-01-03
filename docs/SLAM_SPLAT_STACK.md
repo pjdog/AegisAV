@@ -5,7 +5,7 @@ current scaffolding in this repo.
 
 ## SLAM (Phase 2)
 
-Primary: ORB-SLAM3 (RGB-D) for AirSim depth captures.  
+Primary: ORB-SLAM3 (RGB-D) for AirSim depth captures.
 Fallback: VINS-Fusion (RGB + IMU) when depth is not available.
 
 Scaffold runner (telemetry-backed in simulation):
@@ -20,7 +20,7 @@ Outputs (under `data/slam_runs/run_*`):
 
 ## Gaussian Splatting (Phase 3)
 
-Primary: Nerfstudio 3D Gaussian Splatting pipeline (offline).  
+Primary: Nerfstudio 3D Gaussian Splatting pipeline (offline).
 Alternate: Inria 3DGS / gsplat if Nerfstudio is not available.
 
 Scaffold trainer:

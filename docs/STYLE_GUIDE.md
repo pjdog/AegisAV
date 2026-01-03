@@ -89,4 +89,3 @@ When generating assets or directing visual design:
 - **The "Aegis" Shield**: A modernization of the protection concept. Not a medieval shield, but a digital barrier or forcefield.
 - **The Electronic Eye**: Representing Computer Vision.
 - **The Node**: Representing Agentic AI/Decision making.
-

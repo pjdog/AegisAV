@@ -9,7 +9,7 @@ from __future__ import annotations
 import heapq
 import logging
 import math
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
 from typing import Any
 
@@ -254,7 +254,9 @@ class PathPlanner:
     def add_obstacle(self, obstacle: Obstacle) -> None:
         """Add an obstacle to the map."""
         self._obstacles.append(obstacle)
-        logger.debug(f"Added obstacle: {obstacle.name} at ({obstacle.north:.1f}, {obstacle.east:.1f})")
+        logger.debug(
+            f"Added obstacle: {obstacle.name} at ({obstacle.north:.1f}, {obstacle.east:.1f})"
+        )
 
     def add_obstacle_gps(
         self,
@@ -447,9 +449,7 @@ class PathPlanner:
         # Try direct path first
         if self.is_path_segment_safe(start, goal):
             distance = math.sqrt(
-                (goal[0] - start[0]) ** 2
-                + (goal[1] - start[1]) ** 2
-                + (goal[2] - start[2]) ** 2
+                (goal[0] - start[0]) ** 2 + (goal[1] - start[1]) ** 2 + (goal[2] - start[2]) ** 2
             )
             return FlightPath(
                 waypoints=[start, goal],
@@ -460,7 +460,7 @@ class PathPlanner:
             )
 
         # Use A* search
-        logger.info(f"Direct path blocked, running A* search...")
+        logger.info("Direct path blocked, running A* search...")
         path = self._astar_search(start, goal)
 
         if not path:

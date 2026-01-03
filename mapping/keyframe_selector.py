@@ -11,7 +11,7 @@ many redundant frames).
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 import structlog
@@ -170,21 +170,18 @@ class KeyframeSelector:
         # Quality checks (reject if too blurry or few features)
         if pose.blur_score > self.config.blur_threshold:
             return self._reject_keyframe(
-                frame_index, pose, "blur_too_high",
-                translation, rotation, time_since_last
+                frame_index, pose, "blur_too_high", translation, rotation, time_since_last
             )
 
         if pose.feature_count > 0 and pose.feature_count < self.config.min_feature_count:
             return self._reject_keyframe(
-                frame_index, pose, "insufficient_features",
-                translation, rotation, time_since_last
+                frame_index, pose, "insufficient_features", translation, rotation, time_since_last
             )
 
         # Minimum time interval check
         if time_since_last < self.config.min_time_interval_s:
             return self._reject_keyframe(
-                frame_index, pose, "too_soon",
-                translation, rotation, time_since_last
+                frame_index, pose, "too_soon", translation, rotation, time_since_last
             )
 
         # Maximum time interval - force keyframe
@@ -197,8 +194,7 @@ class KeyframeSelector:
             if time_since_last >= self.config.max_time_interval_s * 0.5:
                 return self._accept_keyframe(frame_index, pose, "time_interval_slow")
             return self._reject_keyframe(
-                frame_index, pose, "waiting_time_slow",
-                translation, rotation, time_since_last
+                frame_index, pose, "waiting_time_slow", translation, rotation, time_since_last
             )
 
         # Motion-based selection
@@ -210,8 +206,7 @@ class KeyframeSelector:
 
         # Not enough motion yet
         return self._reject_keyframe(
-            frame_index, pose, "insufficient_motion",
-            translation, rotation, time_since_last
+            frame_index, pose, "insufficient_motion", translation, rotation, time_since_last
         )
 
     def _accept_keyframe(

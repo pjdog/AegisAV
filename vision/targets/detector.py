@@ -12,7 +12,6 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
-from typing import Any
 
 import cv2
 import numpy as np
@@ -103,9 +102,7 @@ class TargetDetectorConfig:
 
     # Template matching
     template_threshold: float = 0.7
-    template_scales: list[float] = field(
-        default_factory=lambda: [0.5, 0.75, 1.0, 1.25, 1.5]
-    )
+    template_scales: list[float] = field(default_factory=lambda: [0.5, 0.75, 1.0, 1.25, 1.5])
 
     # Feature matching
     feature_min_matches: int = 10
@@ -287,9 +284,7 @@ class TargetDetector:
         detections = self._non_max_suppression(detections)
 
         # Filter by confidence
-        detections = [
-            d for d in detections if d.confidence >= self._config.min_confidence
-        ]
+        detections = [d for d in detections if d.confidence >= self._config.min_confidence]
 
         self._detection_count += len(detections)
 
@@ -330,7 +325,7 @@ class TargetDetector:
                 result = cv2.matchTemplate(gray, scaled_template, cv2.TM_CCOEFF_NORMED)
                 locations = np.where(result >= self._config.template_threshold)
 
-                for pt in zip(*locations[::-1]):
+                for pt in zip(*locations[::-1], strict=False):
                     confidence = float(result[pt[1], pt[0]])
 
                     detections.append(
@@ -384,12 +379,10 @@ class TargetDetector:
                 continue
 
             # Get matched point locations
-            src_pts = np.float32(
-                [template.keypoints[m.queryIdx].pt for m in good_matches]
-            ).reshape(-1, 1, 2)
-            dst_pts = np.float32(
-                [keypoints[m.trainIdx].pt for m in good_matches]
-            ).reshape(-1, 1, 2)
+            src_pts = np.float32([template.keypoints[m.queryIdx].pt for m in good_matches]).reshape(
+                -1, 1, 2
+            )
+            dst_pts = np.float32([keypoints[m.trainIdx].pt for m in good_matches]).reshape(-1, 1, 2)
 
             # Find homography
             M, mask = cv2.findHomography(src_pts, dst_pts, cv2.RANSAC, 5.0)

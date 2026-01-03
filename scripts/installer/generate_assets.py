@@ -5,10 +5,9 @@ This script creates logo assets for the installer without requiring
 external SVG conversion tools. It renders the shield logo using PIL.
 """
 
-from pathlib import Path
-import math
-import struct
 import io
+import struct
+from pathlib import Path
 
 try:
     from PIL import Image, ImageDraw
@@ -72,12 +71,12 @@ def draw_shield_logo(size: int = 512, padding: int = 32) -> Image.Image:
         if t <= 0.5:
             # Left side: from top-left curving down to bottom point
             tt = t * 2  # 0 to 1 for left side
-            x = left_x + (cx - left_x) * (tt ** 0.7)
+            x = left_x + (cx - left_x) * (tt**0.7)
             y = top_y + (bottom_y - top_y) * tt
         else:
             # Right side: from bottom point curving up to top-right
             tt = (t - 0.5) * 2  # 0 to 1 for right side
-            x = cx + (right_x - cx) * (tt ** 0.7)
+            x = cx + (right_x - cx) * (tt**0.7)
             y = bottom_y - (bottom_y - top_y) * tt
         shield_points.append((x, y))
 
@@ -155,19 +154,19 @@ def create_ico_file(images: list[Image.Image], output_path: Path) -> None:
     directory = b""
     offset = 6 + (16 * num_images)  # After header and all directory entries
 
-    for i, (img, png_data) in enumerate(zip(images, png_data_list)):
+    for i, (img, png_data) in enumerate(zip(images, png_data_list, strict=False)):
         width = img.width if img.width < 256 else 0
         height = img.height if img.height < 256 else 0
         entry = struct.pack(
             "<BBBBHHII",
-            width,      # Width (0 = 256)
-            height,     # Height (0 = 256)
-            0,          # Color palette (0 for true color)
-            0,          # Reserved
-            1,          # Color planes
-            32,         # Bits per pixel
+            width,  # Width (0 = 256)
+            height,  # Height (0 = 256)
+            0,  # Color palette (0 for true color)
+            0,  # Reserved
+            1,  # Color planes
+            32,  # Bits per pixel
             len(png_data),  # Size of image data
-            offset,     # Offset to image data
+            offset,  # Offset to image data
         )
         directory += entry
         offset += len(png_data)

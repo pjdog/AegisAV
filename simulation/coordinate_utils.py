@@ -1,8 +1,8 @@
-"""
-Coordinate conversion utilities for AirSim integration.
+"""Coordinate conversion utilities for AirSim integration.
 
 Converts between GPS (WGS84 lat/lon) and AirSim NED (North-East-Down) coordinates.
 """
+
 from __future__ import annotations
 
 import math
@@ -21,8 +21,7 @@ WGS84_E2 = 2 * WGS84_F - WGS84_F**2  # First eccentricity squared
 
 @dataclass
 class GeoReference:
-    """
-    Geographic reference point for NED coordinate conversion.
+    """Geographic reference point for NED coordinate conversion.
 
     AirSim uses a local NED (North-East-Down) coordinate system where:
     - X is North (positive = northward)
@@ -37,18 +36,13 @@ class GeoReference:
         >>> print(f"NED: ({north:.1f}, {east:.1f}, {down:.1f})")
         NED: (59.2, 83.5, -30.0)
     """
+
     latitude: float  # Reference latitude in degrees
     longitude: float  # Reference longitude in degrees
     altitude: float  # Reference altitude in meters MSL (Mean Sea Level)
 
-    def gps_to_ned(
-        self,
-        lat: float,
-        lon: float,
-        alt: float
-    ) -> tuple[float, float, float]:
-        """
-        Convert GPS coordinates to NED (North-East-Down) relative to reference.
+    def gps_to_ned(self, lat: float, lon: float, alt: float) -> tuple[float, float, float]:
+        """Convert GPS coordinates to NED (North-East-Down) relative to reference.
 
         Args:
             lat: Target latitude in degrees
@@ -86,14 +80,8 @@ class GeoReference:
 
         return (north, east, down)
 
-    def ned_to_gps(
-        self,
-        north: float,
-        east: float,
-        down: float
-    ) -> tuple[float, float, float]:
-        """
-        Convert NED coordinates back to GPS.
+    def ned_to_gps(self, north: float, east: float, down: float) -> tuple[float, float, float]:
+        """Convert NED coordinates back to GPS.
 
         Args:
             north: Meters north of reference (positive = north)
@@ -118,12 +106,9 @@ class GeoReference:
         return (lat, lon, alt)
 
     def distance_ned(
-        self,
-        ned1: tuple[float, float, float],
-        ned2: tuple[float, float, float]
+        self, ned1: tuple[float, float, float], ned2: tuple[float, float, float]
     ) -> float:
-        """
-        Calculate Euclidean distance between two NED positions.
+        """Calculate Euclidean distance between two NED positions.
 
         Args:
             ned1: First position (north, east, down)
@@ -133,18 +118,13 @@ class GeoReference:
             Distance in meters
         """
         return math.sqrt(
-            (ned2[0] - ned1[0])**2 +
-            (ned2[1] - ned1[1])**2 +
-            (ned2[2] - ned1[2])**2
+            (ned2[0] - ned1[0]) ** 2 + (ned2[1] - ned1[1]) ** 2 + (ned2[2] - ned1[2]) ** 2
         )
 
     def bearing_to(
-        self,
-        from_ned: tuple[float, float, float],
-        to_ned: tuple[float, float, float]
+        self, from_ned: tuple[float, float, float], to_ned: tuple[float, float, float]
     ) -> float:
-        """
-        Calculate bearing from one NED position to another.
+        """Calculate bearing from one NED position to another.
 
         Args:
             from_ned: Starting position (north, east, down)
@@ -162,12 +142,8 @@ class GeoReference:
         return bearing
 
 
-def haversine_distance(
-    lat1: float, lon1: float,
-    lat2: float, lon2: float
-) -> float:
-    """
-    Calculate great-circle distance between two GPS points using Haversine formula.
+def haversine_distance(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    """Calculate great-circle distance between two GPS points using Haversine formula.
 
     Args:
         lat1, lon1: First point in degrees
@@ -183,19 +159,14 @@ def haversine_distance(
     dlat = math.radians(lat2 - lat1)
     dlon = math.radians(lon2 - lon1)
 
-    a = (math.sin(dlat / 2)**2 +
-         math.cos(lat1_rad) * math.cos(lat2_rad) * math.sin(dlon / 2)**2)
+    a = math.sin(dlat / 2) ** 2 + math.cos(lat1_rad) * math.cos(lat2_rad) * math.sin(dlon / 2) ** 2
     c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
 
     return R * c
 
 
-def initial_bearing(
-    lat1: float, lon1: float,
-    lat2: float, lon2: float
-) -> float:
-    """
-    Calculate initial bearing from point 1 to point 2.
+def initial_bearing(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    """Calculate initial bearing from point 1 to point 2.
 
     Args:
         lat1, lon1: Starting point in degrees
@@ -209,8 +180,9 @@ def initial_bearing(
     dlon = math.radians(lon2 - lon1)
 
     x = math.sin(dlon) * math.cos(lat2_rad)
-    y = (math.cos(lat1_rad) * math.sin(lat2_rad) -
-         math.sin(lat1_rad) * math.cos(lat2_rad) * math.cos(dlon))
+    y = math.cos(lat1_rad) * math.sin(lat2_rad) - math.sin(lat1_rad) * math.cos(
+        lat2_rad
+    ) * math.cos(dlon)
 
     bearing = math.degrees(math.atan2(x, y))
     return (bearing + 360) % 360

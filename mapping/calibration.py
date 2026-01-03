@@ -71,7 +71,7 @@ def calibrate_chessboard(
         raise RuntimeError(f"No calibration images found in {image_dir}")
 
     objp = np.zeros((pattern_size[0] * pattern_size[1], 3), np.float32)
-    objp[:, :2] = np.mgrid[0:pattern_size[0], 0:pattern_size[1]].T.reshape(-1, 2)
+    objp[:, :2] = np.mgrid[0 : pattern_size[0], 0 : pattern_size[1]].T.reshape(-1, 2)
     objp *= square_size_m
 
     objpoints = []

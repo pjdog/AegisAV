@@ -149,8 +149,22 @@ async def test_map_preview_with_obstacles(make_async_client) -> None:
             "last_updated": datetime.now().isoformat(),
             "source": "slam",
             "obstacles": [
-                {"obstacle_id": "obs_1", "x": 10.0, "y": 20.0, "radius_m": 5.0, "height_m": 10.0, "type": "building"},
-                {"obstacle_id": "obs_2", "x": -5.0, "y": 15.0, "radius_m": 3.0, "height_m": 5.0, "type": "tree"},
+                {
+                    "obstacle_id": "obs_1",
+                    "x": 10.0,
+                    "y": 20.0,
+                    "radius_m": 5.0,
+                    "height_m": 10.0,
+                    "type": "building",
+                },
+                {
+                    "obstacle_id": "obs_2",
+                    "x": -5.0,
+                    "y": 15.0,
+                    "radius_m": 3.0,
+                    "height_m": 5.0,
+                    "type": "tree",
+                },
             ],
             "metadata": {
                 "version": 1,

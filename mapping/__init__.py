@@ -10,24 +10,13 @@ This module provides:
 - Safety gating for map updates and planning
 """
 
-from mapping.keyframe_selector import KeyframeSelector, KeyframeSelectionConfig, FramePose
 from mapping.capture_replay import (
-    CaptureReplay,
-    ReplayConfig,
     CaptureFrame,
-    CaptureSequence,
     CaptureIntegrityChecker,
     CaptureIntegrityResult,
-)
-from mapping.manifest import DatasetManifest, ManifestEntry, ManifestBuilder, SensorCalibration, validate_manifest
-from mapping.splat_storage import SplatStorage, SplatScene, SplatMetadata
-from mapping.obstacle_extraction import (
-    ObstacleExtractor,
-    ExtractionConfig,
-    ExtractedObstacle,
-    Point3D,
-    MapMetadataResult,
-    obstacles_to_navigation_map,
+    CaptureReplay,
+    CaptureSequence,
+    ReplayConfig,
 )
 from mapping.decision_context import (
     MapContext,
@@ -37,66 +26,83 @@ from mapping.decision_context import (
     add_map_context_to_decision,
     map_decision_logger,
 )
+from mapping.keyframe_selector import FramePose, KeyframeSelectionConfig, KeyframeSelector
+from mapping.manifest import (
+    DatasetManifest,
+    ManifestBuilder,
+    ManifestEntry,
+    SensorCalibration,
+    validate_manifest,
+)
 from mapping.map_fusion import MapFusion, MapFusionConfig, MapFusionResult
-from mapping.map_update import MapUpdateService, MapUpdateConfig
+from mapping.map_update import MapUpdateConfig, MapUpdateService
+from mapping.obstacle_extraction import (
+    ExtractedObstacle,
+    ExtractionConfig,
+    MapMetadataResult,
+    ObstacleExtractor,
+    Point3D,
+    obstacles_to_navigation_map,
+)
 from mapping.safety_gates import (
-    SafetyGateResult,
-    SafetyGateConfig,
     GateCheckResult,
     MapUpdateGate,
     PlannerSafetyGate,
+    SafetyGateConfig,
+    SafetyGateResult,
     validate_map_output,
     validate_slam_output,
 )
+from mapping.splat_storage import SplatMetadata, SplatScene, SplatStorage
 
 __all__ = [
-    # Keyframe selection
-    "KeyframeSelector",
-    "KeyframeSelectionConfig",
-    "FramePose",
-    # Capture replay
-    "CaptureReplay",
-    "ReplayConfig",
     "CaptureFrame",
-    "CaptureSequence",
     "CaptureIntegrityChecker",
     "CaptureIntegrityResult",
+    # Capture replay
+    "CaptureReplay",
+    "CaptureSequence",
     # Manifest
     "DatasetManifest",
-    "ManifestEntry",
-    "ManifestBuilder",
-    "SensorCalibration",
-    "validate_manifest",
-    # Splat storage
-    "SplatStorage",
-    "SplatScene",
-    "SplatMetadata",
-    # Obstacle extraction
-    "ObstacleExtractor",
-    "ExtractionConfig",
     "ExtractedObstacle",
-    "Point3D",
-    "MapMetadataResult",
-    "obstacles_to_navigation_map",
+    "ExtractionConfig",
+    "FramePose",
+    "GateCheckResult",
+    "KeyframeSelectionConfig",
+    # Keyframe selection
+    "KeyframeSelector",
+    "ManifestBuilder",
+    "ManifestEntry",
     # Decision context
     "MapContext",
     "MapDecisionEvent",
     "MapDecisionLogger",
-    "TimedQuery",
-    "add_map_context_to_decision",
-    "map_decision_logger",
     # Map fusion/update
     "MapFusion",
     "MapFusionConfig",
     "MapFusionResult",
-    "MapUpdateService",
+    "MapMetadataResult",
     "MapUpdateConfig",
+    "MapUpdateGate",
+    "MapUpdateService",
+    # Obstacle extraction
+    "ObstacleExtractor",
+    "PlannerSafetyGate",
+    "Point3D",
+    "ReplayConfig",
+    "SafetyGateConfig",
     # Safety gates
     "SafetyGateResult",
-    "SafetyGateConfig",
-    "GateCheckResult",
-    "MapUpdateGate",
-    "PlannerSafetyGate",
+    "SensorCalibration",
+    "SplatMetadata",
+    "SplatScene",
+    # Splat storage
+    "SplatStorage",
+    "TimedQuery",
+    "add_map_context_to_decision",
+    "map_decision_logger",
+    "obstacles_to_navigation_map",
+    "validate_manifest",
     "validate_map_output",
     "validate_slam_output",
 ]

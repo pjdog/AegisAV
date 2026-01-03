@@ -16,9 +16,9 @@ from typing import Any
 import yaml
 from pydantic import BaseModel
 
-from autonomy.path_planner import Obstacle, PathPlanner, PathPlannerConfig
-from mapping.decision_context import MapContext
+from autonomy.path_planner import PathPlanner, PathPlannerConfig
 from autonomy.vehicle_state import Position
+from mapping.decision_context import MapContext
 from simulation.coordinate_utils import GeoReference
 
 logger = logging.getLogger(__name__)
@@ -218,6 +218,7 @@ class MissionPlanner:
         if self._navigation_map:
             return self._apply_navigation_map()
         return None
+
     def load_mission(self, config_path: str | Path) -> bool:
         """Load mission configuration from YAML file.
 
@@ -391,7 +392,9 @@ class MissionPlanner:
         # Start position
         start_lat = current_position.latitude if current_position else config.home_latitude
         start_lon = current_position.longitude if current_position else config.home_longitude
-        start_alt = current_position.altitude_msl if current_position else config.home_altitude_m + 30
+        start_alt = (
+            current_position.altitude_msl if current_position else config.home_altitude_m + 30
+        )
 
         last_lat, last_lon, last_alt = start_lat, start_lon, start_alt
 
@@ -418,8 +421,12 @@ class MissionPlanner:
             # Plan path to target (using path planner if available)
             if self._path_planner and self._geo_ref:
                 path = self._path_planner.plan_path_gps(
-                    last_lat, last_lon, last_alt,
-                    target.latitude, target.longitude, inspection_alt,
+                    last_lat,
+                    last_lon,
+                    last_alt,
+                    target.latitude,
+                    target.longitude,
+                    inspection_alt,
                     velocity=config.cruise_velocity_ms,
                 )
 
@@ -581,9 +588,7 @@ class MissionPlanner:
 
         return optimized
 
-    def _haversine_distance(
-        self, lat1: float, lon1: float, lat2: float, lon2: float
-    ) -> float:
+    def _haversine_distance(self, lat1: float, lon1: float, lat2: float, lon2: float) -> float:
         """Calculate distance between two GPS points."""
         R = 6371000  # Earth radius in meters
 
@@ -592,7 +597,10 @@ class MissionPlanner:
         dlat = math.radians(lat2 - lat1)
         dlon = math.radians(lon2 - lon1)
 
-        a = math.sin(dlat / 2) ** 2 + math.cos(lat1_rad) * math.cos(lat2_rad) * math.sin(dlon / 2) ** 2
+        a = (
+            math.sin(dlat / 2) ** 2
+            + math.cos(lat1_rad) * math.cos(lat2_rad) * math.sin(dlon / 2) ** 2
+        )
         c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
 
         return R * c

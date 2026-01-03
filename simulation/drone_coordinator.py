@@ -17,28 +17,28 @@ from __future__ import annotations
 import asyncio
 import logging
 import math
-from dataclasses import dataclass, field
-from datetime import datetime
-from enum import Enum
-from typing import Any, Callable, Awaitable
 
 # Scenario types
 import sys
+from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
+from datetime import datetime
+from enum import Enum
 from pathlib import Path
+from typing import Any
+
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from agent.server.scenarios import (
-    Scenario,
-    SimulatedDrone,
-    DroneState,
     DOCK_LATITUDE,
     DOCK_LONGITUDE,
+    DroneState,
+    Scenario,
+    SimulatedDrone,
 )
-
 from simulation.multi_vehicle_manager import (
-    MultiVehicleManager,
     ManagedVehicle,
-    VehicleState,
+    MultiVehicleManager,
     get_multi_vehicle_manager,
 )
 
@@ -47,11 +47,12 @@ logger = logging.getLogger(__name__)
 
 # Geographic constants for coordinate conversion
 METERS_PER_DEGREE_LAT = 111_320  # Approximate at equator
-METERS_PER_DEGREE_LON = 85_390   # Approximate at 40° latitude
+METERS_PER_DEGREE_LON = 85_390  # Approximate at 40° latitude
 
 
 class CoordinatorState(str, Enum):
     """State of the drone coordinator."""
+
     IDLE = "idle"
     LOADING = "loading"
     READY = "ready"
@@ -322,7 +323,9 @@ class DroneCoordinator:
             Tuple of (latitude, longitude)
         """
         lat = self.origin_lat + (north_m / METERS_PER_DEGREE_LAT)
-        lon = self.origin_lon + (east_m / (METERS_PER_DEGREE_LON * math.cos(math.radians(self.origin_lat))))
+        lon = self.origin_lon + (
+            east_m / (METERS_PER_DEGREE_LON * math.cos(math.radians(self.origin_lat)))
+        )
 
         return lat, lon
 
@@ -354,12 +357,16 @@ class DroneCoordinator:
                 results[drone_id] = success
 
                 if success:
-                    logger.info(f"Positioned {drone_id} at NED({assignment.ned_x:.1f}, {assignment.ned_y:.1f}, {assignment.ned_z:.1f})")
+                    logger.info(
+                        f"Positioned {drone_id} at NED({assignment.ned_x:.1f}, {assignment.ned_y:.1f}, {assignment.ned_z:.1f})"
+                    )
                 else:
                     pose_supported = getattr(self._vehicle_manager, "pose_supported", None)
                     if pose_supported is False:
                         if not self._pose_warning_emitted:
-                            logger.info("AirSim does not support simSetVehiclePose; skipping initial positioning")
+                            logger.info(
+                                "AirSim does not support simSetVehiclePose; skipping initial positioning"
+                            )
                             self._pose_warning_emitted = True
                     else:
                         logger.warning(f"Failed to position {drone_id}")

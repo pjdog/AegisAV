@@ -8,9 +8,8 @@ from __future__ import annotations
 
 import logging
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
-from typing import Any
 
 import cv2
 import numpy as np
@@ -80,11 +79,14 @@ class CameraIntrinsics:
     @property
     def matrix(self) -> np.ndarray:
         """Get 3x3 camera matrix."""
-        return np.array([
-            [self.fx, 0, self.cx],
-            [0, self.fy, self.cy],
-            [0, 0, 1],
-        ], dtype=np.float64)
+        return np.array(
+            [
+                [self.fx, 0, self.cx],
+                [0, self.fy, self.cy],
+                [0, 0, 1],
+            ],
+            dtype=np.float64,
+        )
 
     @property
     def distortion(self) -> np.ndarray:
@@ -227,9 +229,7 @@ class VisualOdometry:
                 )
             else:
                 # Use default
-                self._camera = CameraIntrinsics.from_fov(
-                    self._config.default_fov_deg, 1280, 720
-                )
+                self._camera = CameraIntrinsics.from_fov(self._config.default_fov_deg, 1280, 720)
 
         # Check minimum matches
         if tracking.num_matches < self._config.min_inliers:
@@ -287,9 +287,7 @@ class VisualOdometry:
             )
 
         # Recover pose from essential matrix
-        _, R, t, pose_mask = cv2.recoverPose(
-            E, prev_pts, curr_pts, self._camera.matrix, mask=mask
-        )
+        _, R, t, pose_mask = cv2.recoverPose(E, prev_pts, curr_pts, self._camera.matrix, mask=mask)
 
         # Translation is unit vector, need to recover scale
         t = t.flatten()
@@ -360,7 +358,11 @@ class VisualOdometry:
             Tuple of (scale, source)
         """
         # Priority 1: Altitude difference
-        if self._config.use_altitude_scale and altitude is not None and self._prev_altitude is not None:
+        if (
+            self._config.use_altitude_scale
+            and altitude is not None
+            and self._prev_altitude is not None
+        ):
             alt_diff = abs(altitude - self._prev_altitude)
             if alt_diff > 0.1 and abs(translation[2]) > 0.01:
                 scale = alt_diff / abs(translation[2])
@@ -389,7 +391,9 @@ class VisualOdometry:
         # Check translation magnitude
         trans_mag = np.linalg.norm(t)
         if trans_mag > self._config.max_translation_m:
-            logger.warning(f"Translation {trans_mag:.2f}m exceeds max {self._config.max_translation_m}m")
+            logger.warning(
+                f"Translation {trans_mag:.2f}m exceeds max {self._config.max_translation_m}m"
+            )
             return False
 
         # Check rotation magnitude
@@ -397,7 +401,9 @@ class VisualOdometry:
         max_rot = max(abs(roll), abs(pitch), abs(yaw))
         max_rot_deg = np.rad2deg(max_rot)
         if max_rot_deg > self._config.max_rotation_deg:
-            logger.warning(f"Rotation {max_rot_deg:.1f}° exceeds max {self._config.max_rotation_deg}°")
+            logger.warning(
+                f"Rotation {max_rot_deg:.1f}° exceeds max {self._config.max_rotation_deg}°"
+            )
             return False
 
         return True

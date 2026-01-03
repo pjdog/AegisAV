@@ -11,7 +11,6 @@ from typing import Any
 from pydantic import BaseModel, Field, field_validator
 
 from agent.server.config_manager import DEFAULT_SERVER_PORT
-
 from autonomy.vehicle_state import (
     Attitude,
     BatteryState,

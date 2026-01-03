@@ -57,7 +57,9 @@ async def test_apply_airsim_environment_calls_bridge(monkeypatch: pytest.MonkeyP
     await main_module._apply_airsim_environment(mapped)
 
     bridge.set_weather.assert_awaited_once_with(rain=0.25, snow=0.0, fog=0.1, dust=0.0)
-    bridge.set_time_of_day.assert_awaited_once_with(hour=18, is_enabled=True, celestial_clock_speed=1.0)
+    bridge.set_time_of_day.assert_awaited_once_with(
+        hour=18, is_enabled=True, celestial_clock_speed=1.0
+    )
     bridge.set_wind.assert_awaited_once_with(speed_ms=4.5, direction_deg=270.0)
 
 

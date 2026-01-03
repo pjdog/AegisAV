@@ -23,6 +23,16 @@ try:
 except ImportError:  # pragma: no cover - optional dependency
     logfire = None
 
+from agent.server.airsim_support import (
+    _airsim_bridge_connected,
+    _airsim_launch_supported,
+    _launch_airsim_process,
+    _schedule_airsim_connect,
+    broadcast_scenario_scene,
+)
+from agent.server.airsim_support import (
+    _sync_airsim_scene as _sync_airsim_scene_impl,
+)
 from agent.server.api_airsim import register_airsim_routes
 from agent.server.api_config import register_config_routes
 from agent.server.api_decision import register_decision_routes
@@ -30,18 +40,6 @@ from agent.server.api_navigation import register_navigation_routes
 from agent.server.api_scenarios import register_scenario_routes
 from agent.server.api_telemetry import register_telemetry_routes
 from agent.server.api_vision import register_vision_routes
-from agent.server.airsim_support import (
-    _airsim_bridge_connected,
-    _airsim_launch_supported,
-    _apply_airsim_environment,
-    _env_changed,
-    _launch_airsim_process,
-    _map_scenario_environment,
-    _schedule_airsim_connect,
-    _sync_airsim_scene as _sync_airsim_scene_impl,
-    broadcast_dock_state,
-    broadcast_scenario_scene,
-)
 from agent.server.config_manager import get_config_manager
 from agent.server.dashboard import add_dashboard_routes
 from agent.server.lifecycle import lifespan
@@ -204,7 +202,7 @@ def main() -> None:
 
     uvicorn.run(
         "agent.server.main:app",
-        host=host,  # noqa: S104
+        host=host,
         port=port,
         reload=reload_enabled,
     )

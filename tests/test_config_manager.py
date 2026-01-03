@@ -10,12 +10,12 @@ import pytest
 import yaml
 
 from agent.server.config_manager import (
+    DEFAULT_SERVER_PORT,
     AegisConfig,
     AgentSettings,
     AuthSettings,
     ConfigManager,
     DashboardSettings,
-    DEFAULT_SERVER_PORT,
     RedisSettings,
     ServerSettings,
     SimulationSettings,

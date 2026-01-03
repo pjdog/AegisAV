@@ -179,9 +179,7 @@ class SafetyCritic(BaseCritic):
                 alternatives.append("Hold position until map refresh")
                 risk_score = max(risk_score, 0.7)
             elif map_context.map_quality_score < 0.3:
-                concerns.append(
-                    f"Navigation map quality low ({map_context.map_quality_score:.2f})"
-                )
+                concerns.append(f"Navigation map quality low ({map_context.map_quality_score:.2f})")
                 alternatives.append("Proceed cautiously or wait for map improvement")
                 risk_score = max(risk_score, 0.6)
 

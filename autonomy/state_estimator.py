@@ -10,14 +10,13 @@ import logging
 import math
 import time
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import datetime
 from enum import Enum
-from typing import Any
 
 import numpy as np
 from pydantic import BaseModel
 
-from autonomy.vehicle_state import Position, VehicleState, Velocity
+from autonomy.vehicle_state import VehicleState
 
 logger = logging.getLogger(__name__)
 
@@ -385,9 +384,7 @@ class StateEstimator:
         # Convert NED to GPS if reference is set
         lat, lon, alt = None, None, None
         if self._reference_set:
-            lat, lon, alt = self._ned_to_gps(
-                self._state[0], self._state[1], self._state[2]
-            )
+            lat, lon, alt = self._ned_to_gps(self._state[0], self._state[1], self._state[2])
 
         # Calculate fusion weight
         fusion_weight = self._calculate_fusion_weight()
@@ -451,7 +448,9 @@ class StateEstimator:
 
         if gps.hdop < thresholds.excellent_hdop and gps.satellites_visible >= 8:
             return GPSQuality.EXCELLENT
-        elif gps.hdop < thresholds.good_hdop and gps.satellites_visible >= thresholds.min_satellites:
+        elif (
+            gps.hdop < thresholds.good_hdop and gps.satellites_visible >= thresholds.min_satellites
+        ):
             return GPSQuality.GOOD
         elif gps.hdop < thresholds.marginal_hdop:
             return GPSQuality.MARGINAL
@@ -495,7 +494,9 @@ class StateEstimator:
         R = 6371000
 
         lat = self._reference_lat + math.degrees(north / R)
-        lon = self._reference_lon + math.degrees(east / (R * math.cos(math.radians(self._reference_lat))))
+        lon = self._reference_lon + math.degrees(
+            east / (R * math.cos(math.radians(self._reference_lat)))
+        )
         alt = self._reference_alt - down
 
         return (lat, lon, alt)
@@ -570,7 +571,8 @@ class StateEstimator:
             gps_stale = self._is_gps_stale()
             visual_stale = (
                 self._last_visual_update is None
-                or (now - self._last_visual_update).total_seconds() > self._config.degraded_timeout_s
+                or (now - self._last_visual_update).total_seconds()
+                > self._config.degraded_timeout_s
             )
 
             if gps_stale and visual_stale:

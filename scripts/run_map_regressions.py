@@ -103,7 +103,9 @@ def _resolve_maps(args: argparse.Namespace) -> list[tuple[Path, dict[str, Any]]]
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run map regression checks.")
     parser.add_argument("--map", dest="map_path", action="append", help="Navigation map JSON path")
-    parser.add_argument("--glob", dest="glob_pattern", default=None, help="Glob for navigation_map.json files")
+    parser.add_argument(
+        "--glob", dest="glob_pattern", default=None, help="Glob for navigation_map.json files"
+    )
     parser.add_argument("--manifest", default=None, help="Manifest JSON for regression tests")
     parser.add_argument("--min-quality-score", type=float, default=0.3)
     parser.add_argument("--min-obstacles", type=int, default=0)

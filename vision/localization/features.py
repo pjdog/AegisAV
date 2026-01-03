@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import logging
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 import cv2
@@ -149,9 +149,7 @@ class ORBFeatureExtractor:
             fastThreshold=self._config.fast_threshold,
         )
 
-        logger.info(
-            f"ORBFeatureExtractor initialized (max_features={self._config.max_features})"
-        )
+        logger.info(f"ORBFeatureExtractor initialized (max_features={self._config.max_features})")
 
     def extract(
         self,
@@ -279,7 +277,9 @@ class ORBFeatureExtractor:
                         indices = [kps.index(kp) for kp in keep_kps if kp in kps]
                         for idx in range(len(keep_kps)):
                             if idx < len(sorted_kps) and descs is not None:
-                                orig_idx = kps.index(sorted_kps[idx]) if sorted_kps[idx] in kps else -1
+                                orig_idx = (
+                                    kps.index(sorted_kps[idx]) if sorted_kps[idx] in kps else -1
+                                )
                                 if orig_idx >= 0 and orig_idx < len(descs):
                                     all_descriptors.append(descs[orig_idx])
 

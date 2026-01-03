@@ -49,4 +49,3 @@ work across the agent server, clients, lightweight simulation, and dashboard.
 - `frontend/src/components/Dashboard.tsx` contains an `import` statement inside
   the component body, which will fail TypeScript builds. This should be moved
   to the top-level import block.
-

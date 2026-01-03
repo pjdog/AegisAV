@@ -230,9 +230,7 @@ def _create_mission_planner() -> Agent[WorldSnapshot, MissionDecision]:
         if world.mission:
             total = world.mission.assets_total
             inspected = world.mission.assets_inspected
-            metrics["inspection_coverage_percent"] = (
-                (inspected / total * 100) if total > 0 else 0.0
-            )
+            metrics["inspection_coverage_percent"] = (inspected / total * 100) if total > 0 else 0.0
 
             # Find remaining uninspected assets
             inspected_ids = {a.asset_id for a in world.assets if a.last_inspected}
@@ -280,7 +278,9 @@ def _create_mission_planner() -> Agent[WorldSnapshot, MissionDecision]:
             hints.append("High coverage - focus on anomaly investigation")
 
         if metrics.get("high_priority_anomalies"):
-            hints.append(f"{len(metrics['high_priority_anomalies'])} high-severity anomalies need attention")
+            hints.append(
+                f"{len(metrics['high_priority_anomalies'])} high-severity anomalies need attention"
+            )
 
         if world.vehicle and world.vehicle.battery:
             battery = world.vehicle.battery.remaining_percent

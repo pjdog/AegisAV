@@ -8,22 +8,23 @@ from __future__ import annotations
 
 import logging
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Callable
+from typing import Any
 
 import numpy as np
 from pydantic import BaseModel
 
 from autonomy.state_estimator import StateEstimator, VisualOdometryInput
-from vision.localization.features import ORBFeatureExtractor, ORBConfig, FrameFeatures
+from vision.localization.features import FrameFeatures, ORBConfig, ORBFeatureExtractor
 from vision.localization.tracking import FeatureTracker, TrackerConfig, TrackingResult
 from vision.localization.visual_odometry import (
+    CameraIntrinsics,
     VisualOdometry,
     VOConfig,
     VOResult,
     VOState,
-    CameraIntrinsics,
 )
 
 logger = logging.getLogger(__name__)
@@ -85,9 +86,9 @@ class LocalizationConfig:
     # Default assumes camera pointing forward and down
     camera_to_ned_rotation: list[list[float]] = field(
         default_factory=lambda: [
-            [0, 0, 1],   # Camera X (right) -> NED East
-            [1, 0, 0],   # Camera Y (down) -> NED North
-            [0, 1, 0],   # Camera Z (forward) -> NED Down (negated for altitude)
+            [0, 0, 1],  # Camera X (right) -> NED East
+            [1, 0, 0],  # Camera Y (down) -> NED North
+            [0, 1, 0],  # Camera Z (forward) -> NED Down (negated for altitude)
         ]
     )
 

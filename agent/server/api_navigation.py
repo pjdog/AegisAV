@@ -6,9 +6,8 @@ Phase 0 Worker B: API contracts for map outputs and updates.
 from __future__ import annotations
 
 import asyncio
-import time
-from datetime import datetime
 import math
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -37,7 +36,9 @@ class ObstacleEntry(BaseModel):
     obstacle_id: str = Field(..., description="Unique obstacle identifier")
     asset_id: str | None = Field(None, description="Associated asset ID if from scenario")
     name: str = Field("", description="Human-readable name")
-    obstacle_type: str = Field("unknown", description="Type: building, tree, vehicle, dynamic, etc.")
+    obstacle_type: str = Field(
+        "unknown", description="Type: building, tree, vehicle, dynamic, etc."
+    )
 
     # Position (lat/lon for geo, or local NED)
     latitude: float | None = Field(None, description="WGS84 latitude")
@@ -610,7 +611,7 @@ async def get_map_preview() -> dict:
                 counts[gidx] += 1
 
         normalized = []
-        for value, count in zip(values, counts):
+        for value, count in zip(values, counts, strict=False):
             if count == 0:
                 normalized.append(0.0)
             else:
@@ -801,6 +802,7 @@ async def get_splat_scenes() -> dict:
             metadata = {}
             if metadata_path.exists():
                 import json
+
                 with open(metadata_path) as f:
                     metadata = json.load(f)
 
@@ -832,6 +834,7 @@ async def get_splat_scenes() -> dict:
             metadata = {}
             if metadata_path.exists():
                 import json
+
                 with open(metadata_path) as f:
                     metadata = json.load(f)
 
@@ -909,7 +912,7 @@ async def get_splat_preview(run_id: str) -> dict:
     # Parse PLY file (simplified - assumes ASCII format)
     points = []
     try:
-        with open(preview_path, "r") as f:
+        with open(preview_path) as f:
             in_header = True
             vertex_count = 0
 

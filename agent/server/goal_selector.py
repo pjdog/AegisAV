@@ -12,7 +12,11 @@ from collections import deque
 from datetime import datetime, timedelta
 
 try:
-    from agent.server.advanced_decision import AdvancedDecisionEngine, create_advanced_decision_engine
+    from agent.server.advanced_decision import (
+        AdvancedDecisionEngine,
+        create_advanced_decision_engine,
+    )
+
     _ADVANCED_DECISION_AVAILABLE = True
 except ModuleNotFoundError as exc:
     if exc.name != "pydantic_ai":
@@ -112,15 +116,9 @@ class GoalSelector:
             "[GOAL SELECT] Battery %.1f%%",
             world.vehicle.battery.remaining_percent,
         )
-        logger.debug(
-            "[GOAL SELECT] Assets in snapshot: %d", len(world.assets)
-        )
-        logger.debug(
-            "[GOAL SELECT] Pending assets: %d", len(world.get_pending_assets())
-        )
-        logger.debug(
-            "[GOAL SELECT] Anomaly assets: %d", len(world.get_anomaly_assets())
-        )
+        logger.debug("[GOAL SELECT] Assets in snapshot: %d", len(world.assets))
+        logger.debug("[GOAL SELECT] Pending assets: %d", len(world.get_pending_assets()))
+        logger.debug("[GOAL SELECT] Anomaly assets: %d", len(world.get_anomaly_assets()))
 
         goal: Goal | None = None
 

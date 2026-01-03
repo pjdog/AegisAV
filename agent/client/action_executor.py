@@ -12,6 +12,7 @@ import time
 from dataclasses import dataclass
 from enum import Enum
 from typing import TYPE_CHECKING
+
 from autonomy.mission_primitives import MissionPrimitives, OrbitPlan, PrimitiveResult
 from autonomy.vehicle_state import Position
 
@@ -65,7 +66,7 @@ class ActionExecutor:
     """
 
     def __init__(
-        self, mavlink: MAVLinkInterface, vision_client: "VisionClient | None" = None
+        self, mavlink: MAVLinkInterface, vision_client: VisionClient | None = None
     ) -> None:
         """Initialize the ActionExecutor.
 
@@ -357,6 +358,6 @@ class ActionExecutor:
             "battery_percent": state.battery.remaining_percent if state.battery else None,
         }
 
-    def get_last_inspection_results(self) -> "InspectionVisionResults | None":
+    def get_last_inspection_results(self) -> InspectionVisionResults | None:
         """Get vision results from the last inspection."""
         return self._last_inspection_results

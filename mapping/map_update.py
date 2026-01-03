@@ -16,8 +16,8 @@ from mapping.decision_context import MapContext, map_decision_logger
 from mapping.map_fusion import MapFusion, MapFusionConfig
 from mapping.map_storage import MapArtifactStore, MapArtifactStoreConfig
 from mapping.safety_gates import MapUpdateGate, SafetyGateConfig, SafetyGateResult
-from mapping.splat_proxy import build_planning_proxy, write_planning_proxy
 from mapping.splat_change_detection import ChangeDetectionConfig, detect_splat_changes
+from mapping.splat_proxy import build_planning_proxy, write_planning_proxy
 from mapping.splat_trainer import SplatTrainingConfig, train_splat
 
 logger = structlog.get_logger(__name__)
@@ -347,10 +347,9 @@ class MapUpdateService:
                 if splat_proxy_map is None:
                     splat_proxy_map = self._read_json(splat_proxy_path)
                 splat_data["planning_proxy"] = str(splat_proxy_path)
-                splat_data["planning_proxy_updated_at"] = (
-                    splat_proxy_map.get("last_updated")
-                    or splat_proxy_map.get("generated_at")
-                )
+                splat_data["planning_proxy_updated_at"] = splat_proxy_map.get(
+                    "last_updated"
+                ) or splat_proxy_map.get("generated_at")
                 splat_data["planning_proxy_obstacle_count"] = len(
                     splat_proxy_map.get("obstacles", []) if splat_proxy_map else []
                 )
@@ -616,9 +615,7 @@ class MapUpdateService:
         start = positions[0]
         end = positions[-1]
         summary["start_end_distance_m"] = (
-            (end[0] - start[0]) ** 2
-            + (end[1] - start[1]) ** 2
-            + (end[2] - start[2]) ** 2
+            (end[0] - start[0]) ** 2 + (end[1] - start[1]) ** 2 + (end[2] - start[2]) ** 2
         ) ** 0.5
         return summary
 
@@ -702,13 +699,17 @@ class MapUpdateService:
         if timestamp:
             try:
                 observed = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
-                age_s = (datetime.now(timezone.utc) - observed.astimezone(timezone.utc)).total_seconds()
+                age_s = (
+                    datetime.now(timezone.utc) - observed.astimezone(timezone.utc)
+                ).total_seconds()
                 if age_s > 10.0:
                     return nav_map
             except Exception:
                 pass
 
-        existing = [obs for obs in nav_map.get("obstacles", []) if obs.get("source") != "airsim_depth"]
+        existing = [
+            obs for obs in nav_map.get("obstacles", []) if obs.get("source") != "airsim_depth"
+        ]
         for obs in obstacles:
             merged = dict(obs)
             merged.setdefault("source", "airsim_depth")

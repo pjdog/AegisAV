@@ -1,11 +1,13 @@
 """Chat API for discussing decisions during scenario runs.
 
 Provides endpoints for sending and retrieving chat messages, with real-time
-updates via WebSocket broadcasting.
+updates via WebSocket broadcasting. Includes AI-powered responses to discuss
+decisions made during scenario runs.
 """
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from datetime import datetime
 from enum import Enum
@@ -15,7 +17,21 @@ import structlog
 from fastapi import FastAPI
 from pydantic import BaseModel, Field
 
+try:
+    from pydantic_ai import Agent
+    from pydantic_ai.models.test import TestModel
+
+    PYDANTIC_AI_AVAILABLE = True
+except ImportError:
+    PYDANTIC_AI_AVAILABLE = False
+    Agent = None  # type: ignore[misc, assignment]
+    TestModel = None  # type: ignore[misc, assignment]
+
+from agent.server.llm_config import get_default_llm_model, llm_credentials_present
 from agent.server.state import connection_manager, scenario_runner_state, server_state
+
+# Background tasks storage to prevent garbage collection
+_background_tasks: set[asyncio.Task[None]] = set()
 
 logger = structlog.get_logger(__name__)
 
@@ -140,6 +156,84 @@ class ChatStore:
 chat_store = ChatStore()
 
 
+async def generate_ai_response(
+    user_message: str,
+    run_id: str | None,
+    recent_messages: list[ChatMessage],
+) -> str | None:
+    """Generate an AI response to a user message about the scenario.
+
+    Args:
+        user_message: The user's message/question.
+        run_id: Current run ID for context.
+        recent_messages: Recent chat history for context.
+
+    Returns:
+        AI response text, or None if AI is not available.
+    """
+    if not PYDANTIC_AI_AVAILABLE:
+        logger.warning("pydantic_ai not available for chat responses")
+        return None
+
+    if not llm_credentials_present():
+        return None
+
+    # Build context from scenario state
+    context_parts = []
+
+    # Add scenario info if available
+    if scenario_runner_state.runner:
+        runner = scenario_runner_state.runner
+        run_state = getattr(runner, "run_state", None)
+        if run_state:
+            context_parts.append(f"Scenario is currently running (run_id: {run_id})")
+            assets_inspected = getattr(run_state, "assets_inspected", set())
+            context_parts.append(f"Assets inspected so far: {len(assets_inspected)}")
+
+    # Add recent decisions from server state
+    if server_state.last_decision:
+        decision = server_state.last_decision
+        context_parts.append(f"Last decision: {decision.action} - {decision.reasoning}")
+
+    # Add recent chat context
+    if recent_messages:
+        chat_context = "\n".join([
+            f"{m.sender}: {m.content}"
+            for m in recent_messages[-5:]  # Last 5 messages
+        ])
+        context_parts.append(f"Recent discussion:\n{chat_context}")
+
+    system_prompt = """You are an AI assistant helping operators understand and discuss
+decisions made during autonomous drone inspection scenarios. You have access to the
+current scenario state and can explain decisions, answer questions about the mission,
+and provide insights about the autonomous behavior.
+
+Keep responses concise and focused on the mission context. Use technical but accessible language."""
+
+    if context_parts:
+        system_prompt += "\n\nCurrent context:\n" + "\n".join(context_parts)
+
+    try:
+        model = get_default_llm_model()
+        # Use TestModel for development if no real credentials
+        if not llm_credentials_present():
+            agent: Agent[None, str] = Agent(
+                TestModel(),
+                system_prompt=system_prompt,
+            )
+        else:
+            agent = Agent(
+                model,
+                system_prompt=system_prompt,
+            )
+
+        result = await agent.run(user_message)
+        return result.data
+    except Exception as exc:
+        logger.warning("ai_chat_response_failed", error=str(exc))
+        return None
+
+
 async def broadcast_chat_message(message: ChatMessage) -> None:
     """Broadcast a chat message to all connected WebSocket clients.
 
@@ -174,14 +268,14 @@ def register_chat_routes(app: FastAPI) -> None:
     """
 
     @app.post("/api/chat/messages")
-    async def send_message(request: ChatMessageRequest) -> dict:
-        """Send a chat message.
+    async def send_message(request: ChatMessageRequest) -> dict[str, object]:
+        """Send a chat message and get an AI response.
 
         Args:
             request: The message request.
 
         Returns:
-            The created message.
+            The created message and optional AI response.
         """
         # Get current run ID if available
         run_id = None
@@ -201,7 +295,7 @@ def register_chat_routes(app: FastAPI) -> None:
 
         stored_message = chat_store.add_message(message)
 
-        # Broadcast to all connected clients
+        # Broadcast user message to all connected clients
         await broadcast_chat_message(stored_message)
 
         logger.info(
@@ -210,6 +304,37 @@ def register_chat_routes(app: FastAPI) -> None:
             sender=stored_message.sender,
             run_id=run_id,
         )
+
+        # Generate AI response in the background
+        async def send_ai_response() -> None:
+            try:
+                recent_messages = chat_store.get_messages(run_id=run_id, limit=10)
+                ai_response = await generate_ai_response(
+                    request.content,
+                    run_id,
+                    recent_messages,
+                )
+                if ai_response:
+                    ai_message = ChatMessage(
+                        message_type=ChatMessageType.AGENT,
+                        sender="AegisAV Assistant",
+                        content=ai_response,
+                        run_id=run_id,
+                    )
+                    chat_store.add_message(ai_message)
+                    await broadcast_chat_message(ai_message)
+                    logger.info(
+                        "ai_chat_response_sent",
+                        message_id=ai_message.id,
+                        run_id=run_id,
+                    )
+            except Exception as exc:
+                logger.warning("ai_response_generation_failed", error=str(exc))
+
+        # Start AI response generation without blocking the user message return
+        task = asyncio.create_task(send_ai_response())
+        _background_tasks.add(task)
+        task.add_done_callback(_background_tasks.discard)
 
         return {"message": stored_message.model_dump(mode="json")}
 

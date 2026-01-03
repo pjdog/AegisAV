@@ -1456,6 +1456,14 @@
     .map-btn:hover {
       background: rgba(255, 255, 255, 0.2);
     }
+    .map-btn.active {
+      background: rgba(59, 130, 246, 0.4);
+      border-color: rgba(59, 130, 246, 0.6);
+      box-shadow: 0 0 6px rgba(59, 130, 246, 0.4);
+    }
+    .map-btn.active:hover {
+      background: rgba(59, 130, 246, 0.5);
+    }
     .map-btn.link {
       text-decoration: none;
     }
@@ -1976,6 +1984,7 @@
       <button class="map-btn" id="zoomOut" title="Zoom Out">−</button>
       <button class="map-btn" id="fitView" title="Fit to Map">⤢</button>
       <button class="map-btn" id="resetView" title="Reset View">⌂</button>
+      <button class="map-btn active" id="autoFitToggle" title="Auto-Fit (click to toggle)">🎯</button>
       <a class="map-btn link" id="openFullMap" title="Open Full Map" href="#" target="_blank" rel="noreferrer">🗺</a>
     </div>
 
@@ -2026,6 +2035,7 @@
       connected: false,
       // Scene data
       scenario: null,
+      scenarioIdleCount: 0,
       assets: new Map(), // assetId -> { data, element }
       drones: new Map(), // droneId -> { data, element, trail, indicator, bubble, timeout, thinking }
       mapPreview: null,
@@ -2046,7 +2056,9 @@
       autoFitEnabled: true,
       lastFitSignature: null,
       // UI
-      expandedDroneId: null
+      expandedDroneId: null,
+      dockLocked: false,
+      dockSource: null
     };
 
     // ========== DOM ELEMENTS ==========
@@ -2100,9 +2112,10 @@
 
     const cameraState = {
       streaming: false,
-      droneId: 'Drone1',
+      droneId: null,
       selectedDroneId: null,  // Currently viewing
       streamingDrones: new Set(),  // All drones that are streaming
+      availableVehicles: new Set(), // From /api/camera/status
       frames: new Map(),  // droneId -> last frame data
       frameCount: 0,
       lastFrameTime: 0,
@@ -2124,6 +2137,37 @@
       const latDiff = (safeLat - CONFIG.dockLat) * 111320; // meters per degree lat
       const lonDiff = (safeLon - CONFIG.dockLon) * 111320 * Math.cos(CONFIG.dockLat * Math.PI / 180);
       return { x: lonDiff, y: -latDiff }; // Flip Y for screen coords
+    }
+
+    function setDockReference(lat, lon, source, options = {}) {
+      const { force = false, lock = false } = options;
+      if (state.dockLocked && !force) return false;
+      const nextLat = Number(lat);
+      const nextLon = Number(lon);
+      if (!Number.isFinite(nextLat) || !Number.isFinite(nextLon)) return false;
+
+      const changed =
+        Math.abs(nextLat - CONFIG.dockLat) > 1e-6 ||
+        Math.abs(nextLon - CONFIG.dockLon) > 1e-6;
+      if (!changed) {
+        if (lock) state.dockLocked = true;
+        return false;
+      }
+
+      CONFIG.dockLat = nextLat;
+      CONFIG.dockLon = nextLon;
+      state.dockSource = source || state.dockSource;
+      if (lock) state.dockLocked = true;
+
+      if (state.target && Number.isFinite(state.target.lat) && Number.isFinite(state.target.lon)) {
+        const local = gpsToLocal(state.target.lat, state.target.lon);
+        state.target.x = local.x;
+        state.target.y = local.y;
+      }
+
+      redrawScene();
+      maybeAutoFit();
+      return true;
     }
 
     function toIsoCoords(x, y, z = 0) {
@@ -2184,6 +2228,9 @@
         CONFIG.panY = mouseY - (mouseY - CONFIG.panY) * zoomRatio;
         CONFIG.zoom = newZoom;
 
+        // Disable auto-fit when user manually zooms
+        state.autoFitEnabled = false;
+        updateAutoFitIndicator();
         updateZoomIndicator();
 
         // Throttle redraws
@@ -2229,6 +2276,9 @@
         if (state.isPanning) {
           state.isPanning = false;
           sceneSvg.style.cursor = 'grab';
+          // Disable auto-fit when user manually pans
+          state.autoFitEnabled = false;
+          updateAutoFitIndicator();
         }
       });
 
@@ -2249,6 +2299,37 @@
       if (indicator) {
         indicator.textContent = `${Math.round(CONFIG.zoom * 100)}%`;
       }
+    }
+
+    function updateAutoFitIndicator() {
+      const btn = document.getElementById('autoFitToggle');
+      if (btn) {
+        if (state.autoFitEnabled) {
+          btn.classList.add('active');
+          btn.title = 'Auto-Fit ON (click to disable)';
+        } else {
+          btn.classList.remove('active');
+          btn.title = 'Auto-Fit OFF (click to enable)';
+        }
+      }
+    }
+
+    function toggleAutoFit() {
+      state.autoFitEnabled = !state.autoFitEnabled;
+      updateAutoFitIndicator();
+      if (state.autoFitEnabled) {
+        // Re-fit immediately when enabled
+        state.lastFitSignature = null;
+        maybeAutoFit();
+      }
+    }
+
+    function resetCameraState() {
+      // Reset view to defaults and re-enable auto-fit
+      resetPanZoom();
+      state.autoFitEnabled = true;
+      state.lastFitSignature = null;
+      updateAutoFitIndicator();
     }
 
     function redrawScene() {
@@ -3721,6 +3802,12 @@
       if (baseCharging && data.charge_percent !== undefined) {
         baseCharging.textContent = `${data.charge_percent.toFixed(0)}%`;
       }
+
+      const dockLat = data.latitude ?? data.lat;
+      const dockLon = data.longitude ?? data.lon;
+      if (dockLat != null && dockLon != null) {
+        setDockReference(dockLat, dockLon, 'dock_update', { force: true, lock: true });
+      }
     }
 
     function handleEnvironmentUpdate(data) {
@@ -4161,7 +4248,8 @@
     function handleCameraFrame(data) {
       if (!data.image_base64) return;
 
-      const droneId = data.drone_id || 'Drone1';
+      const droneId = data.drone_id || cameraState.selectedDroneId || cameraState.droneId || 'Drone1';
+      const knownDrone = state.drones.has(droneId);
 
       // Store frame for this drone
       cameraState.frames.set(droneId, {
@@ -4174,7 +4262,7 @@
       updateCameraThumbnail(droneId, data.image_base64);
 
       // Auto-select first drone if none selected
-      if (!cameraState.selectedDroneId) {
+      if (!cameraState.selectedDroneId && (knownDrone || state.drones.size === 0)) {
         selectCameraDrone(droneId);
         return;
       }
@@ -4218,6 +4306,9 @@
       cameraState.droneId = droneId;
 
       // Update drone name display
+      if (!state.drones.has(droneId)) {
+        ensureDrone(droneId);
+      }
       const droneData = state.drones.get(droneId);
       cameraDroneName.textContent = droneData?.data?.name || droneId;
 
@@ -4257,8 +4348,18 @@
       droneCameraTabs.innerHTML = '';
 
       // Get all known drones
-      const droneIds = Array.from(state.drones.keys());
+      const droneIds = Array.from(
+        new Set([...state.drones.keys(), ...cameraState.availableVehicles])
+      );
       if (droneIds.length === 0) return;
+
+      if (!cameraState.selectedDroneId) {
+        cameraState.selectedDroneId = droneIds[0];
+        cameraState.droneId = droneIds[0];
+        const droneData = state.drones.get(droneIds[0]);
+        cameraDroneName.textContent = droneData?.data?.name || droneIds[0];
+        updateTargetInfoForDrone(droneIds[0]);
+      }
 
       droneIds.forEach(droneId => {
         const droneData = state.drones.get(droneId);
@@ -4328,11 +4429,15 @@
     cameraStartBtn.addEventListener('click', async () => {
       cameraStartBtn.disabled = true;
       try {
-        const response = await fetch(`${CONFIG.httpBase}/api/camera/start_stream?drone_id=${encodeURIComponent(cameraState.droneId)}&fps=15`, { method: 'POST' });
+        const preferredDroneId = cameraState.selectedDroneId || cameraState.droneId;
+        if (!preferredDroneId) {
+          throw new Error('No drone available for streaming');
+        }
+        const response = await fetch(`${CONFIG.httpBase}/api/camera/start_stream?drone_id=${encodeURIComponent(preferredDroneId)}&fps=15`, { method: 'POST' });
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         cameraState.streaming = true;
         updateCameraUI(true);
-        appendLog(`Camera started for ${cameraState.droneId}`, 'info');
+        appendLog(`Camera started for ${preferredDroneId}`, 'info');
       } catch (error) {
         cameraStartBtn.disabled = false;
         appendLog(`Camera error: ${error.message}`, 'error');
@@ -4342,7 +4447,11 @@
     cameraStopBtn.addEventListener('click', async () => {
       cameraStopBtn.disabled = true;
       try {
-        await fetch(`${CONFIG.httpBase}/api/camera/stop_stream?drone_id=${encodeURIComponent(cameraState.droneId)}`, { method: 'POST' });
+        const preferredDroneId = cameraState.selectedDroneId || cameraState.droneId;
+        if (!preferredDroneId) {
+          throw new Error('No drone available for streaming');
+        }
+        await fetch(`${CONFIG.httpBase}/api/camera/stop_stream?drone_id=${encodeURIComponent(preferredDroneId)}`, { method: 'POST' });
         cameraState.streaming = false;
         updateCameraUI(false);
         appendLog('Camera stopped', 'info');
@@ -4351,6 +4460,29 @@
         appendLog(`Camera stop error: ${error.message}`, 'error');
       }
     });
+
+    async function refreshCameraStatus() {
+      try {
+        const resp = await fetch(`${CONFIG.httpBase}/api/camera/status`);
+        if (!resp.ok) return;
+        const data = await resp.json();
+        const available = Array.isArray(data.available_vehicles) ? data.available_vehicles : [];
+        const active = Array.isArray(data.active_streams) ? data.active_streams : [];
+
+        cameraState.availableVehicles = new Set(available);
+        cameraState.streamingDrones = new Set(active);
+
+        if (!cameraState.selectedDroneId && available.length > 0) {
+          cameraState.selectedDroneId = available[0];
+          cameraState.droneId = available[0];
+          cameraDroneName.textContent = available[0];
+        }
+
+        renderDroneCameraTabs();
+      } catch (error) {
+        // Ignore camera status polling failures.
+      }
+    }
 
     // ========== DEBUG FLIGHT CONTROLS ==========
     const debugStatus = document.getElementById('debugStatus');
@@ -4483,15 +4615,20 @@
           scenarioStatus.textContent = 'Idle';
           // If we had a scenario loaded but it's no longer running, clear it
           if (state.scenario) {
-            state.scenario = null;
-            clearScene();
-            renderGrid();
-            renderDock();
-            emptyState.classList.remove('hidden');
-            sceneInfo.style.display = 'none';
+            state.scenarioIdleCount += 1;
+            if (state.scenarioIdleCount >= 3) {
+              state.scenarioIdleCount = 0;
+              state.scenario = null;
+              clearScene();
+              renderGrid();
+              renderDock();
+              emptyState.classList.remove('hidden');
+              sceneInfo.style.display = 'none';
+            }
           }
           return;
         }
+        state.scenarioIdleCount = 0;
         scenarioStatus.textContent = `Running: ${payload.scenario_id}`;
         document.getElementById('infoScenario').textContent = payload.scenario_id;
 
@@ -4690,6 +4827,16 @@
           const mapData = await mapResp.json();
           if (mapData.obstacles && mapData.obstacles.length > 0) {
             state.slamObstacles = mapData.obstacles;
+          }
+
+          const metadata = mapData.metadata || {};
+          const originLat = metadata.origin_latitude;
+          const originLon = metadata.origin_longitude;
+          const dockChanged = (originLat != null && originLon != null)
+            ? setDockReference(originLat, originLon, 'map_metadata')
+            : false;
+
+          if (!dockChanged && state.slamObstacles && state.slamObstacles.length > 0) {
             renderSlamObstacles();
           }
         }
@@ -4709,6 +4856,8 @@
       if (zoomIn) {
         zoomIn.addEventListener('click', () => {
           CONFIG.zoom = Math.min(CONFIG.maxZoom, CONFIG.zoom * 1.2);
+          state.autoFitEnabled = false;
+          updateAutoFitIndicator();
           redrawScene();
           updateZoomIndicator();
         });
@@ -4717,6 +4866,8 @@
       if (zoomOut) {
         zoomOut.addEventListener('click', () => {
           CONFIG.zoom = Math.max(CONFIG.minZoom, CONFIG.zoom * 0.8);
+          state.autoFitEnabled = false;
+          updateAutoFitIndicator();
           redrawScene();
           updateZoomIndicator();
         });
@@ -4724,13 +4875,20 @@
 
       if (resetView) {
         resetView.addEventListener('click', () => {
-          resetPanZoom();
+          resetCameraState();
         });
       }
 
       if (fitView) {
         fitView.addEventListener('click', () => {
           fitToMapView();
+        });
+      }
+
+      const autoFitToggle = document.getElementById('autoFitToggle');
+      if (autoFitToggle) {
+        autoFitToggle.addEventListener('click', () => {
+          toggleAutoFit();
         });
       }
     }
@@ -5068,6 +5226,7 @@
         connect();
         refreshScenarioStatus();
         refreshAirsimStatus();
+        refreshCameraStatus();
       }, 500);
     });
 
@@ -5089,6 +5248,7 @@
 
     // Poll AirSim status periodically
     setInterval(refreshAirsimStatus, 10000);
+    setInterval(refreshCameraStatus, 10000);
 
     // ========== WEBSOCKET ==========
     function connect() {
@@ -5102,6 +5262,7 @@
           state.socket.send(JSON.stringify({ subscribe: [] }));
           // Refresh scenario status on reconnect to sync drones/assets
           refreshScenarioStatus();
+          refreshCameraStatus();
         };
 
         state.socket.onclose = () => {

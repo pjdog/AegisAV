@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
+import numpy.typing as npt
 
 from mapping.point_cloud import apply_pose, depth_to_points, write_ply
 
@@ -863,62 +864,113 @@ def _collect_preview_points(
     return combined.astype(np.float32)
 
 
-def _load_point_cloud_points(path: Path, max_points: int) -> np.ndarray:
+def _load_point_cloud_points(path: Path, max_points: int) -> npt.NDArray[np.float32]:
+    """Load point cloud data from various file formats.
+
+    Supports .npy, .npz, and ASCII .ply formats. Points are subsampled
+    if the count exceeds max_points.
+
+    Args:
+        path: Path to the point cloud file.
+        max_points: Maximum number of points to return.
+
+    Returns:
+        Nx3 array of float32 points, or empty (0,3) array on failure.
+    """
+    empty_result: npt.NDArray[np.float32] = np.empty((0, 3), dtype=np.float32)
+
     if not path.exists():
-        return np.empty((0, 3), dtype=np.float32)
+        return empty_result
+
     suffix = path.suffix.lower()
     try:
         if suffix == ".npy":
-            data = np.load(path)
+            loaded_data: npt.NDArray[np.floating] = np.load(path)
+            return _subsample_points(loaded_data, max_points)
         elif suffix == ".npz":
             archive = np.load(path)
-            data = archive["points"] if "points" in archive else None
+            if "points" not in archive:
+                return empty_result
+            loaded_data = archive["points"]
+            return _subsample_points(loaded_data, max_points)
         elif suffix == ".ply":
-            data = []
-            with open(path, encoding="utf-8") as f:
-                vertex_count = 0
-                format_ascii = False
-                while True:
-                    line = f.readline()
-                    if not line:
-                        return np.empty((0, 3), dtype=np.float32)
-                    if line.startswith("format"):
-                        format_ascii = "ascii" in line
-                    if line.startswith("element vertex"):
-                        parts = line.split()
-                        if len(parts) >= 3:
-                            vertex_count = int(parts[2])
-                    if line.strip() == "end_header":
-                        break
-                if not format_ascii or vertex_count <= 0:
-                    return np.empty((0, 3), dtype=np.float32)
-                step = max(1, int(math.ceil(vertex_count / max_points)))
-                for idx in range(vertex_count):
-                    line = f.readline()
-                    if not line:
-                        break
-                    if idx % step != 0:
-                        continue
-                    parts = line.strip().split()
-                    if len(parts) < 3:
-                        continue
-                    data.append([float(parts[0]), float(parts[1]), float(parts[2])])
-            if not data:
-                return np.empty((0, 3), dtype=np.float32)
-            return np.array(data, dtype=np.float32)
+            return _load_ply_points(path, max_points)
         else:
-            return np.empty((0, 3), dtype=np.float32)
+            return empty_result
     except Exception:
-        return np.empty((0, 3), dtype=np.float32)
+        return empty_result
 
-    if data is None:
-        return np.empty((0, 3), dtype=np.float32)
+
+def _subsample_points(data: npt.NDArray[np.floating], max_points: int) -> npt.NDArray[np.float32]:
+    """Subsample point cloud data to max_points.
+
+    Args:
+        data: Input point array (Nx3 or larger).
+        max_points: Maximum number of points to return.
+
+    Returns:
+        Subsampled Nx3 float32 array.
+    """
+    empty_result: npt.NDArray[np.float32] = np.empty((0, 3), dtype=np.float32)
+
     if data.ndim != 2 or data.shape[1] < 3:
-        return np.empty((0, 3), dtype=np.float32)
+        return empty_result
     if data.shape[0] > max_points:
         step = int(math.ceil(data.shape[0] / max_points))
         data = data[::step]
     return data[:, :3].astype(np.float32)
+
+
+def _load_ply_points(path: Path, max_points: int) -> npt.NDArray[np.float32]:
+    """Load points from an ASCII PLY file.
+
+    Args:
+        path: Path to the PLY file.
+        max_points: Maximum number of points to return.
+
+    Returns:
+        Nx3 array of float32 points, or empty (0,3) array on failure.
+    """
+    empty_result: npt.NDArray[np.float32] = np.empty((0, 3), dtype=np.float32)
+    points: list[list[float]] = []
+
+    with open(path, encoding="utf-8") as f:
+        vertex_count = 0
+        format_ascii = False
+
+        # Parse header
+        while True:
+            line = f.readline()
+            if not line:
+                return empty_result
+            if line.startswith("format"):
+                format_ascii = "ascii" in line
+            if line.startswith("element vertex"):
+                parts = line.split()
+                if len(parts) >= 3:
+                    vertex_count = int(parts[2])
+            if line.strip() == "end_header":
+                break
+
+        if not format_ascii or vertex_count <= 0:
+            return empty_result
+
+        # Read vertices with subsampling
+        step = max(1, int(math.ceil(vertex_count / max_points)))
+        for idx in range(vertex_count):
+            line = f.readline()
+            if not line:
+                break
+            if idx % step != 0:
+                continue
+            parts = line.strip().split()
+            if len(parts) < 3:
+                continue
+            points.append([float(parts[0]), float(parts[1]), float(parts[2])])
+
+    if not points:
+        return empty_result
+    return np.array(points, dtype=np.float32)
 
 
 def train_splat(

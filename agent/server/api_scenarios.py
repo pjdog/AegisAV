@@ -10,6 +10,7 @@ import shutil
 from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
+from typing import TypedDict
 
 import structlog
 from fastapi import FastAPI, HTTPException
@@ -72,8 +73,37 @@ logger = structlog.get_logger(__name__)
 log = logging.getLogger(__name__)
 
 
+class ClearDirResult(TypedDict):
+    """Result of clearing a mapping directory."""
+
+    label: str
+    path: str
+    removed_entries: int
+    skipped: bool
+    reason: str | None
+    errors: list[str]
+
+
+class ResetMappingResult(TypedDict, total=False):
+    """Result of resetting mapping state."""
+
+    skipped: bool
+    reason: str
+    reset: bool
+    dir_results: list[ClearDirResult]
+    error: str
+
+
 def _is_within_base_dir(path: Path, base_dir: Path) -> bool:
-    """Return True when path is contained within base_dir."""
+    """Check if a path is contained within a base directory.
+
+    Args:
+        path: The path to check.
+        base_dir: The base directory that should contain the path.
+
+    Returns:
+        True if path is within base_dir, False otherwise.
+    """
     try:
         path.resolve().relative_to(base_dir.resolve())
         return True
@@ -81,34 +111,53 @@ def _is_within_base_dir(path: Path, base_dir: Path) -> bool:
         return False
 
 
-def _clear_mapping_dir(path: Path, base_dir: Path, label: str) -> dict[str, object]:
-    """Clear mapping artifacts in a directory, guarded by base_dir."""
+def _clear_mapping_dir(path: Path, base_dir: Path, label: str) -> ClearDirResult:
+    """Clear mapping artifacts in a directory, guarded by base_dir.
+
+    Args:
+        path: Directory path to clear.
+        base_dir: Base directory for safety check (path must be within).
+        label: Human-readable label for this directory.
+
+    Returns:
+        Result dict with removal statistics and any errors.
+    """
     resolved = path
     if not resolved.is_absolute():
         resolved = (base_dir / resolved).resolve()
     else:
         resolved = resolved.resolve()
-    result = {
-        "label": label,
-        "path": str(resolved),
-        "removed_entries": 0,
-        "skipped": False,
-        "reason": None,
-        "errors": [],
-    }
+
+    errors: list[str] = []
+    removed_entries = 0
 
     if not resolved.exists():
-        result["skipped"] = True
-        result["reason"] = "missing"
-        return result
+        return ClearDirResult(
+            label=label,
+            path=str(resolved),
+            removed_entries=0,
+            skipped=True,
+            reason="missing",
+            errors=[],
+        )
     if not resolved.is_dir():
-        result["skipped"] = True
-        result["reason"] = "not_dir"
-        return result
+        return ClearDirResult(
+            label=label,
+            path=str(resolved),
+            removed_entries=0,
+            skipped=True,
+            reason="not_dir",
+            errors=[],
+        )
     if not _is_within_base_dir(resolved, base_dir):
-        result["skipped"] = True
-        result["reason"] = "outside_repo"
-        return result
+        return ClearDirResult(
+            label=label,
+            path=str(resolved),
+            removed_entries=0,
+            skipped=True,
+            reason="outside_repo",
+            errors=[],
+        )
 
     for child in resolved.iterdir():
         try:
@@ -116,22 +165,36 @@ def _clear_mapping_dir(path: Path, base_dir: Path, label: str) -> dict[str, obje
                 shutil.rmtree(child)
             else:
                 child.unlink()
-            result["removed_entries"] += 1
+            removed_entries += 1
         except Exception as exc:
-            result["errors"].append(f"{child.name}: {exc}")
+            errors.append(f"{child.name}: {exc}")
 
     resolved.mkdir(parents=True, exist_ok=True)
-    return result
+    return ClearDirResult(
+        label=label,
+        path=str(resolved),
+        removed_entries=removed_entries,
+        skipped=False,
+        reason=None,
+        errors=errors,
+    )
 
 
-async def _reset_mapping_state(scenario_id: str) -> dict[str, object]:
-    """Clear in-memory and on-disk mapping state before a scenario run."""
+async def _reset_mapping_state(scenario_id: str) -> ResetMappingResult:
+    """Clear in-memory and on-disk mapping state before a scenario run.
+
+    Args:
+        scenario_id: The scenario ID for logging context.
+
+    Returns:
+        Result dict indicating success/skip status and any directory operations.
+    """
     config = get_config_manager().config
     mapping_cfg = config.mapping
     if not mapping_cfg.enabled:
-        return {"skipped": True, "reason": "mapping_disabled"}
+        return ResetMappingResult(skipped=True, reason="mapping_disabled")
     if not getattr(mapping_cfg, "reset_on_scenario_start", True):
-        return {"skipped": True, "reason": "reset_disabled"}
+        return ResetMappingResult(skipped=True, reason="reset_disabled")
 
     map_service = server_state.map_update_service
     try:
@@ -184,7 +247,7 @@ async def _reset_mapping_state(scenario_id: str) -> dict[str, object]:
             scenario_id=scenario_id,
             dir_results=dir_results,
         )
-        return {"reset": True, "dir_results": dir_results}
+        return ResetMappingResult(reset=True, dir_results=dir_results)
     except Exception as exc:
         if map_service and mapping_cfg.enabled:
             try:
@@ -200,7 +263,7 @@ async def _reset_mapping_state(scenario_id: str) -> dict[str, object]:
             scenario_id=scenario_id,
             error=str(exc),
         )
-        return {"reset": False, "error": str(exc)}
+        return ResetMappingResult(reset=False, error=str(exc))
 
 
 async def _broadcast_preflight_status(

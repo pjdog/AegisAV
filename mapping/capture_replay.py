@@ -71,6 +71,14 @@ class CaptureFrame:
     width: int = 0
     height: int = 0
 
+    # Distortion coefficients [k1, k2, p1, p2, k3]
+    distortion: list[float] | None = None
+
+    # Depth calibration
+    depth_scale: float = 1.0  # Scale factor to convert raw depth to meters
+    depth_min_m: float = 0.1  # Minimum valid depth in meters
+    depth_max_m: float = 100.0  # Maximum valid depth in meters
+
     # IMU data if available
     imu_data: dict[str, Any] | None = None
 
@@ -354,6 +362,10 @@ class CaptureReplay:
                     cy=calibration.cy,
                     width=calibration.width,
                     height=calibration.height,
+                    distortion=calibration.distortion,
+                    depth_scale=calibration.depth_scale,
+                    depth_min_m=calibration.depth_min_m,
+                    depth_max_m=calibration.depth_max_m,
                 )
             )
 
@@ -750,7 +762,7 @@ class CaptureIntegrityChecker:
 
         if frames_with_timestamps < frame_count * 0.9:
             errors.append(
-                f"Too few frames with valid timestamps: " f"{frames_with_timestamps}/{frame_count}"
+                f"Too few frames with valid timestamps: {frames_with_timestamps}/{frame_count}"
             )
 
         if self.require_intrinsics and frames_with_intrinsics == 0:

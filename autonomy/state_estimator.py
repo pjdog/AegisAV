@@ -113,6 +113,10 @@ class StateEstimatorConfig:
     process_noise_position: float = 0.1
     process_noise_velocity: float = 0.5
 
+    # Covariance bounds to prevent unbounded growth
+    max_position_uncertainty_m: float = 50.0  # Max position uncertainty
+    max_velocity_uncertainty_ms: float = 10.0  # Max velocity uncertainty
+
     # Mode switching
     mode_switch_delay_s: float = 1.0  # Delay before switching modes
     degraded_timeout_s: float = 5.0  # Time before entering degraded mode
@@ -368,6 +372,9 @@ class StateEstimator:
             drift = self._config.visual_drift_rate * dt
             self._covariance[:3, :3] += np.eye(3) * drift**2
 
+        # Clamp covariance to prevent unbounded growth
+        self._clamp_covariance()
+
     def get_estimate(self) -> EstimatedState:
         """Get current fused state estimate.
 
@@ -578,6 +585,28 @@ class StateEstimator:
             if gps_stale and visual_stale:
                 logger.warning("Both GPS and visual are stale - entering DEGRADED mode")
                 self._mode = LocalizationMode.DEGRADED
+
+    def _clamp_covariance(self) -> None:
+        """Clamp covariance diagonal to prevent unbounded uncertainty growth."""
+        max_pos_var = self._config.max_position_uncertainty_m**2
+        max_vel_var = self._config.max_velocity_uncertainty_ms**2
+
+        # Clamp position variances (indices 0, 1, 2)
+        for i in range(3):
+            if self._covariance[i, i] > max_pos_var:
+                # Scale the row and column to maintain correlation structure
+                scale = math.sqrt(max_pos_var / self._covariance[i, i])
+                self._covariance[i, :] *= scale
+                self._covariance[:, i] *= scale
+                self._covariance[i, i] = max_pos_var
+
+        # Clamp velocity variances (indices 3, 4, 5)
+        for i in range(3, 6):
+            if self._covariance[i, i] > max_vel_var:
+                scale = math.sqrt(max_vel_var / self._covariance[i, i])
+                self._covariance[i, :] *= scale
+                self._covariance[:, i] *= scale
+                self._covariance[i, i] = max_vel_var
 
     def _calculate_fusion_weight(self) -> float:
         """Calculate GPS weight in fusion (0 = visual only, 1 = GPS only)."""

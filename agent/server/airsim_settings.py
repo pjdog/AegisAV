@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_SETTINGS_VERSION = 1.2
 DEFAULT_SIM_MODE = "Multirotor"
-DEFAULT_CLOCK_TYPE = "SteppableClock"
+DEFAULT_CLOCK_TYPE = "ScalableClock"
 DEFAULT_VEHICLE_PREFIX = "Drone"
 DEFAULT_CAMERA_FOV = 90
 
@@ -179,8 +179,8 @@ def _build_vehicle_payload(
         "AutoCreate": True,
         "Cameras": _build_camera_settings(width, height),
         "X": 0,
-        "Y": float(index * 3),
-        "Z": 0,
+        "Y": float(index * 5),
+        "Z": -2.0,
         "Pitch": 0,
         "Roll": 0,
         "Yaw": 0,
@@ -224,6 +224,21 @@ def _build_settings_payload(
             {"WindowID": 0, "CameraName": "front_center", "ImageType": 0, "VehicleName": primary}
         ],
     }
+
+
+def _filter_payload(existing: object, template: object) -> object:
+    if isinstance(template, dict) and isinstance(existing, dict):
+        filtered: dict[str, object] = {}
+        for key, template_value in template.items():
+            if key in existing:
+                filtered[key] = _filter_payload(existing[key], template_value)
+        return filtered
+    if isinstance(template, list) and isinstance(existing, list):
+        items = []
+        for idx in range(min(len(template), len(existing))):
+            items.append(_filter_payload(existing[idx], template[idx]))
+        return items
+    return existing
 
 
 def _summarize_settings(payload: dict[str, Any]) -> dict[str, Any]:
@@ -298,7 +313,8 @@ def update_airsim_settings(
         try:
             with open(settings_path, encoding="utf-8") as f:
                 existing_dict = json.load(f)
-                existing_payload = json.dumps(existing_dict, sort_keys=True)
+                filtered_existing = _filter_payload(existing_dict, payload)
+                existing_payload = json.dumps(filtered_existing, sort_keys=True)
         except (OSError, json.JSONDecodeError):
             existing_payload = None
             existing_dict = None

@@ -7,6 +7,7 @@ import json
 import logging
 import math
 import shutil
+import time
 from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
@@ -381,10 +382,61 @@ async def _broadcast_scenario_decision(drone_id: str, decision: dict) -> None:
     })
 
     executor = server_state.airsim_action_executor
-    fleet_ready = bool(server_state.fleet_bridge_enabled and server_state.fleet_bridge)
+
+    def _fleet_state_value() -> str | None:
+        fleet_bridge = server_state.fleet_bridge
+        state = getattr(fleet_bridge, "state", None) if fleet_bridge else None
+        if hasattr(state, "value"):
+            return str(state.value)
+        if isinstance(state, str):
+            return state
+        return str(state) if state is not None else None
+
+    def _fleet_ready() -> bool:
+        if not server_state.fleet_bridge_enabled or not server_state.fleet_bridge:
+            return False
+        state_value = _fleet_state_value()
+        return bool(state_value and state_value.lower() == "ready")
+
+    def _scenario_is_multi() -> bool:
+        runner = scenario_runner_state.runner
+        scenario = getattr(getattr(runner, "run_state", None), "scenario", None)
+        if scenario:
+            return len(scenario.drones) > 1
+        return False
+
+    async def _wait_for_fleet_ready(
+        timeout_s: float = 20.0,
+        poll_s: float = 0.5,
+    ) -> bool:
+        deadline = time.monotonic() + max(0.5, timeout_s)
+        while time.monotonic() < deadline:
+            if _fleet_ready():
+                return True
+            await asyncio.sleep(poll_s)
+        return False
+
+    fleet_ready = _fleet_ready()
+    multi_expected = _scenario_is_multi()
     if action.lower() not in ("none", "wait"):
         exec_decision = dict(decision)
         exec_decision["drone_id"] = drone_id
+
+        if multi_expected and not fleet_ready:
+
+            async def _deferred_exec() -> None:
+                ready = await _wait_for_fleet_ready()
+                if not ready:
+                    logger.warning(
+                        "airsim_action_skipped_fleet_not_ready",
+                        action=action,
+                        drone_id=drone_id,
+                    )
+                    return
+                await _execute_airsim_action(exec_decision)
+
+            asyncio.create_task(_deferred_exec())
+            return
 
         if fleet_ready:
             try:
@@ -1768,13 +1820,17 @@ def register_scenario_routes(app: FastAPI) -> None:
             if edge_profile not in valid_profiles:
                 raise HTTPException(
                     status_code=400,
-                    detail=(f"Invalid edge profile: {edge_profile}. " f"Valid: {valid_profiles}"),
+                    detail=(f"Invalid edge profile: {edge_profile}. Valid: {valid_profiles}"),
                 )
 
             time_scale = max(0.5, min(5.0, time_scale))
 
             scenario_log_dir = server_state.log_dir / "scenarios"
-            runner = ScenarioRunner(log_dir=scenario_log_dir)
+            runner = ScenarioRunner(
+                log_dir=scenario_log_dir,
+                enable_llm=bool(config.agent.use_llm),
+                use_advanced_engine=bool(config.agent.use_llm),
+            )
             loaded = await runner.load_scenario(scenario_id)
             if not loaded:
                 raise HTTPException(
@@ -1832,6 +1888,37 @@ def register_scenario_routes(app: FastAPI) -> None:
                 mission_id=f"scenario_{scenario.scenario_id}",
                 mission_name=scenario.name,
             )
+
+            mapping_cfg = config.mapping
+            if mapping_cfg.enabled and mapping_cfg.preflight_enabled:
+                if server_state.preflight_task and not server_state.preflight_task.done():
+                    server_state.preflight_task.cancel()
+                preflight_task = asyncio.create_task(
+                    _run_preflight_slam_mapping(scenario, server_state.airsim_action_executor)
+                )
+                server_state.preflight_task = preflight_task
+
+                def _clear_preflight_task(task: asyncio.Task) -> None:
+                    if server_state.preflight_task is task:
+                        server_state.preflight_task = None
+
+                preflight_task.add_done_callback(_clear_preflight_task)
+                try:
+                    # Shield from HTTP request cancellation - preflight should complete
+                    await asyncio.shield(preflight_task)
+                except asyncio.CancelledError:
+                    # HTTP request was cancelled but preflight continues in background
+                    logger.warning(
+                        "preflight_http_cancelled",
+                        scenario_id=scenario_id,
+                        message="HTTP request cancelled, preflight continues in background",
+                    )
+                except Exception as exc:
+                    logger.warning(
+                        "preflight_blocking_failed",
+                        scenario_id=scenario_id,
+                        error=str(exc),
+                    )
 
             def on_decision(drone_id: str, goal: Goal, decision: dict) -> None:
                 logger.info(
@@ -2082,7 +2169,13 @@ def register_scenario_routes(app: FastAPI) -> None:
                 if isinstance(airsim_sync, dict):
                     failed_drones = airsim_sync.get("failed_drones") or []
                 multi_ready = bool(airsim_sync and airsim_sync.get("multi_drone"))
-                if not multi_ready or failed_drones:
+                # Don't fail if AirSim restart is pending - the re-sync will happen after restart
+                restart_scheduled = bool(
+                    airsim_sync
+                    and airsim_sync.get("scheduled")
+                    and airsim_sync.get("reason") == "airsim_restarting"
+                )
+                if (not multi_ready and not restart_scheduled) or failed_drones:
                     scenario_runner_state.is_running = False
                     if scenario_runner_state.run_task:
                         try:
@@ -2116,21 +2209,6 @@ def register_scenario_routes(app: FastAPI) -> None:
                     logger.error("multi_drone_fleet_required", **detail)
                     raise HTTPException(status_code=409, detail=detail)
 
-            mapping_cfg = config.mapping
-            if mapping_cfg.enabled and mapping_cfg.preflight_enabled:
-                if server_state.preflight_task and not server_state.preflight_task.done():
-                    server_state.preflight_task.cancel()
-                preflight_task = asyncio.create_task(
-                    _run_preflight_slam_mapping(scenario, server_state.airsim_action_executor)
-                )
-                server_state.preflight_task = preflight_task
-
-                def _clear_preflight_task(task: asyncio.Task) -> None:
-                    if server_state.preflight_task is task:
-                        server_state.preflight_task = None
-
-                preflight_task.add_done_callback(_clear_preflight_task)
-
             logger.info(
                 "scenario_start_success",
                 scenario_id=scenario_id,
@@ -2138,7 +2216,7 @@ def register_scenario_routes(app: FastAPI) -> None:
             )
 
             # Auto-fly mission: automatically takeoff and fly through all assets
-            if mode == "live":
+            if mode == "live" and len(scenario.drones) == 1:
 
                 async def auto_fly_mission() -> None:
                     """Automatically fly through all scenario assets."""

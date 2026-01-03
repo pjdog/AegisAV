@@ -853,6 +853,44 @@ def _resolve_path(base_dir: Path, path_str: str | None) -> Path | None:
     return (base_dir / path).resolve()
 
 
+def _get_home_calibration_from_frames(
+    frames: list[dict[str, Any]],
+) -> tuple[dict[str, float] | None, dict[str, float] | None]:
+    """Get home position and orientation from first frame for calibration.
+
+    Returns:
+        Tuple of (home_position, home_orientation)
+    """
+    if not frames:
+        return None, None
+
+    first_frame = frames[0]
+    camera_pose = first_frame.get("camera_pose") or {}
+    position = camera_pose.get("position")
+    orientation = camera_pose.get("orientation")
+
+    if position and orientation:
+        return position, orientation
+
+    # Fallback to pose
+    pose = first_frame.get("pose") or {}
+    if pose.get("x") is not None:
+        position = {"x": pose.get("x", 0), "y": pose.get("y", 0), "z": pose.get("z", 0)}
+        # Convert euler to quaternion if available
+        if pose.get("roll_deg") is not None:
+            from mapping.point_cloud import euler_deg_to_quaternion
+
+            orientation = euler_deg_to_quaternion(
+                pose.get("roll_deg", 0),
+                pose.get("pitch_deg", 0),
+                pose.get("yaw_deg", 0),
+            )
+            return position, orientation
+        return position, None
+
+    return None, None
+
+
 def _collect_preview_points(
     frames: list[dict[str, Any]],
     keyframes: set[str],
@@ -864,6 +902,10 @@ def _collect_preview_points(
     frame_list = [frame for frame in frames if frame.get("frame_id") in keyframes]
     if not frame_list:
         frame_list = frames
+
+    # Get home position and orientation from first frame for calibration
+    # This establishes the origin and level reference frame from the flat base
+    home_offset, home_orientation = _get_home_calibration_from_frames(frames)
 
     max_per_frame = max(500, int(math.ceil(max_points / max(1, len(frame_list)))))
 
@@ -879,8 +921,21 @@ def _collect_preview_points(
             continue
 
         intrinsics = frame.get("intrinsics", {})
+        # Get depth calibration values if available
+        depth_scale = float(intrinsics.get("depth_scale", 1.0))
+        depth_min = float(intrinsics.get("depth_min_m", 0.5))
+        depth_max = float(intrinsics.get("depth_max_m", 200.0))
+        distortion = intrinsics.get("distortion")
+
         cam_points = depth_to_points(
-            depth, intrinsics, subsample=subsample, max_points=max_per_frame
+            depth,
+            intrinsics,
+            subsample=subsample,
+            max_points=max_per_frame,
+            min_depth=depth_min,
+            max_depth=depth_max,
+            distortion=distortion,
+            depth_scale=depth_scale,
         )
         if cam_points.size == 0:
             continue
@@ -891,7 +946,13 @@ def _collect_preview_points(
         if not position or not orientation:
             continue
 
-        world_points = apply_pose(cam_points, position, orientation)
+        world_points = apply_pose(
+            cam_points,
+            position,
+            orientation,
+            home_offset=home_offset,
+            home_orientation=home_orientation,
+        )
         points.append(world_points)
 
         if points and sum(p.shape[0] for p in points) >= max_points:

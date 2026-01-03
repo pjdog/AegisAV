@@ -1,0 +1,9 @@
+{
+  "backend": "stub",
+  "iterations": 7000,
+  "learning_rate": 0.01,
+  "max_points": 200000,
+  "min_points": 50,
+  "depth_subsample": 6,
+  "sh_degree": 3
+}

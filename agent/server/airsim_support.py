@@ -408,6 +408,7 @@ async def sync_multi_drone_scenario(
 
             server_state.fleet_bridge = None
             server_state.fleet_bridge_enabled = False
+            server_state.fleet_scenario_id = None
 
             refreshed = get_fleet_bridge(
                 host=config.simulation.airsim_host,
@@ -440,6 +441,7 @@ async def sync_multi_drone_scenario(
 
         # Setup scenario drones
         setup_results = await fleet_bridge.setup_scenario(scenario)
+        server_state.fleet_scenario_id = scenario.scenario_id
         for drone in scenario.drones:
             if drone.drone_id not in setup_results:
                 setup_results[drone.drone_id] = False
@@ -1001,6 +1003,7 @@ async def restart_airsim_process(reason: str | None = None) -> dict[str, object]
             logger.warning("fleet_bridge_reset_failed", error=str(exc))
         server_state.fleet_bridge = None
         server_state.fleet_bridge_enabled = False
+        server_state.fleet_scenario_id = None
 
     kill_result = _kill_airsim_processes()
     await asyncio.sleep(1.0)
@@ -1050,10 +1053,20 @@ def _launch_airsim_process() -> tuple[bool, bool, str]:
             )
         else:
             # Native Windows - open in a visible console window
-            subprocess.Popen(  # noqa: S603
-                ["cmd", "/c", "start", "AegisAV AirSim Launcher", "cmd", "/c", str(script_path)],
-                cwd=str(script_path.parent),
-            )
+            script_dir = str(script_path.parent)
+            script_value = str(script_path)
+            if script_value.startswith("\\\\"):
+                cmd = (
+                    f'pushd "{script_dir}" && start "AegisAV AirSim Launcher" '
+                    f'cmd /c "{script_value}"'
+                )
+                logger.warning("airsim_launch_unc_path", path=script_value)
+                subprocess.Popen(["cmd", "/c", cmd])  # noqa: S603
+            else:
+                subprocess.Popen(  # noqa: S603
+                    ["cmd", "/c", "start", "AegisAV AirSim Launcher", "cmd", "/c", script_value],
+                    cwd=script_dir,
+                )
         server_state.airsim_launch_initiated = True
         return True, True, "AirSim launch initiated. Check the console window for status."
     except Exception as exc:
@@ -1140,7 +1153,15 @@ async def _start_airsim_bridge() -> bool:
     )
     if bridge_config.save_images:
         bridge_config.output_dir.mkdir(parents=True, exist_ok=True)
-    bridge = RealtimeAirSimBridge(bridge_config)
+    try:
+        bridge = RealtimeAirSimBridge(bridge_config)
+    except ImportError as exc:
+        logger.warning("airsim_package_missing", error=str(exc))
+        server_state.airsim_last_error = (
+            "AirSim Python package not installed. "
+            "Install cosysairsim (e.g., `pip install cosysairsim` or `aegisav[sim]`)."
+        )
+        return False
     if not await bridge.connect():
         fallback_host = None
         if _is_wsl() and bridge_config.host in {"127.0.0.1", "localhost"}:
@@ -1268,12 +1289,25 @@ async def _airsim_depth_mapping_loop() -> None:
     )
 
     run_dir = config_mgr.resolve_path(mapping_cfg.slam_dir) / "run_depth_live"
-    run_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        run_dir.mkdir(parents=True, exist_ok=True)
+    except Exception as exc:
+        logger.warning(
+            "airsim_depth_mapping_dir_failed",
+            error=str(exc),
+            path=str(run_dir),
+        )
+        return
     points_path = run_dir / "map_points.npy"
     pose_graph_path = run_dir / "pose_graph.json"
     slam_status_path = run_dir / "slam_status.json"
 
     buffer: list[np.ndarray] = []
+    # Home position and orientation for calibration - captured from first valid frame
+    # This makes the drone's starting position the origin (0,0,0)
+    # and the flat base surface the level reference plane
+    home_offset: dict[str, float] | None = None
+    home_orientation: dict[str, float] | None = None
 
     while True:
         try:
@@ -1296,17 +1330,48 @@ async def _airsim_depth_mapping_loop() -> None:
                 await asyncio.sleep(mapping_cfg.update_interval_s)
                 continue
 
+            # Get depth calibration values if available
+            depth_scale = float(intrinsics.get("depth_scale", 1.0))
+            depth_min = float(intrinsics.get("depth_min_m", 0.5))
+            depth_max = float(intrinsics.get("depth_max_m", 200.0))
+            distortion = intrinsics.get("distortion")
+
             points = depth_to_points(
                 depth,
                 intrinsics,
                 subsample=DEPTH_MAPPING_SUBSAMPLE,
                 max_points=max_points,
+                min_depth=depth_min,
+                max_depth=depth_max,
+                distortion=distortion,
+                depth_scale=depth_scale,
             )
             if points.size == 0:
                 await asyncio.sleep(mapping_cfg.update_interval_s)
                 continue
 
-            world_points = apply_pose(points, position, orientation)
+            # Capture home position and orientation from first valid frame for calibration
+            # This establishes the origin and level reference from the flat base
+            if home_offset is None:
+                home_offset = position.copy() if isinstance(position, dict) else position
+                home_orientation = (
+                    orientation.copy() if isinstance(orientation, dict) else orientation
+                )
+                logger.info(
+                    "airsim_depth_mapping_home_calibrated",
+                    home_x=home_offset.get("x", 0),
+                    home_y=home_offset.get("y", 0),
+                    home_z=home_offset.get("z", 0),
+                    home_qw=home_orientation.get("w", 1) if home_orientation else 1,
+                )
+
+            world_points = apply_pose(
+                points,
+                position,
+                orientation,
+                home_offset=home_offset,
+                home_orientation=home_orientation,
+            )
             buffer.append(world_points)
             if len(buffer) > DEPTH_MAPPING_BUFFER_FRAMES:
                 buffer.pop(0)
@@ -1316,7 +1381,17 @@ async def _airsim_depth_mapping_loop() -> None:
                 step = int(math.ceil(combined.shape[0] / max_points))
                 combined = combined[::step]
 
-            np.save(points_path, combined)
+            try:
+                run_dir.mkdir(parents=True, exist_ok=True)
+                np.save(points_path, combined)
+            except Exception as exc:
+                logger.warning(
+                    "airsim_depth_mapping_write_failed",
+                    error=str(exc),
+                    path=str(points_path),
+                )
+                await asyncio.sleep(mapping_cfg.update_interval_s)
+                continue
 
             result = fusion.build_navigation_map(
                 point_cloud_path=points_path,

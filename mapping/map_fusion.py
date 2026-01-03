@@ -35,10 +35,7 @@ def _normalize_wsl_path(path: Path) -> Path:
         return path
 
     path_str = str(path).lower()
-    if not (
-        path_str.startswith("\\\\wsl.localhost\\")
-        or path_str.startswith("\\\\wsl$\\")
-    ):
+    if not (path_str.startswith("\\\\wsl.localhost\\") or path_str.startswith("\\\\wsl$\\")):
         return path
 
     win_path = PureWindowsPath(str(path))

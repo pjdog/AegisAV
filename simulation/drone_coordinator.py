@@ -17,6 +17,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import math
+import time
 
 # Scenario types
 import sys
@@ -238,6 +239,13 @@ class DroneCoordinator:
 
         # Discover vehicles
         available_vehicles = await self._vehicle_manager.discover_vehicles()
+        expected_vehicle_count = len(scenario.drones)
+        if expected_vehicle_count > 1 and len(available_vehicles) < expected_vehicle_count:
+            logger.info(
+                "Waiting for AirSim vehicles to finish spawning "
+                f"(have {len(available_vehicles)}, need {expected_vehicle_count})"
+            )
+            available_vehicles = await self._await_vehicle_count(expected_vehicle_count)
         logger.info(f"Available AirSim vehicles: {available_vehicles}")
 
         if not available_vehicles:
@@ -293,6 +301,25 @@ class DroneCoordinator:
         logger.info(f"Scenario loaded: {len(self._assignments)} drones assigned")
         return True
 
+    async def _await_vehicle_count(
+        self,
+        expected_count: int,
+        timeout_s: float = 12.0,
+        interval_s: float = 0.5,
+    ) -> list[str]:
+        """Wait for AirSim to report at least the expected number of vehicles."""
+        if not self._vehicle_manager or expected_count <= 0:
+            return []
+
+        deadline = time.monotonic() + max(0.5, timeout_s)
+        vehicles = await self._vehicle_manager.discover_vehicles()
+
+        while len(vehicles) < expected_count and time.monotonic() < deadline:
+            await asyncio.sleep(interval_s)
+            vehicles = await self._vehicle_manager.discover_vehicles()
+
+        return vehicles
+
     def _geo_to_ned(self, lat: float, lon: float) -> tuple[float, float]:
         """Convert geographic coordinates to local NED (North-East-Down).
 
@@ -341,16 +368,48 @@ class DroneCoordinator:
             logger.warning(f"Cannot setup positions in state: {self.state}")
             return {}
 
+        offsets: dict[str, tuple[float, float]] = {}
+        groups: dict[tuple[float, float, float], list[str]] = {}
+        for drone_id, assignment in self._assignments.items():
+            key = (
+                round(assignment.ned_x, 1),
+                round(assignment.ned_y, 1),
+                round(assignment.ned_z, 1),
+            )
+            groups.setdefault(key, []).append(drone_id)
+
+        spacing_m = 4.0
+        for key, drone_ids in groups.items():
+            if len(drone_ids) <= 1:
+                continue
+            for idx, drone_id in enumerate(drone_ids):
+                angle = 2.0 * math.pi * (idx / len(drone_ids))
+                offsets[drone_id] = (
+                    math.cos(angle) * spacing_m,
+                    math.sin(angle) * spacing_m,
+                )
+            logger.info(
+                "Applied dock spacing offsets for overlapping drones",
+                base_ned=key,
+                drone_ids=drone_ids,
+                spacing_m=spacing_m,
+            )
+
         results = {}
 
         for drone_id, assignment in self._assignments.items():
             try:
+                offset = offsets.get(drone_id, (0.0, 0.0))
+                target_x = assignment.ned_x + offset[0]
+                target_y = assignment.ned_y + offset[1]
+                target_z = assignment.ned_z
+
                 # Teleport to initial position
                 success = await self._vehicle_manager.set_pose(
                     drone_id,
-                    x=assignment.ned_x,
-                    y=assignment.ned_y,
-                    z=assignment.ned_z,
+                    x=target_x,
+                    y=target_y,
+                    z=target_z,
                     yaw_deg=0.0,
                 )
 
@@ -358,7 +417,7 @@ class DroneCoordinator:
 
                 if success:
                     logger.info(
-                        f"Positioned {drone_id} at NED({assignment.ned_x:.1f}, {assignment.ned_y:.1f}, {assignment.ned_z:.1f})"
+                        f"Positioned {drone_id} at NED({target_x:.1f}, {target_y:.1f}, {target_z:.1f})"
                     )
                 else:
                     pose_supported = getattr(self._vehicle_manager, "pose_supported", None)

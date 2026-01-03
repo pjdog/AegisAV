@@ -1,0 +1,117 @@
+{
+  "manifest_version": "1.0",
+  "dataset_id": "patrol_recharge_001_preflight",
+  "sequence_id": "patrol_recharge_001_preflight_20260102_214436",
+  "version": 1,
+  "created_at": "2026-01-02T21:44:36.500587",
+  "capture_start": "2026-01-02T21:44:36.830238",
+  "capture_end": "2026-01-02T21:44:43.840868",
+  "paths": {
+    "base": ".",
+    "frames": "frames",
+    "keyframes": "keyframes",
+    "poses": "poses"
+  },
+  "sensor": {
+    "type": "airsim",
+    "calibration": {
+      "intrinsics": {
+        "fx": 961.6161300315734,
+        "fy": 961.6161300315734,
+        "cx": 960.0,
+        "cy": 540.0,
+        "width": 1920,
+        "height": 1080
+      },
+      "distortion": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "T_body_camera": [
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "T_body_imu": null,
+      "depth": {
+        "scale": 1.0,
+        "min_m": 0.1,
+        "max_m": 100.0
+      }
+    }
+  },
+  "coordinate_frame": {
+    "type": "NED",
+    "origin_latitude": 37.7749,
+    "origin_longitude": -122.4194,
+    "origin_altitude_m": 0.0
+  },
+  "statistics": {
+    "frame_count": 2,
+    "keyframe_count": 0,
+    "duration_s": 7.0168373584747314,
+    "avg_fps": 0.285028695667922
+  },
+  "frames": [
+    {
+      "frame_index": 0,
+      "timestamp_s": 1767408276.5305245,
+      "image_path": "frames\\1767408276530524500.png",
+      "depth_path": "frames\\1767408276530524500_depth.npy",
+      "position": [
+        5.96218729019165,
+        -3.1026875972747803,
+        -19.311687469482422
+      ],
+      "orientation": [
+        -0.5205044902059905,
+        4.000637625192716,
+        86.46193256757252
+      ],
+      "quality": {
+        "blur_score": 0.0,
+        "feature_count": 0
+      }
+    },
+    {
+      "frame_index": 1,
+      "timestamp_s": 1767408283.5473619,
+      "image_path": "frames\\1767408283547361700.png",
+      "depth_path": "frames\\1767408283547361700_depth.npy",
+      "position": [
+        18.30246353149414,
+        1.5518527030944824,
+        -20.453083038330078
+      ],
+      "orientation": [
+        -0.08204154330700107,
+        5.018775525509975,
+        19.606498186032876
+      ],
+      "quality": {
+        "blur_score": 0.0,
+        "feature_count": 0
+      }
+    }
+  ],
+  "metadata": {
+    "scenario_id": "patrol_recharge_001",
+    "capture_type": "preflight"
+  }
+}

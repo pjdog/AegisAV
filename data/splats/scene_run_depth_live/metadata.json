@@ -1,0 +1,41 @@
+{
+  "run_id": "run_depth_live",
+  "scene_id": "run_depth_live",
+  "scenario_id": null,
+  "version": 1,
+  "created_at": "2026-01-03T01:13:55.791926",
+  "training_started": "2026-01-03T01:13:55.776850",
+  "training_completed": "2026-01-03T01:13:55.791926",
+  "source_dataset": "\\\\wsl.localhost\\Ubuntu\\home\\devcontainers\\AegisAV\\data\\slam_runs\\run_depth_live\\pose_graph.json",
+  "training": {
+    "keyframe_count": 0,
+    "total_iterations": 0,
+    "final_loss": 0.0
+  },
+  "bounds": {
+    "min": [
+      -109.66865539550781,
+      -116.98945617675781,
+      -71.55450439453125
+    ],
+    "max": [
+      131.69540405273438,
+      109.4039535522461,
+      31.13515281677246
+    ]
+  },
+  "gaussians": {
+    "count": 3893,
+    "compressed_size_mb": 0.0
+  },
+  "quality": {
+    "psnr": 20.3893,
+    "ssim": 0.7097325,
+    "lpips": 0.0
+  },
+  "files": {
+    "model": "model.ply",
+    "preview": "preview.ply",
+    "config": "config.json"
+  }
+}

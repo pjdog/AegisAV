@@ -1,0 +1,15 @@
+{
+  "enabled": true,
+  "running": true,
+  "backend": "airsim_depth",
+  "tracking_state": "live",
+  "keyframe_count": 0,
+  "map_point_count": 3893,
+  "loop_closure_count": 0,
+  "pose_confidence": 1.0,
+  "reprojection_error": 0.0,
+  "drift_estimate_m": 0.0,
+  "last_frame_ms": 0.0,
+  "avg_frame_ms": 0.0,
+  "last_update": "2026-01-03T00:44:16.440304"
+}

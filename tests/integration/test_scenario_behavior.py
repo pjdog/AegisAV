@@ -45,9 +45,9 @@ class TestScenarioBehavior:
         critical_decisions = [d for d in decisions if d.get("drone_id") == "critical_bat"]
         if critical_decisions:
             actions = [d.get("action", "").lower() for d in critical_decisions]
-            assert any(
-                action in ["return_low_battery", "abort", "return"] for action in actions
-            ), f"Critical battery drone should RETURN or ABORT, got: {actions}"
+            assert any(action in ["return_low_battery", "abort", "return"] for action in actions), (
+                f"Critical battery drone should RETURN or ABORT, got: {actions}"
+            )
 
     async def test_gps_loss_triggers_abort(self):
         """
@@ -139,9 +139,9 @@ class TestScenarioBehavior:
         # Should have inspection or wait goals
         actions = [d.get("action", "").lower() for d in decisions]
         valid_normal_actions = ["inspect_asset", "wait", "inspect"]
-        assert any(
-            action in valid_normal_actions for action in actions
-        ), f"Normal ops should have inspect/wait actions, got: {actions}"
+        assert any(action in valid_normal_actions for action in actions), (
+            f"Normal ops should have inspect/wait actions, got: {actions}"
+        )
 
     async def test_weather_emergency_triggers_return(self):
         """
@@ -205,9 +205,9 @@ class TestMultiDroneCoordination:
         # No duplicates (unless WAIT/ABORT which have no target)
         unique_targets = set(target_assets)
         if len(target_assets) > 1:
-            assert len(unique_targets) == len(
-                target_assets
-            ), f"Drones should have unique targets: {target_assets}"
+            assert len(unique_targets) == len(target_assets), (
+                f"Drones should have unique targets: {target_assets}"
+            )
 
     async def test_fleet_coverage_distributes_work(self):
         """
@@ -230,9 +230,9 @@ class TestMultiDroneCoordination:
         drones_with_decisions = {d.get("drone_id") for d in decisions if d.get("drone_id")}
 
         # With 3 drones, at least 2 should have received decisions
-        assert (
-            len(drones_with_decisions) >= 2
-        ), f"Work should be distributed: only {len(drones_with_decisions)} drones got decisions"
+        assert len(drones_with_decisions) >= 2, (
+            f"Work should be distributed: only {len(drones_with_decisions)} drones got decisions"
+        )
 
 
 @pytest.mark.asyncio

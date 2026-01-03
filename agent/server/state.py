@@ -114,6 +114,7 @@ class ServerState:
         # Multi-drone fleet bridge (optional, for multi-drone scenarios)
         self.fleet_bridge = None  # AgentFleetBridge instance
         self.fleet_bridge_enabled = False
+        self.fleet_scenario_id: str | None = None
 
         # Camera streaming state
         self.camera_streaming: dict[str, asyncio.Task] = {}  # drone_id -> streaming task

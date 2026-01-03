@@ -7,8 +7,9 @@ from __future__ import annotations
 
 import asyncio
 import math
+import os
 from datetime import datetime
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 from typing import Any
 
 import structlog
@@ -23,6 +24,23 @@ from mapping.real_capture import RealCaptureConfig, RealSensorCapture
 from mapping.safety_gates import MapUpdateGate, SafetyGateConfig
 
 logger = structlog.get_logger(__name__)
+
+
+def _is_wsl() -> bool:
+    return bool(os.environ.get("WSL_DISTRO_NAME") or os.environ.get("WSL_INTEROP"))
+
+
+def _normalize_wsl_unc_path(path_str: str) -> str | None:
+    if not _is_wsl():
+        return None
+    lower = path_str.lower()
+    if not (lower.startswith("\\\\wsl.localhost\\") or lower.startswith("\\\\wsl$\\")):
+        return None
+    win_path = PureWindowsPath(path_str)
+    if len(win_path.parts) < 2:
+        return None
+    linux_path = Path("/").joinpath(*win_path.parts[2:])
+    return str(linux_path)
 
 
 # -----------------------------------------------------------------------------
@@ -629,7 +647,8 @@ async def get_map_preview() -> dict:
     preview_points: list[dict[str, float]] = []
     point_cloud_path = metadata.get("point_cloud_path")
     if point_cloud_path:
-        candidate = Path(point_cloud_path)
+        normalized = _normalize_wsl_unc_path(str(point_cloud_path))
+        candidate = Path(normalized) if normalized else Path(point_cloud_path)
         if not candidate.is_absolute():
             repo_root = Path(__file__).resolve().parents[2]
             candidate = repo_root / candidate

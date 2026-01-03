@@ -260,8 +260,7 @@ async def _process_state(state: VehicleStateRequest, *, source: str) -> Decision
             reason=escalation.reason if escalation else "Unknown",
         )
         reason = (
-            "Decision blocked by critics: "
-            f"{escalation.reason if escalation else 'Safety concerns'}"
+            f"Decision blocked by critics: {escalation.reason if escalation else 'Safety concerns'}"
         )
         decision = Decision.abort(reason=reason)
 

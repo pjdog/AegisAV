@@ -1,0 +1,4 @@
+{
+  "datasets": [],
+  "notes": "Add regression sequences under data/maps/regression/sequence_<name> and update this index."
+}

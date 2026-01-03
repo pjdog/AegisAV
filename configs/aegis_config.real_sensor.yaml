@@ -99,7 +99,7 @@ mapping:
   fused_map_max_versions: 15
   fused_map_max_age_days: 14
   fused_map_keep_last: 5
-  preflight_enabled: false
+  preflight_enabled: true
   preflight_altitude_agl: 20.0
   preflight_step_m: 15.0
   preflight_velocity_ms: 4.0

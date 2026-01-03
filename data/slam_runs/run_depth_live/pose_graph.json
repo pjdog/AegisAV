@@ -1,0 +1,11 @@
+{
+  "format_version": 1,
+  "backend": "airsim_depth",
+  "generated_at": "2026-01-03T00:44:16.440304",
+  "sequence_id": "airsim_depth_live",
+  "frame_count": 0,
+  "keyframe_count": 0,
+  "keyframes": [],
+  "frames": [],
+  "point_cloud": "\\\\wsl.localhost\\Ubuntu\\home\\devcontainers\\AegisAV\\data\\slam_runs\\run_depth_live\\map_points.npy"
+}

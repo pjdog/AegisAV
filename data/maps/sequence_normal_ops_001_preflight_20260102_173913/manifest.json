@@ -1,0 +1,117 @@
+{
+  "manifest_version": "1.0",
+  "dataset_id": "normal_ops_001_preflight",
+  "sequence_id": "normal_ops_001_preflight_20260102_173913",
+  "version": 1,
+  "created_at": "2026-01-02T17:39:13.521162",
+  "capture_start": "2026-01-02T17:41:25.541124",
+  "capture_end": "2026-01-02T17:41:58.410043",
+  "paths": {
+    "base": ".",
+    "frames": "frames",
+    "keyframes": "keyframes",
+    "poses": "poses"
+  },
+  "sensor": {
+    "type": "airsim",
+    "calibration": {
+      "intrinsics": {
+        "fx": 961.6161300315734,
+        "fy": 961.6161300315734,
+        "cx": 960.0,
+        "cy": 540.0,
+        "width": 1920,
+        "height": 1080
+      },
+      "distortion": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "T_body_camera": [
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "T_body_imu": null,
+      "depth": {
+        "scale": 1.0,
+        "min_m": 0.1,
+        "max_m": 100.0
+      }
+    }
+  },
+  "coordinate_frame": {
+    "type": "NED",
+    "origin_latitude": 37.7749,
+    "origin_longitude": -122.4194,
+    "origin_altitude_m": 0.0
+  },
+  "statistics": {
+    "frame_count": 2,
+    "keyframe_count": 0,
+    "duration_s": 33.094619274139404,
+    "avg_fps": 0.06043278466003771
+  },
+  "frames": [
+    {
+      "frame_index": 0,
+      "timestamp_s": 1767393684.8080668,
+      "image_path": "frames\\1767393684808066700.png",
+      "depth_path": "frames\\1767393684808066700_depth.npy",
+      "position": [
+        25.258766174316406,
+        21.137948989868164,
+        -19.925500869750977
+      ],
+      "orientation": [
+        -2.987856556646766,
+        0.7913229223031233,
+        35.07487023151319
+      ],
+      "quality": {
+        "blur_score": 0.0,
+        "feature_count": 0
+      }
+    },
+    {
+      "frame_index": 1,
+      "timestamp_s": 1767393717.902686,
+      "image_path": "frames\\1767393717902686300.png",
+      "depth_path": "frames\\1767393717902686300_depth.npy",
+      "position": [
+        34.113826751708984,
+        30.54779624938965,
+        -19.615680694580078
+      ],
+      "orientation": [
+        -2.2691747964869617,
+        -5.032278529450753,
+        44.887126221361264
+      ],
+      "quality": {
+        "blur_score": 0.0,
+        "feature_count": 0
+      }
+    }
+  ],
+  "metadata": {
+    "scenario_id": "normal_ops_001",
+    "capture_type": "preflight"
+  }
+}

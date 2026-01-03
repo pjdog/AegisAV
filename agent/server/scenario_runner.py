@@ -22,7 +22,7 @@ from agent.server.critics.orchestrator import AuthorityModel, CriticOrchestrator
 from agent.server.decision import Decision
 from agent.server.events import Event, EventSeverity, EventType
 from agent.server.goal_selector import GoalSelector
-from agent.server.goals import Goal, GoalType
+from agent.server.goals import Goal, GoalSelectorConfig, GoalType
 from agent.server.monitoring.explanation_agent import ExplanationAgent
 from agent.server.risk_evaluator import RiskAssessment, RiskFactor, RiskLevel
 from agent.server.scenarios import (
@@ -144,6 +144,8 @@ class ScenarioRunner:
         log_dir: Path | None = None,
         seed: int | None = None,
         enable_critics: bool = True,
+        enable_llm: bool = True,
+        use_advanced_engine: bool = True,
         critic_authority: str = "advisory",
         enable_explanations: bool = False,
     ) -> None:
@@ -156,6 +158,8 @@ class ScenarioRunner:
             log_dir: Directory to save decision logs
             seed: Random seed for deterministic simulation (None for random)
             enable_critics: Whether to enable critic validation of decisions
+            enable_llm: Whether to allow LLM evaluation in critics
+            use_advanced_engine: Whether to enable the advanced goal selector
             critic_authority: Authority model ('advisory', 'blocking', 'escalation', 'hierarchical')
             enable_explanations: Whether to generate decision explanations
         """
@@ -167,6 +171,9 @@ class ScenarioRunner:
         self._seed = seed
         self._rng = random.Random(seed)
         self._running_task: asyncio.Task | None = None
+        self.goal_selector = GoalSelector(
+            GoalSelectorConfig(use_advanced_engine=use_advanced_engine)
+        )
 
         # Callbacks for external integration
         self.on_decision: Callable[[str, Goal, dict], None] | None = None
@@ -178,13 +185,15 @@ class ScenarioRunner:
 
         # B.1: Initialize critic orchestrator for multi-agent validation
         self.enable_critics = enable_critics
+        self.enable_llm = enable_llm
+        self.use_advanced_engine = use_advanced_engine
         self.critic_orchestrator: CriticOrchestrator | None = None
         if enable_critics:
             try:
                 authority = AuthorityModel(critic_authority)
                 self.critic_orchestrator = CriticOrchestrator(
                     authority_model=authority,
-                    enable_llm=False,  # Start with fast classical critics
+                    enable_llm=enable_llm,
                 )
                 logger.info(f"Critic orchestrator initialized: authority={authority.value}")
             except Exception as e:
@@ -255,6 +264,9 @@ class ScenarioRunner:
                 drone=drone,
                 world_model=world_model,
             )
+
+        if self.goal_selector.use_advanced_engine and not self.goal_selector.advanced_engine:
+            await self.goal_selector.initialize()
 
         logger.info(f"Loaded scenario: {scenario.name} with {len(scenario.drones)} drones")
         return True
@@ -662,9 +674,9 @@ class ScenarioRunner:
                         # Record vision capture for the inspection
                         if server_state.vision_enabled and server_state.vision_service:
                             asyncio.create_task(
-                                server_state.vision_service.process_inspection_result(
-                                    asset_id=asset_id,
-                                    vehicle_state={
+                                self._record_inspection_capture(
+                                    asset_id,
+                                    {
                                         "position": {
                                             "latitude": drone.latitude,
                                             "longitude": drone.longitude,
@@ -978,7 +990,7 @@ class ScenarioRunner:
                 )
             else:
                 logger.info(
-                    "All assets inspected; resetting inspection cycle " "(total=%d, inspected=%s)",
+                    "All assets inspected; resetting inspection cycle (total=%d, inspected=%s)",
                     len(snapshot.assets),
                     list(self.run_state.assets_inspected),
                 )
@@ -1092,8 +1104,7 @@ class ScenarioRunner:
         logger.info("  - Pending inspections: %s", [a.asset_id for a in pending_assets])
 
         # Create goal selector and make decision
-        selector = GoalSelector()
-        goal = await selector.select_goal(available_snapshot)
+        goal = await self.goal_selector.select_goal(available_snapshot)
 
         decision_id = (
             f"sim_{self.run_state.run_id}_{drone.drone_id}_{drone_state.decisions_made + 1}"
@@ -1371,6 +1382,68 @@ class ScenarioRunner:
             drone_state.target_asset_id = None
             drone_state.target_altitude_agl = None
             drone_state.target_is_dock = False
+
+    async def _record_inspection_capture(self, asset_id: str, vehicle_state: dict) -> None:
+        """Persist a single vision capture for an inspection."""
+        if not server_state.vision_enabled or not server_state.vision_service:
+            return
+        try:
+            observation = await server_state.vision_service.process_inspection_result(
+                asset_id=asset_id,
+                vehicle_state=vehicle_state,
+            )
+            defect_classes = [
+                d.get("detection_class") for d in observation.detections if d.get("detection_class")
+            ]
+            server_state.last_vision_observation = {
+                "asset_id": asset_id,
+                "timestamp": observation.timestamp.isoformat(),
+                "observation_id": observation.observation_id,
+                "defect_detected": observation.defect_detected,
+                "anomaly_created": observation.anomaly_created,
+                "max_confidence": observation.max_confidence,
+                "max_severity": observation.max_severity,
+                "detections": observation.detections,
+                "defect_classes": defect_classes,
+            }
+            if server_state.store:
+                await server_state.store.add_detection(
+                    asset_id,
+                    observation.model_dump(mode="json"),
+                )
+                if observation.anomaly_created and observation.anomaly_id:
+                    await server_state.store.add_anomaly(
+                        observation.anomaly_id,
+                        {
+                            "anomaly_id": observation.anomaly_id,
+                            "asset_id": observation.asset_id,
+                            "severity": observation.max_severity,
+                            "confidence": observation.max_confidence,
+                            "source": "scenario_inspection",
+                            "timestamp": observation.timestamp.isoformat(),
+                        },
+                    )
+                await server_state.store.set_state(
+                    "vision:last_capture",
+                    {
+                        "asset_id": asset_id,
+                        "observation_id": observation.observation_id,
+                        "image_path": str(observation.image_path)
+                        if observation.image_path
+                        else None,
+                        "timestamp": observation.timestamp.isoformat(),
+                        "defect_detected": observation.defect_detected,
+                        "anomaly_created": observation.anomaly_created,
+                        "detections": observation.detections,
+                        "defect_classes": defect_classes,
+                    },
+                )
+        except Exception as exc:
+            logger.warning(
+                "vision_inspection_capture_failed",
+                asset_id=asset_id,
+                error=str(exc),
+            )
 
     def _calculate_risk(self, drone_state: DroneSimState) -> float:
         """Calculate current risk score for a drone."""

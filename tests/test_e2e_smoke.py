@@ -101,9 +101,9 @@ class TestE2ESmoke:
                 })
 
             # Both runs should produce identical results
-            assert (
-                results[0]["decisions"] == results[1]["decisions"]
-            ), f"Decision counts differ: {results[0]['decisions']} vs {results[1]['decisions']}"
+            assert results[0]["decisions"] == results[1]["decisions"], (
+                f"Decision counts differ: {results[0]['decisions']} vs {results[1]['decisions']}"
+            )
 
     @pytest.mark.asyncio
     async def test_smoke_runner_lifecycle(self):

@@ -2,9 +2,9 @@
 
 # AegisAV
 
-### Autonomous Infrastructure Inspection with Explainable AI
+### Autonomous infrastructure inspection with explainable AI
 
-[![Python 3.12+](https://img.shields.io/badge/Python-3.12+-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
+[![Python 3.10+](https://img.shields.io/badge/Python-3.10+-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
 [![PydanticAI](https://img.shields.io/badge/Engine-PydanticAI-00ff9d?style=for-the-badge)](https://ai.pydantic.dev/)
 [![ArduPilot](https://img.shields.io/badge/Flight-ArduPilot%20SITL-FFB800?style=for-the-badge)](https://ardupilot.org/)
 [![Cosys-AirSim](https://img.shields.io/badge/Rendering-Cosys--AirSim%20%2B%20UE5.5-0E1128?style=for-the-badge)](https://cosys-lab.github.io/Cosys-AirSim/)
@@ -12,7 +12,7 @@
 
 **AI-powered autonomous drone system for infrastructure monitoring**
 
-[Quick Start](#-quick-start) | [Simulation](#-high-fidelity-simulation) | [Architecture](#-architecture) | [Vision System](#-vision-pipeline) | [Dashboard](#-dashboard)
+[Quick Start](#-quick-start) | [Simulation](#-simulation) | [Architecture](#-architecture) | [Mapping](#-mapping--slam) | [Dashboard](#-dashboard)
 
 </div>
 
@@ -20,63 +20,36 @@
 
 ## What is AegisAV?
 
-**AegisAV** is an autonomous drone system designed for **infrastructure inspection** - solar farms, wind turbines, power lines, and electrical substations. It combines:
+**AegisAV** is an autonomous drone inspection stack for assets like solar farms, wind turbines, substations, and power lines. It integrates AI decision-making, risk-aware validation, computer vision, and high-fidelity simulation.
 
-- **LLM-Powered Decision Making** - Goals are selected and prioritized by AI agents
-- **Multi-Critic Safety Validation** - Every action is validated by safety, efficiency, and goal-alignment critics
-- **Computer Vision Pipeline** - Defect detection with YOLO-based object detection
-- **Rock-Solid Flight Control** - Built on ArduPilot, the same autopilot used in production drones
-- **High-Fidelity Simulation** - Photorealistic rendering with Unreal Engine 5.5 + Cosys-AirSim
+## Core Capabilities
 
----
-
-## Key Features
-
-
----
-
-## Key Features
-
-| Feature | Description |
-|---------|-------------|
-| **Autonomous Inspection** | AI selects which assets to inspect based on priority and conditions |
-| **Defect Detection** | Computer vision identifies cracks, corrosion, hot spots, and damage |
-| **Explainable AI** | Every decision includes human-readable reasoning and risk assessment |
-| **Multi-Agent Critics** | 3-layer safety validation (Safety, Efficiency, Goal) for every action |
-| **Cost Awareness** | Real-time LLM token tracking and budget enforcement |
-| **Edge Intelligence** | Configurable policies for bandwidth management and anomaly gating |
-| **Risk Evaluation** | **[NEW]** Framework to quantify mission risk based on battery, weather, and GPS factors |
-| **Behavioral Validation** | **[NEW]** Integration tests ensuring correct multi-drone decision logic in complex scenarios |
-| **Strict Type Safety** | **[NEW]** Full type annotations on all functions with mypy enforcement |
-| **Code Quality** | **[NEW]** Pre-commit hooks with ruff, mypy, pylint, and gitleaks |
-| **Real-Time Dashboard** | Monitor vehicle state, detections, and AI reasoning live |
-| **Production Flight Controller** | Uses ArduPilot SITL - same code that runs on real Pixhawk hardware |
-| **Photorealistic Simulation** | Unreal Engine 5.5 rendering with Cosys-AirSim physics |
+| Area | Highlights |
+|------|------------|
+| **Autonomous Decisioning** | Goal selection, prioritization, and mission management (LLM-assisted when enabled) |
+| **Safety & Oversight** | Multi-critic validation (safety, efficiency, goal alignment) with explainable outcomes |
+| **Vision Pipeline** | Defect detection, inspection observations, and anomaly creation |
+| **Mapping** | SLAM preflight, navigation map fusion, and splat training workflows |
+| **Simulation** | Multi-drone scenarios with Unreal Engine and Cosys-AirSim |
+| **Observability** | Live dashboard, reasoning feed, telemetry, outcomes, and logs |
 
 ---
 
 ## Quick Start
 
-### Option 1: Vision Demo (No External Dependencies)
+### Option 1: Vision Demo (no external simulation)
 
 ```bash
-# Clone and setup
-git clone https://github.com/pjdog/AegisAV.git && cd AegisAV
+# From repo root
 uv sync
-
-# Run the integrated demo (uses development config by default)
 uv run python examples/demo_integrated_vision.py
 ```
 
-This generates a visual report with annotated images and a timeline:
-- Output directory: `data/vision/demo_visual/`
-- HTML report: `data/vision/demo_visual/reports/demo_report.html`
+Outputs:
+- `data/vision/demo_visual/`
+- `data/vision/demo_visual/reports/demo_report.html`
 
-Open the HTML report in your browser to view the demo.
-
-### Option 2: Lightweight Simulation (Laptop-Friendly)
-
-Run the lightweight simulator server and built-in visualizer:
+### Option 2: Lightweight Simulation
 
 ```bash
 uv run python -m simulation.lightweight.server
@@ -91,25 +64,17 @@ Optional: run the agent server alongside it:
 uv run python -m agent.server.main
 ```
 
-Note: live decision wiring is still in progress. See
-`docs/INTEGRATION_STATUS.md` for current gaps.
+### Option 3: Full Simulation
 
-### Option 3: Full Simulation (Recommended)
-
-1. **Setup Simulation**: Follow the [Simulation Setup](#-high-fidelity-simulation) guide.
-2. **Configure**: Copy `configs/aegis_config.development.yaml` to `configs/aegis_config.yaml`.
-3. **Run**:
+1. Configure: copy `configs/aegis_config.development.yaml` to `configs/aegis_config.yaml`.
+2. Start Unreal/Cosys-AirSim and ArduPilot SITL.
+3. Run the simulation:
 
 ```bash
-# Terminal 1: Start Unreal/Cosys-AirSim (see verification guide)
-# Terminal 2: Start ArduPilot SITL
-# Terminal 3: Run AegisAV
 uv run python simulation/run_simulation.py --airsim --sitl
 ```
 
-On Windows, you can launch Cosys-AirSim with `start_airsim.bat` (generated by the installer).
-
-If the overlay is blank or nothing is moving, see `docs/OVERLAY_TROUBLESHOOTING.md`.
+On Windows, use `scripts/start_server.bat` and `start_airsim.bat` after running `INSTALL.bat`.
 
 ---
 
@@ -121,7 +86,7 @@ If the overlay is blank or nothing is moving, see `docs/OVERLAY_TROUBLESHOOTING.
 │                  (Agent Server - PydanticAI)                       │
 │   ┌─────────────┐  ┌─────────────┐  ┌─────────────────────────┐   │
 │   │ World Model │  │Goal Selector│  │    Multi-Critic         │   │
-│   │  (Assets,   │  │    (LLM)    │  │ Safety│Efficiency│Goal  │   │
+│   │  (Assets,   │  │ (Rules/LLM) │  │ Safety│Efficiency│Goal  │   │
 │   │  Vehicle)   │  │             │  │ Critic│  Critic  │Align │   │
 │   └─────────────┘  └─────────────┘  └─────────────────────────┘   │
 └───────────────────────────────────────────────────────────────────┘
@@ -134,118 +99,51 @@ If the overlay is blank or nothing is moving, see `docs/OVERLAY_TROUBLESHOOTING.
 │   │   Capture   │→ │  Detector   │→ │   & Classification      │   │
 │   └─────────────┘  └─────────────┘  └─────────────────────────┘   │
 └───────────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
+         │
+         ▼
+┌───────────────────────────────────────────────────────────────────┐
+│                        MAPPING LAYER                               │
+│   SLAM Preflight → Map Fusion → Navigation Map → Splat Training     │
+└───────────────────────────────────────────────────────────────────┘
+         │
+         ▼
 ┌───────────────────────────────────────────────────────────────────┐
 │                      EXECUTION LAYER                               │
-│   ┌─────────────┐  ┌─────────────┐  ┌─────────────────────────┐   │
-│   │   Action    │  │    State    │  │   Edge Policy Engine    │   │
-│   │  Executor   │  │  Collector  │  │  (Bandwidth/Gating)     │   │
-│   └─────────────┘  └─────────────┘  └─────────────────────────┘   │
-└───────────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌───────────────────────────────────────────────────────────────────┐
-│                      CONTROL LAYER                                 │
-│                (ArduPilot SITL / Pixhawk Hardware)                │
-│            Stabilization • Navigation • Sensor Fusion             │
-│                        (MAVLink)                                  │
+│   Action Executor • Telemetry • Edge Policies • Autopilot (MAVLink) │
 └───────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## Configuration & Edge Policy
+## Mapping & SLAM
 
-AegisAV features a unified configuration system (`ConfigManager`) supporting:
-- **YAML Configs**: `configs/aegis_config.yaml` (overrides defaults)
-- **Environment Variables**: `AEGIS_VISION_ENABLED=true`
-- **Runtime Updates**: Change settings via Dashboard UI or API
+AegisAV supports mapping-first missions:
 
-### Edge Computing Policies
-Optimize bandwidth and processing by configuring the client's behavior:
-- **Anomaly Gating**: Only transmit images when defects exceed specific confidence/severity thresholds.
-- **Capture Cadence**: Dynamically adjust frame rates based on mission phase.
-- **Cost Budgeting**: LLM calls are tracked and capped daily (default $1.00/day).
+- **Preflight SLAM**: captures a short mapping pass before mission start.
+- **Navigation map fusion**: converts point clouds to obstacle maps.
+- **Splat training**: optional scene reconstruction for overlay and change detection.
 
-### Persistence (Redis)
-Enable Redis for persistent telemetry, detections, anomalies, and mission data:
-- Config: `configs/aegis_config.yaml` -> `redis.enabled: true`
-- Env: `AEGIS_REDIS_ENABLED=true`, `AEGIS_REDIS_HOST`, `AEGIS_REDIS_PORT`
-- Docker: `docker compose up --build` starts Redis automatically.
-
-### Authentication (API Key)
-Enable API key authentication for protected endpoints:
-- Config: `auth.enabled: true`, `auth.api_key: <key>`
-- Env: `AEGIS_API_KEY=<key>`
-- Header: `X-API-Key: <key>`
-
-The current dashboard does not send API keys. Keep auth disabled for UI use,
-or front it with a proxy that injects the header. See
-`docs/INTEGRATION_STATUS.md`.
-
----
-
-## Vision Pipeline
-
-The vision system detects infrastructure defects in real-time:
-
-### Supported Defect Types
-
-| Category | Defects Detected |
-|----------|------------------|
-| **Solar Panels** | Cracks, hot spots, debris, soiling, cell damage |
-| **Wind Turbines** | Blade erosion, lightning damage, ice accumulation |
-| **Power Lines** | Damaged conductors, vegetation encroachment, insulator damage |
-| **Substations** | Corrosion, oil leaks, thermal anomalies |
+Relevant configuration lives in `configs/aegis_config.yaml` under `mapping`.
 
 ---
 
 ## Dashboard
 
-The Aegis Onyx Dashboard provides real-time monitoring and configuration:
+The dashboard provides:
+- Live telemetry and drone state
+- Reasoning feed and critic verdicts
+- Vision detections and recent captures
+- Mission progress, risks, and configuration updates
 
-| Panel | Description |
-|-------|-------------|
-| **Vehicle State** | Position, altitude, battery, flight mode |
-| **Radar View** | Spatial visualization of vehicle and assets |
-| **Reasoning Feed** | Live AI decision explanations and critic feedback |
-| **Settings** | **[NEW]** Runtime configuration of thresholds and policies |
-| **Mission Status** | Current goal and progress |
-
-Access at:
-- `http://localhost:8080/dashboard` (default server)
-- `http://localhost:8000/dashboard` (when using `simulation/run_simulation.py`)
-
-## Logs & Observability
-
-- Agent server (dashboard log feed): `GET /api/logs`
-- Decision logs: `logs/decisions_<run_id>.jsonl`
-- Telemetry logs: `logs/telemetry_<run_id>.jsonl`
-- Outcome logs: `logs/outcomes/outcomes_<run_id>.jsonl`
-- Lightweight sim log aggregation: `GET /api/logs` and `/api/logs/sources`
-  on the lightweight server (see Option 2).
+Default entry point: `http://localhost:8080/dashboard`.
 
 ---
 
-## Project Structure
+## Configuration
 
-```
-AegisAV/
-├── agent/
-│   ├── server/              # Decision layer
-│   │   ├── content/         # ConfigManager and settings
-│   │   ├── critics/         # Multi-agent validation system
-│   │   ├── monitoring/      # Cost tracking, outcome logging
-│   │   └── vision/          # Vision service integration
-│   └── client/              # Execution layer & edge policies
-├── autonomy/                # Vehicle interface (MAVLink)
-├── vision/                  # Computer vision pipeline
-├── simulation/              # High-fidelity simulation
-├── frontend/                # Aegis Onyx dashboard (Vite + React)
-├── configs/                 # Configuration templates
-└── tests/                   # Comprehensive test suite (150+ tests)
-```
+- Primary config: `configs/aegis_config.yaml` (copy from `configs/aegis_config.development.yaml`).
+- Environment overrides: `AEGIS_*` variables (see `agent/server/config_manager.py`).
+- Vision config: `configs/vision_config.yaml`.
 
 ---
 
@@ -253,80 +151,52 @@ AegisAV/
 
 ### Prerequisites
 
-- **Python 3.12+**
-- **uv** - `curl -LsSf https://astral.sh/uv/install.sh | sh`
-- **Node.js 18+** - For dashboard development
+- Python 3.10+
+- uv (recommended)
+- Node.js 18+ (dashboard)
 
 ### Install & Build
 
 ```bash
-# Sync Python environment
 uv sync
-
-# Build dashboard
 cd frontend && npm install && npm run build && cd ..
 ```
 
-### Code Quality
-
-AegisAV enforces strict code quality via pre-commit hooks:
+### Format
 
 ```bash
-# Install pre-commit hooks
-pre-commit install
-
-# Run manually
-pre-commit run --all-files
+uv run ruff format .
 ```
 
-**Enforced Standards:**
-- **Type Safety**: All functions have type annotations (ruff ANN rules + mypy)
-- **Documentation**: Google-style docstrings (ruff D rules)
-- **Security**: Bandit security scanning + gitleaks secret detection
-- **Style**: Consistent formatting with ruff
-
-### Run Tests
+### Tests
 
 ```bash
-# Full test suite
 uv run pytest
-
-# With coverage
-uv run pytest --cov=agent --cov=autonomy --cov=vision
-
-# Specific modules
-uv run pytest tests/test_config_manager.py -v
 ```
 
 ---
 
-## Roadmap
+## Project Structure
 
-See [plan.md](plan.md) for the detailed project roadmap.
-
-## Integration Status
-
-See `docs/INTEGRATION_STATUS.md` for wiring gaps and pending connections.
-
-- [x] **Phase 1**: Foundation (Architecture, Simulation, Vision)
-- [x] **Phase 2**: Multi-Agent Validation (Critics, Safety, Integration)
-- [ ] **Phase 3**: Intelligence & Production (Optimization, Learning)
-    - [x] System Configuration & UI
-    - [x] Edge Policies & Cost Tracking
-    - [x] Risk Evaluation & Behavioral Tests
-    - [x] Full Type Safety & Code Quality Enforcement
-    - [ ] Hybrid LLM Decision Engine
-    - [ ] Advanced Explanation Agent
+```
+AegisAV/
+├── agent/                  # Decision layer, APIs, vision service
+├── autonomy/               # MAVLink and flight control interfaces
+├── vision/                 # Vision pipeline and models
+├── mapping/                # SLAM, point clouds, splat training
+├── simulation/             # Scenarios and AirSim bridges
+├── frontend/               # Dashboard (Vite + React)
+├── configs/                # Configuration templates
+└── tests/                  # Test suite
+```
 
 ---
 
 ## License
 
-**MIT License** - Free for research, education, and development.
+**MIT License** - Free for research and development.
 
-> **Disclaimer**: This software is for simulation and research only. Not certified for actual flight operations.
-
----
+> Disclaimer: This software is for simulation and research only. Not certified for actual flight operations.
 
 <div align="center">
 

@@ -1,0 +1,97 @@
+{
+  "manifest_version": "1.0",
+  "dataset_id": "multi_anom_001_preflight",
+  "sequence_id": "multi_anom_001_preflight_20260102_131637",
+  "version": 1,
+  "created_at": "2026-01-02T13:16:37.367955",
+  "capture_start": "2026-01-02T13:16:38.141167",
+  "capture_end": "2026-01-02T13:16:38.141167",
+  "paths": {
+    "base": ".",
+    "frames": "frames",
+    "keyframes": "keyframes",
+    "poses": "poses"
+  },
+  "sensor": {
+    "type": "airsim",
+    "calibration": {
+      "intrinsics": {
+        "fx": 641.077420021049,
+        "fy": 641.077420021049,
+        "cx": 640.0,
+        "cy": 360.0,
+        "width": 1280,
+        "height": 720
+      },
+      "distortion": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "T_body_camera": [
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "T_body_imu": null,
+      "depth": {
+        "scale": 1.0,
+        "min_m": 0.1,
+        "max_m": 100.0
+      }
+    }
+  },
+  "coordinate_frame": {
+    "type": "NED",
+    "origin_latitude": 37.775043621265496,
+    "origin_longitude": -122.41919616374312,
+    "origin_altitude_m": 0.0
+  },
+  "statistics": {
+    "frame_count": 1,
+    "keyframe_count": 0,
+    "duration_s": 0.0,
+    "avg_fps": 0.0
+  },
+  "frames": [
+    {
+      "frame_index": 0,
+      "timestamp_s": 1767377797.7962966,
+      "image_path": "frames\\1767377797796296800.png",
+      "depth_path": "frames\\1767377797796296800_depth.npy",
+      "position": [
+        19.48244857788086,
+        12.426151275634766,
+        -17.784934997558594
+      ],
+      "orientation": [
+        4.959600002833054,
+        -1.5534772542359478,
+        56.81209363485022
+      ],
+      "quality": {
+        "blur_score": 0.0,
+        "feature_count": 0
+      }
+    }
+  ],
+  "metadata": {
+    "scenario_id": "multi_anom_001",
+    "capture_type": "preflight"
+  }
+}

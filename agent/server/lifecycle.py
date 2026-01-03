@@ -128,6 +128,7 @@ async def lifespan(_app: FastAPI):
 
     config = get_config_manager().config
     apply_llm_settings(config)
+    await server_state.goal_selector.orchestrate(bool(config.agent.use_llm))
     server_state.critic_orchestrator = CriticOrchestrator(
         authority_model=AuthorityModel.ESCALATION,
         enable_llm=config.agent.use_llm,

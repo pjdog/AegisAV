@@ -5,7 +5,9 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>AegisAV Agent Thought Overlay</title>
-  <link rel="icon" type="image/svg+xml" href="/aegis_logo.svg">
+  <link rel="icon" type="image/svg+xml" href="aegis_logo.svg">
+  <link rel="icon" type="image/png" sizes="32x32" href="aegis_logo_32.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="aegis_logo_16.png">
   <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Orbitron:wght@400;500;600;700&display=swap');
 
@@ -567,6 +569,15 @@
       height: 100%;
     }
 
+    #sceneTransformGroup {
+      will-change: transform;
+      /* No transition during drag for instant feedback */
+    }
+
+    #sceneTransformGroup.transitioning {
+      transition: transform 0.1s ease-out;
+    }
+
     /* Isometric grid */
     .iso-grid line {
       stroke: rgba(255, 255, 255, 0.04);
@@ -794,6 +805,11 @@
       pointer-events: auto;
     }
 
+    /* Smooth position transitions for bubble movement (but not initial appearance) */
+    .thought-bubble.visible:not(.dragging) {
+      transition: opacity 0.25s, transform 0.25s, left 0.15s ease-out, top 0.15s ease-out;
+    }
+
     .thought-bubble.dragging {
       transition: none;
       cursor: grabbing;
@@ -820,14 +836,9 @@
       transition: all 0.2s ease;
     }
 
-    /* Connector line from bubble to drone */
+    /* Connector line from bubble to drone - DISABLED */
     .bubble-connector {
-      stroke: var(--accent-cyber);
-      stroke-width: 1.5;
-      stroke-dasharray: 4 3;
-      fill: none;
-      opacity: 0.6;
-      pointer-events: none;
+      display: none;
     }
 
     /* Collapse toggle button */
@@ -1931,13 +1942,15 @@
           </feMerge>
         </filter>
       </defs>
-      <g id="gridLayer"></g>
-      <g id="groundLayer"></g>
-      <g id="mapLayer"></g>
-      <g id="assetLayer"></g>
-      <g id="trailLayer"></g>
-      <g id="droneLayer"></g>
-      <g id="connectorLayer"></g>
+      <g id="sceneTransformGroup">
+        <g id="gridLayer"></g>
+        <g id="groundLayer"></g>
+        <g id="mapLayer"></g>
+        <g id="assetLayer"></g>
+        <g id="trailLayer"></g>
+        <g id="droneLayer"></g>
+        <g id="connectorLayer"></g>
+      </g>
     </svg>
 
     <div class="scene-info" id="sceneInfo" style="display: none;">
@@ -2058,7 +2071,8 @@
       // UI
       expandedDroneId: null,
       dockLocked: false,
-      dockSource: null
+      dockSource: null,
+      lastResetAt: 0
     };
 
     // ========== DOM ELEMENTS ==========
@@ -2233,7 +2247,7 @@
         updateAutoFitIndicator();
         updateZoomIndicator();
 
-        // Throttle redraws
+        // Throttle redraws for smooth zooming
         if (!zoomRAF) {
           zoomRAF = requestAnimationFrame(() => {
             redrawScene();
@@ -2254,20 +2268,19 @@
         }
       });
 
-      let panRAF = null;
       document.addEventListener('mousemove', (e) => {
         if (state.isPanning) {
           const dx = e.clientX - state.panStartX;
           const dy = e.clientY - state.panStartY;
-          CONFIG.panX = state.lastPanX + dx;
-          CONFIG.panY = state.lastPanY + dy;
+          // Store the delta for CSS transform (relative to start)
+          state.panDeltaX = dx;
+          state.panDeltaY = dy;
 
-          // Throttle redraws using requestAnimationFrame
-          if (!panRAF) {
-            panRAF = requestAnimationFrame(() => {
-              redrawScene();
-              panRAF = null;
-            });
+          // Use CSS transform for smooth real-time feedback during drag
+          const group = document.getElementById('sceneTransformGroup');
+          if (group) {
+            group.style.transform = `translate(${dx}px, ${dy}px)`;
+            group.style.transformOrigin = `${CONFIG.originX}px ${CONFIG.originY}px`;
           }
         }
       });
@@ -2276,6 +2289,20 @@
         if (state.isPanning) {
           state.isPanning = false;
           sceneSvg.style.cursor = 'grab';
+
+          // Commit the pan by updating CONFIG and redrawing
+          CONFIG.panX = state.lastPanX + (state.panDeltaX || 0);
+          CONFIG.panY = state.lastPanY + (state.panDeltaY || 0);
+          state.panDeltaX = 0;
+          state.panDeltaY = 0;
+
+          // Reset CSS transform and redraw with final positions
+          const group = document.getElementById('sceneTransformGroup');
+          if (group) {
+            group.style.transform = '';
+          }
+          redrawScene();
+
           // Disable auto-fit when user manually pans
           state.autoFitEnabled = false;
           updateAutoFitIndicator();
@@ -2332,36 +2359,61 @@
       updateAutoFitIndicator();
     }
 
+    // Fast pan/zoom update - uses CSS transform, no element recreation
+    function updateSceneTransform() {
+      const group = document.getElementById('sceneTransformGroup');
+      if (group) {
+        // Apply pan and zoom via CSS transform - hardware accelerated
+        group.style.transform = `translate(${CONFIG.panX}px, ${CONFIG.panY}px) scale(${CONFIG.zoom})`;
+        group.style.transformOrigin = `${CONFIG.originX}px ${CONFIG.originY}px`;
+      }
+    }
+
     function redrawScene() {
-      // Clear layers that need full redraw
+      // Clear layers that need full redraw (static elements only)
       gridLayer.innerHTML = '';
       groundLayer.innerHTML = '';
       mapLayer.innerHTML = '';
+
+      // Reset transform since we're recalculating all positions
+      const group = document.getElementById('sceneTransformGroup');
+      if (group) {
+        group.style.transform = '';
+      }
 
       // Redraw static elements
       renderGrid();
       renderDock();
 
       // Redraw map data - SLAM obstacles integrate into the main view
-      // Note: Map cube preview removed as it was a confusing separate visualization
-      // SLAM obstacles and splat points render directly in the coordinate space
       renderSlamObstacles();
       renderSplatPoints();
       renderTarget();
 
-      // Re-render assets - save data, clear, rebuild
-      const assetsData = Array.from(state.assets.values()).map(a => a.data).filter(Boolean);
-      assetLayer.innerHTML = '';
-      state.assets.clear();
-      assetsData.forEach(data => renderAsset(data));
+      // Update asset positions WITHOUT destroying them
+      state.assets.forEach((assetData, assetId) => {
+        if (assetData.element && assetData.data) {
+          const lat = assetData.data.lat ?? assetData.data.latitude;
+          const lon = assetData.data.lon ?? assetData.data.longitude;
+          if (lat !== undefined && lon !== undefined) {
+            const local = gpsToLocal(lat, lon);
+            const basePos = toIsometric(local.x, local.y, 0);
+            const topPos = toIsometric(local.x, local.y, assetData.data.alt || assetData.data.altitude_m || 10);
+            // Update transform for the group
+            assetData.element.setAttribute('transform', `translate(${basePos.screenX}, ${basePos.screenY})`);
+          }
+        }
+      });
 
-      // Re-render drones - save data, clear, rebuild
-      const dronesData = Array.from(state.drones.values()).map(d => d.data).filter(Boolean);
-      droneLayer.innerHTML = '';
-      trailLayer.innerHTML = '';
-      thoughtBubbles.innerHTML = '';
-      state.drones.clear();
-      dronesData.forEach(data => renderDrone(data));
+      // Update drone positions WITHOUT destroying them
+      state.drones.forEach((droneData, droneId) => {
+        if (droneData.element && droneData.data) {
+          const lat = droneData.data.latitude ?? droneData.data.position?.latitude ?? CONFIG.dockLat;
+          const lon = droneData.data.longitude ?? droneData.data.position?.longitude ?? CONFIG.dockLon;
+          const alt = droneData.data.altitude_agl ?? droneData.data.position?.altitude_agl ?? 0;
+          updateDroneVisualPosition(droneId, lat, lon, alt);
+        }
+      });
     }
 
     // ========== SCENE RENDERING ==========
@@ -3309,6 +3361,78 @@
       renderDroneCameraTabs();
     }
 
+    // Drone position animation state for smooth movement
+    const droneAnimState = new Map(); // droneId -> { current: {x,y,shadowY}, target: {x,y,shadowY,lat,lon,alt} }
+    const DRONE_LERP_FACTOR = 0.2; // Smoothing factor for drone movement
+    let droneAnimRunning = false;
+
+    function animateDronePositions() {
+      let needsUpdate = false;
+      const threshold = 0.5; // Pixel threshold
+
+      droneAnimState.forEach((animState, droneId) => {
+        const drone = state.drones.get(droneId);
+        if (!drone || !animState.target) return;
+
+        const current = animState.current;
+        const target = animState.target;
+
+        // Lerp x and y positions
+        const newX = lerp(current.x, target.x, DRONE_LERP_FACTOR);
+        const newY = lerp(current.y, target.y, DRONE_LERP_FACTOR);
+        const newShadowY = lerp(current.shadowY, target.shadowY, DRONE_LERP_FACTOR);
+
+        const closeEnough =
+          Math.abs(target.x - newX) < threshold &&
+          Math.abs(target.y - newY) < threshold &&
+          Math.abs(target.shadowY - newShadowY) < threshold;
+
+        if (closeEnough) {
+          // Snap to final position
+          current.x = target.x;
+          current.y = target.y;
+          current.shadowY = target.shadowY;
+        } else {
+          current.x = newX;
+          current.y = newY;
+          current.shadowY = newShadowY;
+          needsUpdate = true;
+        }
+
+        // Apply position to drone elements
+        applyDronePosition(drone, current.x, current.y, current.shadowY);
+
+        // Update connector if bubble visible
+        if (drone.bubble.classList.contains('visible')) {
+          updateConnectorLine(droneId);
+        }
+      });
+
+      if (needsUpdate) {
+        droneAnimRunning = true;
+        requestAnimationFrame(animateDronePositions);
+      } else {
+        droneAnimRunning = false;
+      }
+    }
+
+    function applyDronePosition(drone, screenX, screenY, shadowScreenY) {
+      // Update shadow
+      drone.shadow.setAttribute('cx', screenX);
+      drone.shadow.setAttribute('cy', shadowScreenY);
+
+      // Update body
+      const s = 8;
+      drone.body.setAttribute('points', `${screenX},${screenY - s} ${screenX - s*0.7},${screenY + s*0.5} ${screenX + s*0.7},${screenY + s*0.5}`);
+
+      // Update indicator position
+      drone.indicator.setAttribute('transform', `translate(${screenX + 15}, ${screenY - 15})`);
+
+      // Update label
+      drone.label.setAttribute('x', screenX);
+      drone.label.setAttribute('y', screenY + 20);
+    }
+
     function updateDronePosition(droneId, lat, lon, alt) {
       const drone = state.drones.get(droneId);
       if (!drone) return;
@@ -3317,22 +3441,28 @@
       const pos = toIsometric(local.x, local.y, alt);
       const shadowPos = toIsometric(local.x, local.y, 0);
 
-      // Update shadow
-      drone.shadow.setAttribute('cx', shadowPos.screenX);
-      drone.shadow.setAttribute('cy', shadowPos.screenY);
+      // Initialize or update animation state
+      let animState = droneAnimState.get(droneId);
+      if (!animState) {
+        // First update - snap to position
+        animState = {
+          current: { x: pos.screenX, y: pos.screenY, shadowY: shadowPos.screenY },
+          target: { x: pos.screenX, y: pos.screenY, shadowY: shadowPos.screenY }
+        };
+        droneAnimState.set(droneId, animState);
+        applyDronePosition(drone, pos.screenX, pos.screenY, shadowPos.screenY);
+      } else {
+        // Update target for smooth animation
+        animState.target = { x: pos.screenX, y: pos.screenY, shadowY: shadowPos.screenY };
 
-      // Update body
-      const s = 8;
-      drone.body.setAttribute('points', `${pos.screenX},${pos.screenY - s} ${pos.screenX - s*0.7},${pos.screenY + s*0.5} ${pos.screenX + s*0.7},${pos.screenY + s*0.5}`);
+        // Start animation if not running
+        if (!droneAnimRunning) {
+          droneAnimRunning = true;
+          requestAnimationFrame(animateDronePositions);
+        }
+      }
 
-      // Update indicator position
-      drone.indicator.setAttribute('transform', `translate(${pos.screenX + 15}, ${pos.screenY - 15})`);
-
-      // Update label
-      drone.label.setAttribute('x', pos.screenX);
-      drone.label.setAttribute('y', pos.screenY + 20);
-
-      // Update trail
+      // Update trail (keep immediate for visual feedback)
       drone.data.positions.push({ x: local.x, y: local.y, z: alt });
       if (drone.data.positions.length > 20) drone.data.positions.shift();
 
@@ -3342,8 +3472,8 @@
       });
       drone.trail.setAttribute('d', 'M' + trailPoints.join(' L'));
 
-      // Update bubble position if visible
-      if (drone.bubble.classList.contains('visible')) {
+      // Update bubble position if visible (smoothed via connector animation)
+      if (drone.bubble.classList.contains('visible') && !drone.bubbleOffset?.custom) {
         positionBubble(droneId, pos.screenX, pos.screenY);
       }
 
@@ -3492,24 +3622,62 @@
       });
     }
 
-    function updateConnectorLine(droneId) {
-      const drone = state.drones.get(droneId);
-      if (!drone || !drone.bubble.classList.contains('visible')) {
-        // Remove connector if bubble not visible
-        const existing = document.getElementById(`connector-${droneId}`);
-        if (existing) existing.remove();
-        return;
+    // Smooth connector line animation state
+    const connectorAnimState = new Map(); // droneId -> { current: {x1,y1,x2,y2}, target: {x1,y1,x2,y2}, animating: bool }
+    const CONNECTOR_LERP_FACTOR = 0.25; // Smoothing factor (0-1, lower = smoother but slower)
+
+    function lerp(start, end, factor) {
+      return start + (end - start) * factor;
+    }
+
+    function animateConnectors() {
+      let needsUpdate = false;
+
+      connectorAnimState.forEach((animState, droneId) => {
+        if (!animState.target) return;
+
+        const line = document.getElementById(`connector-${droneId}`);
+        if (!line) return;
+
+        // Lerp current towards target
+        const threshold = 0.5; // Pixel threshold for "close enough"
+        let allClose = true;
+
+        ['x1', 'y1', 'x2', 'y2'].forEach(coord => {
+          const current = animState.current[coord];
+          const target = animState.target[coord];
+          const newVal = lerp(current, target, CONNECTOR_LERP_FACTOR);
+          animState.current[coord] = newVal;
+
+          if (Math.abs(target - newVal) > threshold) {
+            allClose = false;
+          }
+
+          line.setAttribute(coord, newVal);
+        });
+
+        if (!allClose) {
+          needsUpdate = true;
+        } else {
+          // Snap to final position
+          ['x1', 'y1', 'x2', 'y2'].forEach(coord => {
+            animState.current[coord] = animState.target[coord];
+            line.setAttribute(coord, animState.target[coord]);
+          });
+        }
+      });
+
+      if (needsUpdate) {
+        requestAnimationFrame(animateConnectors);
       }
+    }
+
+    function updateConnectorLine(droneId) {
+      // Connector lines disabled - they cause visual issues
+      return;
 
       const connectorLayer = document.getElementById('connectorLayer');
       let line = document.getElementById(`connector-${droneId}`);
-
-      if (!line) {
-        line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-        line.id = `connector-${droneId}`;
-        line.classList.add('bubble-connector');
-        connectorLayer.appendChild(line);
-      }
 
       // Get drone position in scene
       const local = gpsToLocal(drone.data.latitude || CONFIG.dockLat, drone.data.longitude || CONFIG.dockLon);
@@ -3523,10 +3691,52 @@
       const bubbleX = bubbleRect.left - containerRect.left + bubbleRect.width / 2;
       const bubbleY = bubbleRect.bottom - containerRect.top;
 
-      line.setAttribute('x1', dronePos.screenX);
-      line.setAttribute('y1', dronePos.screenY);
-      line.setAttribute('x2', bubbleX);
-      line.setAttribute('y2', bubbleY);
+      const targetCoords = {
+        x1: dronePos.screenX,
+        y1: dronePos.screenY,
+        x2: bubbleX,
+        y2: bubbleY
+      };
+
+      if (!line) {
+        line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+        line.id = `connector-${droneId}`;
+        line.classList.add('bubble-connector');
+        connectorLayer.appendChild(line);
+        drone.connector = line;
+
+        // Initialize at target position (no animation for first render)
+        line.setAttribute('x1', targetCoords.x1);
+        line.setAttribute('y1', targetCoords.y1);
+        line.setAttribute('x2', targetCoords.x2);
+        line.setAttribute('y2', targetCoords.y2);
+
+        connectorAnimState.set(droneId, {
+          current: { ...targetCoords },
+          target: { ...targetCoords }
+        });
+      } else {
+        // Update target and start animation
+        let animState = connectorAnimState.get(droneId);
+        if (!animState) {
+          // Initialize from current line position
+          animState = {
+            current: {
+              x1: parseFloat(line.getAttribute('x1')) || targetCoords.x1,
+              y1: parseFloat(line.getAttribute('y1')) || targetCoords.y1,
+              x2: parseFloat(line.getAttribute('x2')) || targetCoords.x2,
+              y2: parseFloat(line.getAttribute('y2')) || targetCoords.y2
+            },
+            target: { ...targetCoords }
+          };
+          connectorAnimState.set(droneId, animState);
+        } else {
+          animState.target = { ...targetCoords };
+        }
+
+        // Start animation loop if not already running
+        requestAnimationFrame(animateConnectors);
+      }
     }
 
     function toggleDroneBubble(droneId) {
@@ -3652,6 +3862,14 @@
         case 'heartbeat':
         case 'sync':
           break;
+        // Ignore clear messages - we handle state incrementally, not by clearing
+        case 'clear_assets':
+        case 'clear_anomaly_markers':
+        case 'clear_defects':
+        case 'spawn_defect':
+        case 'spawn_anomaly_marker':
+          // These are sent frequently but we don't want to clear during a running scenario
+          break;
         default:
           console.log('Unknown message:', type, data);
       }
@@ -3659,6 +3877,12 @@
 
     // Reset all overlay state when scenario ends
     function handleScenarioReset() {
+      const now = Date.now();
+      if (now - state.lastResetAt < 2000 && state.drones.size === 0) {
+        return;
+      }
+      state.lastResetAt = now;
+
       // Clear all drones
       state.drones.forEach((drone, droneId) => {
         if (drone.element) drone.element.remove();
@@ -3666,6 +3890,12 @@
         if (drone.connector) drone.connector.remove();
       });
       state.drones.clear();
+
+      // Clear connector layer
+      const connectorLayer = document.getElementById('connectorLayer');
+      if (connectorLayer) {
+        connectorLayer.innerHTML = '';
+      }
 
       // Clear all assets
       state.assets.forEach((asset) => {
@@ -3712,7 +3942,23 @@
       appendLog('Scenario reset - all state cleared', 'info');
     }
 
+    // Throttle telemetry updates to prevent UI jitter
+    const telemetryThrottle = new Map(); // droneId -> lastUpdateTime
+    const TELEMETRY_THROTTLE_MS = 50; // Max update frequency: 20 Hz (50ms between updates)
+
     function handleTelemetry(droneId, data) {
+      // Throttle position updates to prevent jitter
+      const now = performance.now();
+      const lastUpdate = telemetryThrottle.get(droneId) || 0;
+      if (now - lastUpdate < TELEMETRY_THROTTLE_MS) {
+        // Still allow battery updates even when throttled
+        if (data.battery_percent !== undefined) {
+          updateBatteryDisplay(data.battery_percent, data.landed_state);
+        }
+        return;
+      }
+      telemetryThrottle.set(droneId, now);
+
       // Ensure drone exists
       if (!state.drones.has(droneId)) {
         renderDrone({ drone_id: droneId, latitude: CONFIG.dockLat, longitude: CONFIG.dockLon, altitude_agl: 0 });
@@ -3799,8 +4045,8 @@
       if (baseDocked && data.docked_drone_id) {
         baseDocked.textContent = data.docked_drone_id ? '1 / 1' : '0 / 1';
       }
-      if (baseCharging && data.charge_percent !== undefined) {
-        baseCharging.textContent = `${data.charge_percent.toFixed(0)}%`;
+      if (baseCharging && data.charge_percent != null) {
+        baseCharging.textContent = `${Number(data.charge_percent).toFixed(0)}%`;
       }
 
       const dockLat = data.latitude ?? data.lat;
@@ -4725,27 +4971,43 @@
         if (!response.ok) return;
         const scenario = await response.json();
 
-        clearScene();
-        renderGrid();
-        renderDock();
+        // Only do a full clear if this is a NEW scenario, not a reload of the same one
+        const isNewScenario = !state.scenario || state.scenario.scenario_id !== scenarioId;
 
-        // Render assets
+        if (isNewScenario) {
+          clearScene();
+          renderGrid();
+          renderDock();
+        }
+
+        // Render assets - only add new ones, don't clear existing
         if (scenario.assets) {
-          scenario.assets.forEach(asset => renderAsset(asset));
+          scenario.assets.forEach(asset => {
+            if (!state.assets.has(asset.asset_id)) {
+              renderAsset(asset);
+            }
+          });
           document.getElementById('infoAssets').textContent = scenario.assets.length;
         }
 
-        // Render drones
+        // Render drones - only add new ones, don't clear existing
         if (scenario.drones) {
-          scenario.drones.forEach(drone => renderDrone(drone));
+          scenario.drones.forEach(drone => {
+            const droneId = drone.drone_id || drone.droneId;
+            if (!state.drones.has(droneId)) {
+              renderDrone(drone);
+            }
+          });
           document.getElementById('infoDrones').textContent = scenario.drones.length;
         }
 
         state.scenario = scenario;
         hideEmptyState();
 
-        // Set target from scenario assets
-        setTargetFromScenario(scenario);
+        // Set target from scenario assets (only if new scenario)
+        if (isNewScenario) {
+          setTargetFromScenario(scenario);
+        }
 
         // Fetch SLAM data and map preview
         await refreshMapPreview();
@@ -5085,12 +5347,21 @@
       renderGrid();
       // Re-render dock
       renderDock();
-      // Re-render assets
+
+      // Update asset positions WITHOUT destroying them
       state.assets.forEach((assetData, assetId) => {
-        if (assetData.element) assetData.element.remove();
-        renderAsset(assetData.data);
+        if (assetData.element && assetData.data) {
+          const lat = assetData.data.lat ?? assetData.data.latitude;
+          const lon = assetData.data.lon ?? assetData.data.longitude;
+          if (lat !== undefined && lon !== undefined) {
+            const local = gpsToLocal(lat, lon);
+            const basePos = toIsometric(local.x, local.y, 0);
+            assetData.element.setAttribute('transform', `translate(${basePos.screenX}, ${basePos.screenY})`);
+          }
+        }
       });
-      // Re-render drones at their current positions
+
+      // Update drone positions WITHOUT destroying them
       state.drones.forEach((droneData, droneId) => {
         if (droneData.element) {
           const lat = droneData.data.latitude ?? droneData.data.position?.latitude ?? CONFIG.dockLat;
@@ -5099,7 +5370,8 @@
           updateDroneVisualPosition(droneId, lat, lon, alt);
         }
       });
-      // Re-render SLAM data (pass state data to functions that need it)
+
+      // Re-render SLAM data
       renderMapCube(state.mapPreview, state.mapStatus);
       renderSlamObstacles();
       renderSplatPoints();

@@ -1,0 +1,97 @@
+{
+  "manifest_version": "1.0",
+  "dataset_id": "coord_001_preflight",
+  "sequence_id": "coord_001_preflight_20260102_230050",
+  "version": 1,
+  "created_at": "2026-01-02T23:00:50.419633",
+  "capture_start": "2026-01-02T23:00:53.329673",
+  "capture_end": "2026-01-02T23:00:53.329673",
+  "paths": {
+    "base": ".",
+    "frames": "frames",
+    "keyframes": "keyframes",
+    "poses": "poses"
+  },
+  "sensor": {
+    "type": "airsim",
+    "calibration": {
+      "intrinsics": {
+        "fx": 961.6161300315734,
+        "fy": 961.6161300315734,
+        "cx": 960.0,
+        "cy": 540.0,
+        "width": 1920,
+        "height": 1080
+      },
+      "distortion": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "T_body_camera": [
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "T_body_imu": null,
+      "depth": {
+        "scale": 1.0,
+        "min_m": 0.1,
+        "max_m": 100.0
+      }
+    }
+  },
+  "coordinate_frame": {
+    "type": "NED",
+    "origin_latitude": 37.7749,
+    "origin_longitude": -122.4194,
+    "origin_altitude_m": 0.0
+  },
+  "statistics": {
+    "frame_count": 1,
+    "keyframe_count": 0,
+    "duration_s": 0.0,
+    "avg_fps": 0.0
+  },
+  "frames": [
+    {
+      "frame_index": 0,
+      "timestamp_s": 1767412851.975067,
+      "image_path": "frames\\1767412851975067000.png",
+      "depth_path": "frames\\1767412851975067000_depth.npy",
+      "position": [
+        52.89063262939453,
+        52.287967681884766,
+        -18.504182815551758
+      ],
+      "orientation": [
+        0.4552798973516595,
+        13.786636366224972,
+        42.30054538632575
+      ],
+      "quality": {
+        "blur_score": 0.0,
+        "feature_count": 0
+      }
+    }
+  ],
+  "metadata": {
+    "scenario_id": "coord_001",
+    "capture_type": "preflight"
+  }
+}

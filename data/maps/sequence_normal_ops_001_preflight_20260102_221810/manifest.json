@@ -1,0 +1,437 @@
+{
+  "manifest_version": "1.0",
+  "dataset_id": "normal_ops_001_preflight",
+  "sequence_id": "normal_ops_001_preflight_20260102_221810",
+  "version": 1,
+  "created_at": "2026-01-02T22:18:10.803497",
+  "capture_start": "2026-01-02T22:18:31.967574",
+  "capture_end": "2026-01-02T22:21:09.168586",
+  "paths": {
+    "base": ".",
+    "frames": "frames",
+    "keyframes": "keyframes",
+    "poses": "poses"
+  },
+  "sensor": {
+    "type": "airsim",
+    "calibration": {
+      "intrinsics": {
+        "fx": 961.6161300315734,
+        "fy": 961.6161300315734,
+        "cx": 960.0,
+        "cy": 540.0,
+        "width": 1920,
+        "height": 1080
+      },
+      "distortion": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "T_body_camera": [
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "T_body_imu": null,
+      "depth": {
+        "scale": 1.0,
+        "min_m": 0.1,
+        "max_m": 100.0
+      }
+    }
+  },
+  "coordinate_frame": {
+    "type": "NED",
+    "origin_latitude": 37.7749,
+    "origin_longitude": -122.4194,
+    "origin_altitude_m": 0.0
+  },
+  "statistics": {
+    "frame_count": 18,
+    "keyframe_count": 0,
+    "duration_s": 156.77264618873596,
+    "avg_fps": 0.11481594804702155
+  },
+  "frames": [
+    {
+      "frame_index": 0,
+      "timestamp_s": 1767410311.6976118,
+      "image_path": "frames\\1767410311697611700.png",
+      "depth_path": "frames\\1767410311697611700_depth.npy",
+      "position": [
+        1.2136422395706177,
+        0.3983704745769501,
+        -20.47127914428711
+      ],
+      "orientation": [
+        0.8995107805188842,
+        1.829423350537606,
+        -161.24304806494527
+      ],
+      "quality": {
+        "blur_score": 0.0,
+        "feature_count": 0
+      }
+    },
+    {
+      "frame_index": 1,
+      "timestamp_s": 1767410318.9611745,
+      "image_path": "frames\\1767410318961174400.png",
+      "depth_path": "frames\\1767410318961174400_depth.npy",
+      "position": [
+        9.151057243347168,
+        9.331160545349121,
+        -20.434083938598633
+      ],
+      "orientation": [
+        -0.09840030459913907,
+        1.4188765095697733,
+        43.21059859702577
+      ],
+      "quality": {
+        "blur_score": 0.0,
+        "feature_count": 0
+      }
+    },
+    {
+      "frame_index": 2,
+      "timestamp_s": 1767410323.7292,
+      "image_path": "frames\\1767410323729199800.png",
+      "depth_path": "frames\\1767410323729199800_depth.npy",
+      "position": [
+        19.674060821533203,
+        19.948638916015625,
+        -20.433368682861328
+      ],
+      "orientation": [
+        -0.5048515376943888,
+        3.9968529147011247,
+        45.536033492420295
+      ],
+      "quality": {
+        "blur_score": 0.0,
+        "feature_count": 0
+      }
+    },
+    {
+      "frame_index": 3,
+      "timestamp_s": 1767410329.0307436,
+      "image_path": "frames\\1767410329030743500.png",
+      "depth_path": "frames\\1767410329030743500_depth.npy",
+      "position": [
+        31.40962791442871,
+        31.715105056762695,
+        -20.720943450927734
+      ],
+      "orientation": [
+        -2.0281006081097583,
+        19.873710312496144,
+        45.33122231030684
+      ],
+      "quality": {
+        "blur_score": 0.0,
+        "feature_count": 0
+      }
+    },
+    {
+      "frame_index": 4,
+      "timestamp_s": 1767410334.5345933,
+      "image_path": "frames\\1767410334534593300.png",
+      "depth_path": "frames\\1767410334534593300_depth.npy",
+      "position": [
+        41.96167755126953,
+        42.319419860839844,
+        -20.775869369506836
+      ],
+      "orientation": [
+        -3.6185639092317823,
+        17.560749235675,
+        46.21290508030432
+      ],
+      "quality": {
+        "blur_score": 0.0,
+        "feature_count": 0
+      }
+    },
+    {
+      "frame_index": 5,
+      "timestamp_s": 1767410366.647829,
+      "image_path": "frames\\1767410366647829100.png",
+      "depth_path": "frames\\1767410366647829100_depth.npy",
+      "position": [
+        52.19454574584961,
+        48.914798736572266,
+        -19.831750869750977
+      ],
+      "orientation": [
+        -1.6553062174313615,
+        12.142549313185565,
+        49.927557406828456
+      ],
+      "quality": {
+        "blur_score": 0.0,
+        "feature_count": 0
+      }
+    },
+    {
+      "frame_index": 6,
+      "timestamp_s": 1767410373.989755,
+      "image_path": "frames\\1767410373989754800.png",
+      "depth_path": "frames\\1767410373989754800_depth.npy",
+      "position": [
+        64.6253890991211,
+        62.43928909301758,
+        -19.96829605102539
+      ],
+      "orientation": [
+        -1.7727645056998869,
+        19.94247678225862,
+        52.334664326059844
+      ],
+      "quality": {
+        "blur_score": 0.0,
+        "feature_count": 0
+      }
+    },
+    {
+      "frame_index": 7,
+      "timestamp_s": 1767410380.1745672,
+      "image_path": "frames\\1767410380174567100.png",
+      "depth_path": "frames\\1767410380174567100_depth.npy",
+      "position": [
+        74.37149047851562,
+        72.75091552734375,
+        -20.03346061706543
+      ],
+      "orientation": [
+        -1.7029217871587594,
+        20.053066269327378,
+        51.10581961858068
+      ],
+      "quality": {
+        "blur_score": 0.0,
+        "feature_count": 0
+      }
+    },
+    {
+      "frame_index": 8,
+      "timestamp_s": 1767410385.4195652,
+      "image_path": "frames\\1767410385419565400.png",
+      "depth_path": "frames\\1767410385419565400_depth.npy",
+      "position": [
+        83.51595306396484,
+        82.35763549804688,
+        -19.64177703857422
+      ],
+      "orientation": [
+        -0.8463667519421791,
+        15.438345449840662,
+        49.450659943177804
+      ],
+      "quality": {
+        "blur_score": 0.0,
+        "feature_count": 0
+      }
+    },
+    {
+      "frame_index": 9,
+      "timestamp_s": 1767410391.0629084,
+      "image_path": "frames\\1767410391062908300.png",
+      "depth_path": "frames\\1767410391062908300_depth.npy",
+      "position": [
+        92.85309600830078,
+        92.1401138305664,
+        -19.64078140258789
+      ],
+      "orientation": [
+        -1.7293377304329667,
+        20.490588765636435,
+        52.58344793554625
+      ],
+      "quality": {
+        "blur_score": 0.0,
+        "feature_count": 0
+      }
+    },
+    {
+      "frame_index": 10,
+      "timestamp_s": 1767410400.360495,
+      "image_path": "frames\\1767410400360495200.png",
+      "depth_path": "frames\\1767410400360495200_depth.npy",
+      "position": [
+        104.18537139892578,
+        104.00800323486328,
+        -19.768489837646484
+      ],
+      "orientation": [
+        -3.6358521000814212,
+        9.307341171425206,
+        57.890452638852416
+      ],
+      "quality": {
+        "blur_score": 0.0,
+        "feature_count": 0
+      }
+    },
+    {
+      "frame_index": 11,
+      "timestamp_s": 1767410406.923758,
+      "image_path": "frames\\1767410406923758000.png",
+      "depth_path": "frames\\1767410406923758000_depth.npy",
+      "position": [
+        113.67041778564453,
+        114.6607894897461,
+        -19.599773406982422
+      ],
+      "orientation": [
+        -2.2956184430237387,
+        7.112024655763339,
+        57.76952507536693
+      ],
+      "quality": {
+        "blur_score": 0.0,
+        "feature_count": 0
+      }
+    },
+    {
+      "frame_index": 12,
+      "timestamp_s": 1767410419.6666763,
+      "image_path": "frames\\1767410419666676200.png",
+      "depth_path": "frames\\1767410419666676200_depth.npy",
+      "position": [
+        123.7035140991211,
+        123.64380645751953,
+        -19.640798568725586
+      ],
+      "orientation": [
+        2.5998140725766503,
+        3.969928979690713,
+        40.6038557187184
+      ],
+      "quality": {
+        "blur_score": 0.0,
+        "feature_count": 0
+      }
+    },
+    {
+      "frame_index": 13,
+      "timestamp_s": 1767410422.9136455,
+      "image_path": "frames\\1767410422913645600.png",
+      "depth_path": "frames\\1767410422913645600_depth.npy",
+      "position": [
+        121.29879760742188,
+        123.86182403564453,
+        -19.6656494140625
+      ],
+      "orientation": [
+        -5.136158778921878,
+        -2.7182486490239754,
+        39.52627246396411
+      ],
+      "quality": {
+        "blur_score": 0.0,
+        "feature_count": 0
+      }
+    },
+    {
+      "frame_index": 14,
+      "timestamp_s": 1767410435.180541,
+      "image_path": "frames\\1767410435180540800.png",
+      "depth_path": "frames\\1767410435180540800_depth.npy",
+      "position": [
+        134.71701049804688,
+        132.18446350097656,
+        -19.96474838256836
+      ],
+      "orientation": [
+        3.74196892427881,
+        2.421129774319841,
+        44.479238128666346
+      ],
+      "quality": {
+        "blur_score": 0.0,
+        "feature_count": 0
+      }
+    },
+    {
+      "frame_index": 15,
+      "timestamp_s": 1767410446.2267115,
+      "image_path": "frames\\1767410446226711500.png",
+      "depth_path": "frames\\1767410446226711500_depth.npy",
+      "position": [
+        145.04441833496094,
+        140.4735107421875,
+        -19.754480361938477
+      ],
+      "orientation": [
+        5.414769294210584,
+        -2.964384408756182,
+        33.176698713578105
+      ],
+      "quality": {
+        "blur_score": 0.0,
+        "feature_count": 0
+      }
+    },
+    {
+      "frame_index": 16,
+      "timestamp_s": 1767410458.765672,
+      "image_path": "frames\\1767410458765672000.png",
+      "depth_path": "frames\\1767410458765672000_depth.npy",
+      "position": [
+        157.0560302734375,
+        149.92738342285156,
+        -19.52349281311035
+      ],
+      "orientation": [
+        3.451939234947745,
+        3.2836323896268906,
+        40.33666902466835
+      ],
+      "quality": {
+        "blur_score": 0.0,
+        "feature_count": 0
+      }
+    },
+    {
+      "frame_index": 17,
+      "timestamp_s": 1767410468.470258,
+      "image_path": "frames\\1767410468470257900.png",
+      "depth_path": "frames\\1767410468470257900_depth.npy",
+      "position": [
+        168.32464599609375,
+        159.4027099609375,
+        -19.631921768188477
+      ],
+      "orientation": [
+        -2.108284641082171,
+        10.455432714758375,
+        34.86284798107342
+      ],
+      "quality": {
+        "blur_score": 0.0,
+        "feature_count": 0
+      }
+    }
+  ],
+  "metadata": {
+    "scenario_id": "normal_ops_001",
+    "capture_type": "preflight"
+  }
+}

@@ -316,6 +316,8 @@ class VisualOdometry:
 
         # Update accumulated pose
         self._rotation = R @ self._rotation
+        # Orthonormalize rotation matrix to prevent numerical drift
+        self._rotation = self._orthonormalize_rotation(self._rotation)
         self._position += self._rotation @ translation
 
         # Calculate confidence
@@ -325,12 +327,15 @@ class VisualOdometry:
 
         computation_time = (time.perf_counter() - start_time) * 1000
 
+        # OpenCV camera frame: X=right, Y=down, Z=forward (into scene)
+        # VOResult expects: delta_x=forward, delta_y=right, delta_z=down
+        # So we need to remap: forward=Z, right=X, down=Y
         return VOResult(
             timestamp=tracking.timestamp,
             state=self._state.value,
-            delta_x=float(translation[0]),  # Forward
-            delta_y=float(translation[1]),  # Right
-            delta_z=float(translation[2]),  # Down
+            delta_x=float(translation[2]),  # Forward (OpenCV Z)
+            delta_y=float(translation[0]),  # Right (OpenCV X)
+            delta_z=float(translation[1]),  # Down (OpenCV Y)
             delta_roll=roll,
             delta_pitch=pitch,
             delta_yaw=yaw,
@@ -411,14 +416,16 @@ class VisualOdometry:
     def _rotation_to_euler(self, R: np.ndarray) -> tuple[float, float, float]:
         """Convert rotation matrix to Euler angles (roll, pitch, yaw).
 
+        Uses ZYX (yaw-pitch-roll) convention with proper gimbal lock handling.
+
         Args:
             R: 3x3 rotation matrix
 
         Returns:
             Tuple of (roll, pitch, yaw) in radians
         """
+        # Check for gimbal lock (pitch at +/- 90 degrees)
         sy = np.sqrt(R[0, 0] ** 2 + R[1, 0] ** 2)
-
         singular = sy < 1e-6
 
         if not singular:
@@ -426,11 +433,35 @@ class VisualOdometry:
             pitch = np.arctan2(-R[2, 0], sy)
             yaw = np.arctan2(R[1, 0], R[0, 0])
         else:
-            roll = np.arctan2(-R[1, 2], R[1, 1])
-            pitch = np.arctan2(-R[2, 0], sy)
+            # Gimbal lock: pitch is +/- 90 degrees
+            # In this case, roll and yaw are coupled - we set yaw to 0
+            # and compute the combined rotation as roll
+            if R[2, 0] < 0:  # pitch = +90 degrees
+                roll = np.arctan2(R[0, 1], R[0, 2])
+                pitch = np.pi / 2
+            else:  # pitch = -90 degrees
+                roll = np.arctan2(-R[0, 1], -R[0, 2])
+                pitch = -np.pi / 2
             yaw = 0
 
         return roll, pitch, yaw
+
+    def _orthonormalize_rotation(self, R: np.ndarray) -> np.ndarray:
+        """Orthonormalize rotation matrix using SVD to correct numerical drift.
+
+        Args:
+            R: 3x3 rotation matrix (possibly with accumulated errors)
+
+        Returns:
+            Orthonormalized 3x3 rotation matrix
+        """
+        U, _, Vt = np.linalg.svd(R)
+        R_ortho = U @ Vt
+        # Ensure proper rotation (det = 1, not -1 for reflection)
+        if np.linalg.det(R_ortho) < 0:
+            U[:, -1] *= -1
+            R_ortho = U @ Vt
+        return R_ortho
 
     def get_accumulated_pose(self) -> tuple[np.ndarray, np.ndarray]:
         """Get accumulated pose since initialization.

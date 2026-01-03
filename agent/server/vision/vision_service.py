@@ -5,6 +5,8 @@ Handles detailed analysis, anomaly creation, and observation tracking.
 """
 
 import asyncio
+import base64
+import json
 import logging
 import tempfile
 import uuid
@@ -144,8 +146,22 @@ class VisionService:
             f"Processing inspection result for asset {asset_id} (observation: {observation_id})"
         )
 
+        if image_path and not image_path.exists():
+            self.logger.warning(
+                "vision_image_missing",
+                asset_id=asset_id,
+                image_path=str(image_path),
+            )
+            image_path = None
+
+        if image_path is None:
+            image_path = self._create_placeholder_capture(
+                asset_id=asset_id,
+                vehicle_state=vehicle_state,
+            )
+
         # Perform detailed server-side analysis
-        if image_path and image_path.exists():
+        if image_path:
             detection = await self.detector.analyze_image(
                 image_path=image_path, client_detection=client_detection
             )
@@ -222,6 +238,49 @@ class VisionService:
                 self.logger.info(f"✨ Anomaly created: {anomaly.anomaly_id} for asset {asset_id}")
 
         return observation
+
+    def _create_placeholder_capture(
+        self,
+        asset_id: str,
+        vehicle_state: dict | None = None,
+    ) -> Path | None:
+        """Create a placeholder capture image when no camera frame is available."""
+        if not self.image_manager:
+            return None
+        safe_asset = "".join(
+            c for c in (asset_id or "unknown") if c.isalnum() or c in ("-", "_")
+        ).strip()
+        if not safe_asset:
+            safe_asset = "unknown"
+
+        now = datetime.now()
+        date_str = now.strftime("%Y-%m-%d")
+        dest_dir = self.image_manager.base_dir / date_str / safe_asset
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        filename = f"inspection_{safe_asset}_{now.strftime('%H%M%S_%f')}.png"
+        dest_path = dest_dir / filename
+
+        placeholder_png = b"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR4nGNgYAAAAAMAASsJTYQAAAAASUVORK5CYII="
+
+        try:
+            dest_path.write_bytes(base64.b64decode(placeholder_png))
+            metadata = {
+                "asset_id": asset_id,
+                "timestamp": now.isoformat(),
+                "generated_placeholder": True,
+            }
+            if vehicle_state:
+                metadata["vehicle_state"] = vehicle_state
+            with open(dest_path.with_suffix(".json"), "w", encoding="utf-8") as f:
+                json.dump(metadata, f, indent=2, default=str)
+            return dest_path
+        except Exception as exc:
+            self.logger.warning(
+                "vision_placeholder_capture_failed",
+                asset_id=asset_id,
+                error=str(exc),
+            )
+            return None
 
     def _apply_splat_change_detection(
         self,

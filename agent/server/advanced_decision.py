@@ -233,7 +233,9 @@ def _create_mission_planner() -> Agent[WorldSnapshot, MissionDecision]:
             metrics["inspection_coverage_percent"] = (inspected / total * 100) if total > 0 else 0.0
 
             # Find remaining uninspected assets
-            inspected_ids = {a.asset_id for a in world.assets if a.last_inspected}
+            inspected_ids = {
+                a.asset_id for a in world.assets if getattr(a, "last_inspection", None)
+            }
             remaining = []
             for asset in world.assets:
                 if asset.asset_id not in inspected_ids:

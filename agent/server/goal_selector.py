@@ -116,9 +116,11 @@ class GoalSelector:
             "[GOAL SELECT] Battery %.1f%%",
             world.vehicle.battery.remaining_percent,
         )
+        pending_assets = world.get_pending_assets()
+        anomaly_assets = world.get_anomaly_assets()
         logger.debug("[GOAL SELECT] Assets in snapshot: %d", len(world.assets))
-        logger.debug("[GOAL SELECT] Pending assets: %d", len(world.get_pending_assets()))
-        logger.debug("[GOAL SELECT] Anomaly assets: %d", len(world.get_anomaly_assets()))
+        logger.debug("[GOAL SELECT] Pending assets: %d", len(pending_assets))
+        logger.debug("[GOAL SELECT] Anomaly assets: %d", len(anomaly_assets))
 
         goal: Goal | None = None
 
@@ -129,6 +131,11 @@ class GoalSelector:
                 logger.info("Advanced goal selected: %s - %s", goal.goal_type, goal.reason)
             except Exception as e:
                 logger.error("Advanced decision failed, falling back to rules: %s", e)
+        if goal and goal.goal_type == GoalType.WAIT and (pending_assets or anomaly_assets):
+            logger.info(
+                "Advanced engine returned WAIT with actionable assets; falling back to rules."
+            )
+            goal = None
 
         if goal is None:
             checks = (

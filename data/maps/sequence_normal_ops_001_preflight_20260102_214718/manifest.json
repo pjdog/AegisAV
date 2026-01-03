@@ -1,0 +1,177 @@
+{
+  "manifest_version": "1.0",
+  "dataset_id": "normal_ops_001_preflight",
+  "sequence_id": "normal_ops_001_preflight_20260102_214718",
+  "version": 1,
+  "created_at": "2026-01-02T21:47:18.649993",
+  "capture_start": "2026-01-02T21:48:04.647226",
+  "capture_end": "2026-01-02T21:49:22.109760",
+  "paths": {
+    "base": ".",
+    "frames": "frames",
+    "keyframes": "keyframes",
+    "poses": "poses"
+  },
+  "sensor": {
+    "type": "airsim",
+    "calibration": {
+      "intrinsics": {
+        "fx": 961.6161300315734,
+        "fy": 961.6161300315734,
+        "cx": 960.0,
+        "cy": 540.0,
+        "width": 1920,
+        "height": 1080
+      },
+      "distortion": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "T_body_camera": [
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "T_body_imu": null,
+      "depth": {
+        "scale": 1.0,
+        "min_m": 0.1,
+        "max_m": 100.0
+      }
+    }
+  },
+  "coordinate_frame": {
+    "type": "NED",
+    "origin_latitude": 37.7749,
+    "origin_longitude": -122.4194,
+    "origin_altitude_m": 0.0
+  },
+  "statistics": {
+    "frame_count": 5,
+    "keyframe_count": 0,
+    "duration_s": 77.2469253540039,
+    "avg_fps": 0.06472749532859999
+  },
+  "frames": [
+    {
+      "frame_index": 0,
+      "timestamp_s": 1767408484.2692661,
+      "image_path": "frames\\1767408484269266100.png",
+      "depth_path": "frames\\1767408484269266100_depth.npy",
+      "position": [
+        14.867302894592285,
+        10.750276565551758,
+        -20.656583786010742
+      ],
+      "orientation": [
+        0.8748553169805371,
+        20.706148267377845,
+        142.33209750549236
+      ],
+      "quality": {
+        "blur_score": 0.0,
+        "feature_count": 0
+      }
+    },
+    {
+      "frame_index": 1,
+      "timestamp_s": 1767408491.746779,
+      "image_path": "frames\\1767408491746778900.png",
+      "depth_path": "frames\\1767408491746778900_depth.npy",
+      "position": [
+        24.817333221435547,
+        20.14820671081543,
+        -20.479528427124023
+      ],
+      "orientation": [
+        -0.6167455829160061,
+        12.905400214860364,
+        38.006619024842486
+      ],
+      "quality": {
+        "blur_score": 0.0,
+        "feature_count": 0
+      }
+    },
+    {
+      "frame_index": 2,
+      "timestamp_s": 1767408497.2140305,
+      "image_path": "frames\\1767408497214030700.png",
+      "depth_path": "frames\\1767408497214030700_depth.npy",
+      "position": [
+        35.872623443603516,
+        31.746984481811523,
+        -20.72590446472168
+      ],
+      "orientation": [
+        -1.8736568783480032,
+        19.702241010804844,
+        47.86108627401577
+      ],
+      "quality": {
+        "blur_score": 0.0,
+        "feature_count": 0
+      }
+    },
+    {
+      "frame_index": 3,
+      "timestamp_s": 1767408551.249833,
+      "image_path": "frames\\1767408551249833300.png",
+      "depth_path": "frames\\1767408551249833300_depth.npy",
+      "position": [
+        52.5135383605957,
+        49.86277770996094,
+        -19.95136833190918
+      ],
+      "orientation": [
+        -2.4539609530261353,
+        8.303516240418466,
+        -125.46664446759753
+      ],
+      "quality": {
+        "blur_score": 0.0,
+        "feature_count": 0
+      }
+    },
+    {
+      "frame_index": 4,
+      "timestamp_s": 1767408561.5161915,
+      "image_path": "frames\\1767408561516191400.png",
+      "depth_path": "frames\\1767408561516191400_depth.npy",
+      "position": [
+        65.27888488769531,
+        62.690399169921875,
+        -19.83391761779785
+      ],
+      "orientation": [
+        -3.9441107209905897,
+        19.12320415137566,
+        40.43100445588222
+      ],
+      "quality": {
+        "blur_score": 0.0,
+        "feature_count": 0
+      }
+    }
+  ],
+  "metadata": {
+    "scenario_id": "normal_ops_001",
+    "capture_type": "preflight"
+  }
+}

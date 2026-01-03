@@ -40,6 +40,33 @@ _airsim_client: Any = None
 _client_lock = threading.Lock()
 
 
+def _to_quaternion(pitch: float, roll: float, yaw: float) -> Any:
+    if not AIRSIM_AVAILABLE or airsim is None:
+        return None
+    if hasattr(airsim, "to_quaternion"):
+        return airsim.to_quaternion(pitch, roll, yaw)
+    utils = getattr(airsim, "utils", None)
+    if utils:
+        if hasattr(utils, "to_quaternion"):
+            return utils.to_quaternion(pitch, roll, yaw)
+        if hasattr(utils, "euler_to_quaternion"):
+            return utils.euler_to_quaternion(roll, pitch, yaw)
+    if hasattr(airsim, "Quaternionr"):
+        cr = math.cos(roll * 0.5)
+        sr = math.sin(roll * 0.5)
+        cp = math.cos(pitch * 0.5)
+        sp = math.sin(pitch * 0.5)
+        cy = math.cos(yaw * 0.5)
+        sy = math.sin(yaw * 0.5)
+        quat = airsim.Quaternionr()
+        quat.w_val = cy * cr * cp + sy * sr * sp
+        quat.x_val = cy * sr * cp - sy * cr * sp
+        quat.y_val = cy * cr * sp + sy * sr * cp
+        quat.z_val = sy * cr * cp - cy * sr * sp
+        return quat
+    return None
+
+
 class VehicleState(str, Enum):
     """State of a managed vehicle."""
 
@@ -156,6 +183,9 @@ class MultiVehicleManager:
 
         # Vehicle storage
         self._vehicles: dict[str, ManagedVehicle] = {}  # airsim_name -> ManagedVehicle
+        self._missing_counts: dict[str, int] = {}
+        self._empty_discovery_count = 0
+        self._stale_discovery_limit = 3
 
         # Mapping: scenario_drone_id -> airsim_name
         self._config_mapping: dict[str, str] = vehicle_mapping.copy() if vehicle_mapping else {}
@@ -273,6 +303,8 @@ class MultiVehicleManager:
 
             self.connected = False
             self._vehicles.clear()
+            self._missing_counts.clear()
+            self._empty_discovery_count = 0
             logger.info("Disconnected from AirSim")
 
         except Exception as e:
@@ -304,13 +336,33 @@ class MultiVehicleManager:
 
             vehicle_names = await loop.run_in_executor(_multi_vehicle_executor, _list_vehicles)
 
+            if not vehicle_names:
+                self._empty_discovery_count += 1
+                if self._vehicles and self._empty_discovery_count < self._stale_discovery_limit:
+                    logger.warning(
+                        "list_vehicles_empty",
+                        count=self._empty_discovery_count,
+                        note="keeping_previous_vehicles",
+                    )
+                    return list(self._vehicles.keys())
+            else:
+                self._empty_discovery_count = 0
+
             current_names = set(vehicle_names)
-            stale_names = [name for name in self._vehicles if name not in current_names]
+            stale_names: list[str] = []
+            for name in list(self._vehicles.keys()):
+                if name in current_names:
+                    self._missing_counts.pop(name, None)
+                    continue
+                self._missing_counts[name] = self._missing_counts.get(name, 0) + 1
+                if self._missing_counts[name] >= self._stale_discovery_limit:
+                    stale_names.append(name)
             for name in stale_names:
                 removed = self._vehicles.pop(name, None)
                 if removed and removed.scenario_drone_id:
                     self._drone_to_vehicle.pop(removed.scenario_drone_id, None)
                 self._vehicle_to_drone.pop(name, None)
+                self._missing_counts.pop(name, None)
                 logger.info(f"Removed stale vehicle: {name}")
 
             # Create/update ManagedVehicle for each discovered vehicle
@@ -784,9 +836,12 @@ class MultiVehicleManager:
                 with _client_lock:
                     if _airsim_client:
                         # Create pose
+                        quat = _to_quaternion(0, 0, math.radians(yaw_deg))
+                        if quat is None:
+                            return False
                         pose = airsim.Pose(
                             airsim.Vector3r(x, y, z),
-                            airsim.to_quaternion(0, 0, math.radians(yaw_deg)),
+                            quat,
                         )
                         if hasattr(_airsim_client, "simSetVehiclePose"):
                             _airsim_client.simSetVehiclePose(

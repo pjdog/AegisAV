@@ -75,6 +75,10 @@ def _pose_graph_entry(frame: Any, is_keyframe: bool, reason: str | None) -> dict
             "cy": frame.cy,
             "width": frame.width,
             "height": frame.height,
+            "distortion": getattr(frame, "distortion", None),
+            "depth_scale": getattr(frame, "depth_scale", 1.0),
+            "depth_min_m": getattr(frame, "depth_min_m", 0.1),
+            "depth_max_m": getattr(frame, "depth_max_m", 100.0),
         },
         "image_path": str(frame.image_path) if frame.image_path else None,
         "depth_path": str(frame.depth_path) if frame.depth_path else None,
@@ -82,6 +86,50 @@ def _pose_graph_entry(frame: Any, is_keyframe: bool, reason: str | None) -> dict
         "keyframe_reason": reason,
     }
     return entry
+
+
+def _get_home_calibration(
+    frames: list[Any],
+) -> tuple[dict[str, float] | None, dict[str, float] | None]:
+    """Get the home/base position and orientation from the first frame for calibration.
+
+    When the drone starts on its base (flat surface), this establishes:
+    - Position origin (0,0,0) at the starting location
+    - Level reference frame from the flat base surface
+
+    Returns:
+        Tuple of (home_position, home_orientation)
+    """
+    if not frames:
+        return None, None
+
+    first_frame = frames[0]
+    camera_pose = first_frame.camera_pose or {}
+    position = camera_pose.get("position")
+    orientation = camera_pose.get("orientation")
+
+    # If camera_pose available, use it
+    if position and orientation:
+        return position, orientation
+
+    # Fallback to pose if camera_pose not available
+    if first_frame.pose:
+        position = {
+            "x": first_frame.pose.x,
+            "y": first_frame.pose.y,
+            "z": first_frame.pose.z,
+        }
+        # Convert euler to quaternion for orientation
+        from mapping.point_cloud import euler_deg_to_quaternion
+
+        orientation = euler_deg_to_quaternion(
+            first_frame.pose.roll_deg,
+            first_frame.pose.pitch_deg,
+            first_frame.pose.yaw_deg,
+        )
+        return position, orientation
+
+    return None, None
 
 
 def _collect_point_cloud(
@@ -92,6 +140,11 @@ def _collect_point_cloud(
 ) -> np.ndarray:
     if not keyframe_indices:
         return np.empty((0, 3), dtype=np.float32)
+
+    # Get home position and orientation from first frame for calibration
+    # This makes the drone's starting position the origin (0,0,0)
+    # and the flat base surface the level reference plane
+    home_offset, home_orientation = _get_home_calibration(frames)
 
     points: list[np.ndarray] = []
     max_per_frame = max(500, int(math.ceil(max_points / max(1, len(keyframe_indices)))))
@@ -113,8 +166,21 @@ def _collect_point_cloud(
             "cx": frame.cx,
             "cy": frame.cy,
         }
+        # Get calibration values if available
+        distortion = getattr(frame, "distortion", None)
+        depth_scale = getattr(frame, "depth_scale", 1.0)
+        depth_min = getattr(frame, "depth_min_m", 0.5)
+        depth_max = getattr(frame, "depth_max_m", 200.0)
+
         cam_points = depth_to_points(
-            depth, intrinsics, subsample=subsample, max_points=max_per_frame
+            depth,
+            intrinsics,
+            subsample=subsample,
+            max_points=max_per_frame,
+            min_depth=depth_min,
+            max_depth=depth_max,
+            distortion=distortion,
+            depth_scale=depth_scale,
         )
         if cam_points.size == 0:
             continue
@@ -130,7 +196,13 @@ def _collect_point_cloud(
             )
             position = {"x": frame.pose.x, "y": frame.pose.y, "z": frame.pose.z}
 
-        world_points = apply_pose(cam_points, position, orientation)
+        world_points = apply_pose(
+            cam_points,
+            position,
+            orientation,
+            home_offset=home_offset,
+            home_orientation=home_orientation,
+        )
         points.append(world_points)
 
         if points and sum(p.shape[0] for p in points) >= max_points:

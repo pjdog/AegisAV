@@ -245,6 +245,9 @@ class FrameCaptureResult(BaseModel):
     timestamp: datetime
     server_timestamp_ms: float
     image_path: Path | None = None
+    image_bytes: bytes | None = None
+    image_width: int | None = None
+    image_height: int | None = None
     telemetry: TelemetryFrame | None = None
     capture_latency_ms: float = 0.0
     pose_latency_ms: float = 0.0
@@ -1575,7 +1578,7 @@ class RealtimeAirSimBridge:
 
         dock_success = results["dock"].get("total_success", 0)
         asset_count = len(results["assets"])
-        logger.info(f"Scene spawned: dock={dock_success} components, " f"assets={asset_count}")
+        logger.info(f"Scene spawned: dock={dock_success} components, assets={asset_count}")
         return results
 
     # -------------------------------------------------------------------------
@@ -2349,6 +2352,9 @@ class RealtimeAirSimBridge:
             image_response = None
             telemetry = None
             image_path = None
+            image_bytes: bytes | None = None
+            image_width: int | None = None
+            image_height: int | None = None
 
             if include_image:
                 if isinstance(results[0], Exception):
@@ -2361,23 +2367,28 @@ class RealtimeAirSimBridge:
             capture_latency = (time.perf_counter() - t0) * 1000
 
             # Save image if requested
-            if image_response and len(image_response) > 0 and self.config.save_images:
+            if image_response and len(image_response) > 0:
                 response = image_response[0]
+                image_width = int(getattr(response, "width", 0) or 0) or None
+                image_height = int(getattr(response, "height", 0) or 0) or None
+
                 if self.config.compress:
-                    img_array = np.frombuffer(response.image_data_uint8, dtype=np.uint8)
-                    img = Image.open(io.BytesIO(img_array))
+                    image_bytes = bytes(response.image_data_uint8)
                 else:
                     img_array = np.frombuffer(response.image_data_uint8, dtype=np.uint8).reshape(
                         response.height, response.width, 3
                     )
                     img = Image.fromarray(img_array)
+                    if img.mode not in ("RGB", "L"):
+                        img = img.convert("RGB")
+                    buffer = io.BytesIO()
+                    img.save(buffer, format="JPEG", quality=85)
+                    image_bytes = buffer.getvalue()
 
-                if img.mode not in ("RGB", "L"):
-                    img = img.convert("RGB")
-
-                filename = f"frame_{seq:08d}.jpg"
-                image_path = self.config.output_dir / filename
-                img.save(image_path, quality=85)
+                if self.config.save_images and image_bytes:
+                    filename = f"frame_{seq:08d}.jpg"
+                    image_path = self.config.output_dir / filename
+                    image_path.write_bytes(image_bytes)
 
             total_latency = (time.perf_counter() - start_time) * 1000
             self._total_frames += 1
@@ -2388,6 +2399,9 @@ class RealtimeAirSimBridge:
                 timestamp=datetime.now(),
                 server_timestamp_ms=time.time() * 1000,
                 image_path=image_path,
+                image_bytes=image_bytes,
+                image_width=image_width,
+                image_height=image_height,
                 telemetry=telemetry,
                 capture_latency_ms=capture_latency,
                 total_latency_ms=total_latency,
@@ -2428,6 +2442,11 @@ class RealtimeAirSimBridge:
             "fy": fy,
             "cx": width / 2.0,
             "cy": height / 2.0,
+            # Depth calibration - AirSim returns depth in meters
+            "depth_scale": 1.0,
+            "depth_min_m": 0.1,
+            "depth_max_m": 100.0,
+            "distortion": None,  # AirSim uses pinhole camera model (no distortion)
         }
 
     async def capture_mapping_bundle(

@@ -166,6 +166,14 @@ def _action_counts(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return [{"action": action, "count": count} for action, count in counts.items()]
 
 
+def _is_decision_entry(entry: dict[str, Any]) -> bool:
+    """Return True when a log entry represents a decision or critic verdict."""
+    entry_type = entry.get("type")
+    if entry_type in ("decision", "critic_validation"):
+        return True
+    return bool(entry.get("action"))
+
+
 def _recent(entries: list[dict[str, Any]], limit: int = 12) -> list[dict[str, Any]]:
     """Return the most recent decision entries with full context.
 
@@ -176,7 +184,8 @@ def _recent(entries: list[dict[str, Any]], limit: int = 12) -> list[dict[str, An
     Returns:
         List of recent decision entries with reasoning context.
     """
-    recent_entries = entries[-limit:]
+    filtered_entries = [entry for entry in entries if _is_decision_entry(entry)]
+    recent_entries = filtered_entries[-limit:]
     items = []
     for entry in recent_entries[::-1]:
         critic_validation = entry.get("critic_validation")
@@ -445,7 +454,12 @@ def add_dashboard_routes(app: FastAPI, log_dir: Path, store: Any = None) -> None
             raise HTTPException(status_code=409, detail="Runner already active")
 
         # Create and load scenario
-        _runner_state.runner = ScenarioRunner(log_dir=log_dir)
+        config = get_config_manager().config
+        _runner_state.runner = ScenarioRunner(
+            log_dir=log_dir,
+            enable_llm=bool(config.agent.use_llm),
+            use_advanced_engine=bool(config.agent.use_llm),
+        )
         loaded = await _runner_state.runner.load_scenario(request.scenario_id)
         if not loaded:
             raise HTTPException(
@@ -644,12 +658,13 @@ def add_dashboard_routes(app: FastAPI, log_dir: Path, store: Any = None) -> None
             return JSONResponse({"decisions": [], "total": 0})
 
         log = _runner_state.runner.run_state.decision_log
-        total = len(log)
+        filtered_log = [entry for entry in log if _is_decision_entry(entry)]
+        total = len(filtered_log)
 
         # Get slice of decisions
         start = max(0, total - offset - limit)
         end = total - offset
-        decisions = log[start:end][::-1]  # Reverse for most recent first
+        decisions = filtered_log[start:end][::-1]  # Reverse for most recent first
 
         return JSONResponse({
             "decisions": decisions,

@@ -82,13 +82,16 @@ class LocalizationConfig:
     # State estimator integration
     feed_state_estimator: bool = True
 
-    # Coordinate transform (camera to NED)
-    # Default assumes camera pointing forward and down
+    # Coordinate transform (camera frame to NED)
+    # VOResult outputs: delta_x=forward, delta_y=right, delta_z=down
+    # NED frame: north, east, down
+    # For camera pointing north (yaw=0): forward=north, right=east, down=down
+    # This matrix transforms [forward, right, down] -> [north, east, down]
     camera_to_ned_rotation: list[list[float]] = field(
         default_factory=lambda: [
-            [0, 0, 1],  # Camera X (right) -> NED East
-            [1, 0, 0],  # Camera Y (down) -> NED North
-            [0, 1, 0],  # Camera Z (forward) -> NED Down (negated for altitude)
+            [1, 0, 0],  # NED North = Camera Forward (delta_x)
+            [0, 1, 0],  # NED East = Camera Right (delta_y)
+            [0, 0, 1],  # NED Down = Camera Down (delta_z)
         ]
     )
 

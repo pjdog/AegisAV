@@ -4,6 +4,10 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import importlib.util
+import os
+import platform
+import sys
 import time
 
 import structlog
@@ -14,6 +18,7 @@ from agent.server.airsim_support import (
     _airsim_bridge_connected,
     _airsim_launch_supported,
     _apply_airsim_environment,
+    _kill_airsim_processes,
     _launch_airsim_process,
     _schedule_airsim_connect,
     _start_airsim_bridge,
@@ -49,9 +54,15 @@ async def _camera_stream_loop(drone_id: str, fps: float = 10.0) -> None:
             if bridge and bridge.connected:
                 frame_result = await bridge.capture_frame_synchronized(include_image=True)
 
-                if frame_result.success and frame_result.image_path:
-                    image_data = frame_result.image_path.read_bytes()
-                    image_b64 = base64.b64encode(image_data).decode("ascii")
+                image_bytes = None
+                if frame_result.success:
+                    if frame_result.image_bytes:
+                        image_bytes = frame_result.image_bytes
+                    elif frame_result.image_path:
+                        image_bytes = frame_result.image_path.read_bytes()
+
+                if image_bytes:
+                    image_b64 = base64.b64encode(image_bytes).decode("ascii")
 
                     seq = server_state.camera_stream_sequence.get(drone_id, 0) + 1
                     server_state.camera_stream_sequence[drone_id] = seq
@@ -61,8 +72,8 @@ async def _camera_stream_loop(drone_id: str, fps: float = 10.0) -> None:
                         sequence=seq,
                         timestamp_ms=frame_result.server_timestamp_ms,
                         image_base64=image_b64,
-                        width=1280,
-                        height=720,
+                        width=frame_result.image_width or 1280,
+                        height=frame_result.image_height or 720,
                         camera_name=bridge.config.camera_name if bridge else "front_center",
                         fov_deg=90.0,
                     )
@@ -87,6 +98,28 @@ async def get_airsim_status() -> dict:
     config = get_config_manager().config
     connect_task = server_state.airsim_connect_task
     bridge = server_state.airsim_bridge
+
+    # Build fleet bridge info if enabled
+    fleet_info = None
+    if server_state.fleet_bridge_enabled and server_state.fleet_bridge:
+        fleet_bridge = server_state.fleet_bridge
+        fleet_state = getattr(fleet_bridge, "state", None)
+        fleet_status = fleet_bridge.get_status() if hasattr(fleet_bridge, "get_status") else None
+
+        # Get drone_id -> vehicle_name mapping
+        drone_mapping = {}
+        if hasattr(fleet_bridge, "_contexts"):
+            for drone_id, ctx in fleet_bridge._contexts.items():
+                drone_mapping[drone_id] = ctx.vehicle_name
+
+        fleet_info = {
+            "enabled": True,
+            "state": getattr(fleet_state, "value", str(fleet_state)) if fleet_state else None,
+            "drone_count": len(drone_mapping),
+            "drone_mapping": drone_mapping,  # e.g. {"alpha": "Drone1", "bravo": "Drone2"}
+            "drones": fleet_status.drones if fleet_status else [],
+        }
+
     return {
         "enabled": config.simulation.airsim_enabled,
         "host": config.simulation.airsim_host,
@@ -96,7 +129,130 @@ async def get_airsim_status() -> dict:
         "launch_supported": _airsim_launch_supported(),
         "last_error": server_state.airsim_last_error,
         "vehicles": getattr(bridge, "vehicle_names", []),
+        "fleet": fleet_info,
     }
+
+
+async def get_fleet_status() -> dict:
+    """Return fleet bridge readiness details for multi-drone scenarios."""
+    fleet_bridge = server_state.fleet_bridge
+    enabled = bool(server_state.fleet_bridge_enabled and fleet_bridge)
+    fleet_state = None
+    drone_mapping: dict[str, str] = {}
+    drones: list[dict] = []
+
+    if enabled and fleet_bridge:
+        state = getattr(fleet_bridge, "state", None)
+        if state is not None:
+            fleet_state = getattr(state, "value", str(state))
+        if hasattr(fleet_bridge, "_contexts"):
+            for drone_id, ctx in fleet_bridge._contexts.items():
+                drone_mapping[drone_id] = ctx.vehicle_name
+        status = fleet_bridge.get_status() if hasattr(fleet_bridge, "get_status") else None
+        if status:
+            drones = status.drones
+
+    return {
+        "enabled": enabled,
+        "state": fleet_state,
+        "ready": bool(fleet_state and str(fleet_state).lower() == "ready"),
+        "drone_count": len(drone_mapping),
+        "drone_mapping": drone_mapping,
+        "drones": drones,
+        "scenario_id": server_state.fleet_scenario_id,
+    }
+
+
+async def get_python_runtime() -> dict:
+    """Expose Python runtime details for debugging environment mismatches."""
+    spec = importlib.util.find_spec("cosysairsim")
+    cosysairsim_info = {"available": bool(spec)}
+    if spec:
+        try:
+            import cosysairsim  # type: ignore
+
+            cosysairsim_info["version"] = getattr(cosysairsim, "__version__", "unknown")
+        except Exception as exc:
+            cosysairsim_info["import_error"] = str(exc)
+
+    expected_uv_venv = None
+    local_appdata = os.environ.get("LOCALAPPDATA")
+    if local_appdata:
+        expected_uv_venv = os.path.join(
+            local_appdata,
+            "AegisAV",
+            "venvs",
+            "aegisav",
+        )
+
+    return {
+        "executable": sys.executable,
+        "version": sys.version,
+        "platform": platform.platform(),
+        "prefix": sys.prefix,
+        "base_prefix": sys.base_prefix,
+        "virtual_env": os.environ.get("VIRTUAL_ENV"),
+        "cosysairsim": cosysairsim_info,
+        "expected_uv_venv": expected_uv_venv,
+    }
+
+
+async def connect_fleet(force: bool = False, scenario_id: str | None = None) -> dict:
+    """Connect the fleet bridge and create multi-vehicle contexts."""
+    config = get_config_manager().config
+    if not config.simulation.airsim_enabled:
+        raise HTTPException(status_code=400, detail="AirSim is disabled")
+
+    try:
+        from agent.server.fleet_bridge import get_fleet_bridge, reset_fleet_bridge
+    except Exception as exc:  # pragma: no cover
+        raise HTTPException(status_code=500, detail=f"Fleet bridge unavailable: {exc}") from exc
+
+    if force and server_state.fleet_bridge_enabled:
+        try:
+            await reset_fleet_bridge()
+        except Exception as exc:
+            logger.warning("fleet_bridge_reset_failed", error=str(exc))
+        server_state.fleet_bridge = None
+        server_state.fleet_bridge_enabled = False
+        server_state.fleet_scenario_id = None
+
+    fleet_bridge = get_fleet_bridge(
+        host=config.simulation.airsim_host,
+        vehicle_mapping=config.simulation.airsim_vehicle_mapping,
+    )
+    if not server_state.fleet_bridge_enabled:
+        connected = await fleet_bridge.connect()
+        if not connected:
+            raise HTTPException(status_code=503, detail="Fleet bridge connect failed")
+        server_state.fleet_bridge = fleet_bridge
+        server_state.fleet_bridge_enabled = True
+
+    resolved_scenario_id = scenario_id or scenario_run_state.scenario_id
+    scenario = None
+    if resolved_scenario_id:
+        scenario = get_scenario(resolved_scenario_id)
+        if not scenario:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Scenario not found: {resolved_scenario_id}",
+            )
+    elif scenario_runner_state.runner and scenario_runner_state.runner.run_state:
+        scenario = scenario_runner_state.runner.run_state.scenario
+        resolved_scenario_id = scenario.scenario_id if scenario else None
+
+    setup_results = None
+    if scenario:
+        try:
+            setup_results = await fleet_bridge.setup_scenario(scenario)
+            server_state.fleet_scenario_id = resolved_scenario_id
+        except Exception as exc:
+            logger.warning("fleet_bridge_setup_failed", error=str(exc))
+
+    status = await get_fleet_status()
+    status["scenario_id"] = resolved_scenario_id
+    status["setup_results"] = setup_results
+    return status
 
 
 async def get_airsim_environment() -> dict:
@@ -298,6 +454,36 @@ async def reconnect_airsim() -> dict:
         "bridge_connected": _airsim_bridge_connected(),
         "executor_available": server_state.airsim_action_executor is not None,
         "last_error": server_state.airsim_last_error,
+    }
+
+
+async def force_close_airsim() -> dict:
+    """Force close AirSim by killing the process and stopping the bridge."""
+    logger.info("force_close_airsim_requested")
+
+    # Stop the bridge first
+    await _stop_airsim_bridge()
+
+    # Clear streaming state
+    for task in list(server_state.camera_streaming.values()):
+        task.cancel()
+    server_state.camera_streaming.clear()
+    server_state.camera_stream_sequence.clear()
+
+    # Kill the AirSim processes
+    kill_result = _kill_airsim_processes()
+
+    # Clear launch state
+    server_state.airsim_launch_initiated = False
+    server_state.airsim_last_error = None
+
+    logger.info("force_close_airsim_complete", kill_result=kill_result)
+
+    return {
+        "status": "closed",
+        "bridge_stopped": True,
+        "kill_result": kill_result,
+        "message": "AirSim process terminated and bridge stopped.",
     }
 
 
@@ -548,14 +734,17 @@ async def get_camera_snapshot(
                 detail=f"Capture failed: {frame_result.error}",
             )
 
-        if not frame_result.image_path:
+        image_bytes = frame_result.image_bytes
+        if not image_bytes and frame_result.image_path:
+            image_bytes = frame_result.image_path.read_bytes()
+
+        if not image_bytes:
             raise HTTPException(
                 status_code=500,
                 detail="No image captured",
             )
 
-        image_data = frame_result.image_path.read_bytes()
-        image_b64 = base64.b64encode(image_data).decode("ascii")
+        image_b64 = base64.b64encode(image_bytes).decode("ascii")
 
         return {
             "drone_id": drone_id,
@@ -648,7 +837,7 @@ async def update_dock_status(
     except ValueError:
         raise HTTPException(
             status_code=400,
-            detail=("Invalid status. Must be one of: " f"{[s.value for s in DockStatus]}"),
+            detail=(f"Invalid status. Must be one of: {[s.value for s in DockStatus]}"),
         ) from None
 
     await broadcast_dock_state(
@@ -820,6 +1009,9 @@ async def clear_anomaly_markers(
 def register_airsim_routes(app: FastAPI) -> None:
     """Register AirSim, Unreal, and camera routes."""
     app.get("/api/airsim/status")(get_airsim_status)
+    app.get("/api/fleet/status")(get_fleet_status)
+    app.get("/api/diagnostics/python")(get_python_runtime)
+    app.post("/api/fleet/connect")(connect_fleet)
     app.get("/api/airsim/environment")(get_airsim_environment)
     app.get("/api/airsim/trace")(get_airsim_trace)
     app.post("/api/airsim/scene/sync")(sync_airsim_scene)
@@ -1159,6 +1351,7 @@ def register_airsim_routes(app: FastAPI) -> None:
     app.post("/api/airsim/fly_scenario")(manual_fly_scenario)
     app.post("/api/airsim/start")(start_airsim)
     app.post("/api/airsim/reconnect")(reconnect_airsim)
+    app.post("/api/airsim/force_close")(force_close_airsim)
     app.post("/api/airsim/flight/takeoff")(airsim_takeoff)
     app.post("/api/airsim/flight/land")(airsim_land)
     app.post("/api/airsim/flight/move")(airsim_move)

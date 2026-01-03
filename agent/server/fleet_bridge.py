@@ -24,6 +24,7 @@ from typing import Any
 from agent.api_models import ActionType
 from agent.server.decision import Decision
 from agent.server.scenarios import DOCK_ALTITUDE, DOCK_LATITUDE, DOCK_LONGITUDE
+from agent.server.unreal_stream import unreal_manager
 
 # Simulation imports
 try:
@@ -49,6 +50,7 @@ try:
     from simulation.realtime_bridge import (
         RealtimeAirSimBridge,
         RealtimeBridgeConfig,
+        TelemetryBroadcaster,
         connect_all_bridges,
         create_multi_vehicle_bridges,
     )
@@ -79,6 +81,7 @@ class DroneExecutionContext:
     vehicle_name: str
     bridge: RealtimeAirSimBridge | None = None
     executor: AirSimActionExecutor | None = None
+    telemetry_broadcaster: TelemetryBroadcaster | None = None
     current_action: ActionType | None = None
     current_decision: Decision | None = None
     last_result: ExecutionResult | None = None
@@ -238,6 +241,7 @@ class AgentFleetBridge:
                     )
                     self._contexts[drone_id] = context
                     logger.info(f"Created execution context: {drone_id} -> {vehicle_name}")
+                    await self._attach_telemetry(context)
 
             if not self._contexts:
                 logger.error("No execution contexts created")
@@ -259,6 +263,11 @@ class AgentFleetBridge:
         """Disconnect all drones and cleanup."""
         # Stop all executors
         for context in self._contexts.values():
+            if context.telemetry_broadcaster:
+                try:
+                    await context.telemetry_broadcaster.stop()
+                except Exception as e:
+                    logger.debug(f"Error stopping telemetry for {context.drone_id}: {e}")
             if context.executor:
                 try:
                     await context.executor.stop()
@@ -284,6 +293,48 @@ class AgentFleetBridge:
         await self._notify_state_change()
 
         logger.info("Fleet bridge disconnected")
+
+    async def _attach_telemetry(
+        self,
+        context: DroneExecutionContext,
+    ) -> None:
+        if context.telemetry_broadcaster or not context.bridge:
+            return
+
+        async def _broadcast(payload: dict) -> None:
+            message = dict(payload)
+            message["drone_id"] = context.drone_id
+            await unreal_manager.broadcast_raw(message, drone_id=context.drone_id)
+
+        broadcaster = TelemetryBroadcaster(context.bridge, _broadcast)
+        await broadcaster.start()
+        context.telemetry_broadcaster = broadcaster
+
+    async def _ensure_bridge(self, vehicle_name: str) -> RealtimeAirSimBridge | None:
+        bridge = self._bridges.get(vehicle_name)
+        if bridge:
+            return bridge
+
+        base_config = None
+        if self._bridges:
+            base_config = next(iter(self._bridges.values())).config
+
+        new_bridge = create_multi_vehicle_bridges(
+            vehicle_names=[vehicle_name],
+            host=self.host,
+            base_config=base_config,
+        ).get(vehicle_name)
+        if not new_bridge:
+            return None
+
+        connected = await new_bridge.connect()
+        if not connected:
+            logger.warning("bridge_connect_failed", vehicle_name=vehicle_name)
+            return None
+
+        self._bridges[vehicle_name] = new_bridge
+        logger.info("bridge_connected", vehicle_name=vehicle_name)
+        return new_bridge
 
     async def setup_scenario(self, scenario: Any) -> dict[str, bool]:
         """Setup drones for a scenario.
@@ -315,7 +366,7 @@ class AgentFleetBridge:
             drone_id = assignment.scenario_drone.drone_id
             vehicle_name = assignment.airsim_vehicle_name
             active_drone_ids.add(drone_id)
-            bridge = self._bridges.get(vehicle_name)
+            bridge = await self._ensure_bridge(vehicle_name)
 
             # Ensure we have a context for this drone
             if drone_id not in self._contexts:
@@ -335,6 +386,7 @@ class AgentFleetBridge:
                     self._contexts[drone_id] = context
                     results[drone_id] = True
                     logger.info(f"Created context for scenario drone: {drone_id}")
+                    await self._attach_telemetry(context)
                 else:
                     results[drone_id] = False
                     logger.warning(f"No bridge for vehicle {vehicle_name}")
@@ -360,11 +412,17 @@ class AgentFleetBridge:
                         drone_id=drone_id,
                         vehicle_name=vehicle_name,
                     )
+                await self._attach_telemetry(context)
                 results[drone_id] = True
 
         stale_ids = set(self._contexts.keys()) - active_drone_ids
         for stale_id in stale_ids:
-            self._contexts.pop(stale_id, None)
+            stale_context = self._contexts.pop(stale_id, None)
+            if stale_context and stale_context.telemetry_broadcaster:
+                try:
+                    await stale_context.telemetry_broadcaster.stop()
+                except Exception as e:
+                    logger.debug(f"Error stopping telemetry for {stale_id}: {e}")
             logger.info("Removed stale drone context", drone_id=stale_id)
 
         # Position drones at initial positions

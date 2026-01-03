@@ -108,9 +108,10 @@ def register_vision_routes(app: FastAPI) -> None:
         # Get asset names from world model if available
         asset_names: dict[str, str] = {}
         if server_state.world_model:
-            world_snap = server_state.world_model.snapshot()
-            for asset in world_snap.assets:
-                asset_names[asset.asset_id] = asset.name
+            world_snap = server_state.world_model.get_snapshot()
+            if world_snap:
+                for asset in world_snap.assets:
+                    asset_names[asset.asset_id] = asset.name
 
         captures = []
         for obs in observations:

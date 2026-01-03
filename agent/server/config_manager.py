@@ -453,9 +453,7 @@ class ConfigManager:
         if config_dir is None:
             # Default to project root configs/
             # Normalize path to handle WSL UNC paths from Windows tools
-            config_dir = _normalize_path(
-                Path(__file__).parent.parent.parent / "configs"
-            )
+            config_dir = _normalize_path(Path(__file__).parent.parent.parent / "configs")
 
         self.config_dir = _normalize_path(Path(config_dir))
         self.config_dir.mkdir(parents=True, exist_ok=True)

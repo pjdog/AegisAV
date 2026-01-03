@@ -78,7 +78,7 @@ simulation:
 
 # Agent Decision-Making
 agent:
-  use_llm: false          # Disable LLM for faster iteration (rules only)
+  use_llm: true
   llm_model: "gpt-4o-mini"
 
   battery_warning_percent: 30.0

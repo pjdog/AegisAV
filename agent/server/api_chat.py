@@ -175,9 +175,6 @@ async def generate_ai_response(
         logger.warning("pydantic_ai not available for chat responses")
         return None
 
-    if not llm_credentials_present():
-        return None
-
     # Build context from scenario state
     context_parts = []
 
@@ -214,23 +211,33 @@ Keep responses concise and focused on the mission context. Use technical but acc
         system_prompt += "\n\nCurrent context:\n" + "\n".join(context_parts)
 
     try:
+        has_credentials = llm_credentials_present()
         model = get_default_llm_model()
-        # Use TestModel for development if no real credentials
-        if not llm_credentials_present():
+        logger.info(
+            "ai_chat_generating_response",
+            has_credentials=has_credentials,
+            model=model,
+            context_parts=len(context_parts),
+        )
+
+        if has_credentials:
             agent: Agent[None, str] = Agent(
-                TestModel(),
+                model,
                 system_prompt=system_prompt,
             )
         else:
+            # Use TestModel for development/testing without credentials
+            logger.info("ai_chat_using_test_model")
             agent = Agent(
-                model,
+                TestModel(),
                 system_prompt=system_prompt,
             )
 
         result = await agent.run(user_message)
+        logger.info("ai_chat_response_generated", response_length=len(result.data or ""))
         return result.data
     except Exception as exc:
-        logger.warning("ai_chat_response_failed", error=str(exc))
+        logger.exception("ai_chat_response_failed", error=str(exc))
         return None
 
 
@@ -246,18 +253,30 @@ async def broadcast_chat_message(message: ChatMessage) -> None:
         "message": message.model_dump(mode="json"),
     }
 
+    active_count = len(connection_manager.active_connections)
+    logger.info(
+        "chat_broadcasting",
+        message_id=message.id,
+        sender=message.sender,
+        active_connections=active_count,
+    )
+
     # Use the connection manager's broadcast with a simple dict
     # We'll send it as a raw JSON message
     disconnected = set()
+    sent_count = 0
     for connection in connection_manager.active_connections:
         try:
             await connection.send_json(event_data)
+            sent_count += 1
         except Exception as exc:
             logger.warning("chat_broadcast_failed", error=str(exc))
             disconnected.add(connection)
 
     for conn in disconnected:
         connection_manager.disconnect(conn)
+
+    logger.info("chat_broadcast_complete", sent_count=sent_count)
 
 
 def register_chat_routes(app: FastAPI) -> None:
@@ -362,6 +381,14 @@ def register_chat_routes(app: FastAPI) -> None:
                 run_id = server_state.current_run_id
 
         messages = chat_store.get_messages(run_id=run_id, limit=limit)
+        logger.info(
+            "chat_messages_fetched",
+            run_id=run_id,
+            current_run=current_run,
+            message_count=len(messages),
+            global_count=len(chat_store._global_messages),
+            run_keys=list(chat_store._messages.keys()),
+        )
         return {
             "messages": [m.model_dump(mode="json") for m in messages],
             "count": len(messages),

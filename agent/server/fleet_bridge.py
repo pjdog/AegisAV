@@ -23,6 +23,7 @@ from typing import Any, Callable, Awaitable
 # Agent imports
 from agent.api_models import ActionType
 from agent.server.decision import Decision
+from agent.server.scenarios import DOCK_ALTITUDE, DOCK_LATITUDE, DOCK_LONGITUDE
 
 # Simulation imports
 try:
@@ -44,6 +45,7 @@ try:
         ExecutionStatus,
         FlightConfig,
     )
+    from simulation.coordinate_utils import GeoReference
     from simulation.realtime_bridge import (
         RealtimeAirSimBridge,
         RealtimeBridgeConfig,
@@ -131,6 +133,7 @@ class AgentFleetBridge:
         host: str = "127.0.0.1",
         vehicle_mapping: dict[str, str] | None = None,
         flight_config: FlightConfig | None = None,
+        geo_ref: GeoReference | None = None,
     ) -> None:
         """Initialize the fleet bridge.
 
@@ -142,6 +145,7 @@ class AgentFleetBridge:
         self.host = host
         self.vehicle_mapping = vehicle_mapping or {}
         self.flight_config = flight_config or FlightConfig()
+        self._geo_ref = geo_ref or GeoReference(DOCK_LATITUDE, DOCK_LONGITUDE, DOCK_ALTITUDE)
         self.state = FleetState.DISCONNECTED
 
         # Core components
@@ -215,6 +219,7 @@ class AgentFleetBridge:
                     # Create executor for this drone
                     executor = AirSimActionExecutor(
                         bridge=bridge,
+                        geo_ref=self._geo_ref,
                         config=self.flight_config,
                     )
 
@@ -303,17 +308,20 @@ class AgentFleetBridge:
         assignments = self._coordinator.get_all_assignments()
 
         results = {}
+        active_drone_ids: set[str] = set()
         for assignment in assignments:
             drone_id = assignment.scenario_drone.drone_id
             vehicle_name = assignment.airsim_vehicle_name
+            active_drone_ids.add(drone_id)
+            bridge = self._bridges.get(vehicle_name)
 
             # Ensure we have a context for this drone
             if drone_id not in self._contexts:
                 # Create context if we have a bridge for this vehicle
-                if vehicle_name in self._bridges:
-                    bridge = self._bridges[vehicle_name]
+                if bridge:
                     executor = AirSimActionExecutor(
                         bridge=bridge,
+                        geo_ref=self._geo_ref,
                         config=self.flight_config,
                     )
                     context = DroneExecutionContext(
@@ -329,7 +337,33 @@ class AgentFleetBridge:
                     results[drone_id] = False
                     logger.warning(f"No bridge for vehicle {vehicle_name}")
             else:
+                context = self._contexts[drone_id]
+                if not bridge:
+                    results[drone_id] = False
+                    logger.warning(f"No bridge for vehicle {vehicle_name}")
+                    continue
+                if context.vehicle_name != vehicle_name:
+                    executor = AirSimActionExecutor(
+                        bridge=bridge,
+                        geo_ref=self._geo_ref,
+                        config=self.flight_config,
+                    )
+                    context.vehicle_name = vehicle_name
+                    context.bridge = bridge
+                    context.executor = executor
+                    context.is_busy = False
+                    context.current_action = None
+                    logger.info(
+                        "Updated context for scenario drone",
+                        drone_id=drone_id,
+                        vehicle_name=vehicle_name,
+                    )
                 results[drone_id] = True
+
+        stale_ids = set(self._contexts.keys()) - active_drone_ids
+        for stale_id in stale_ids:
+            self._contexts.pop(stale_id, None)
+            logger.info("Removed stale drone context", drone_id=stale_id)
 
         # Position drones at initial positions
         position_results = await self._coordinator.setup_initial_positions()
@@ -527,6 +561,13 @@ class AgentFleetBridge:
     def get_drone_ids(self) -> list[str]:
         """Get all registered drone IDs."""
         return list(self._contexts.keys())
+
+    def set_geo_ref(self, geo_ref: GeoReference) -> None:
+        """Update the geo reference used by all executors."""
+        self._geo_ref = geo_ref
+        for context in self._contexts.values():
+            if context.executor:
+                context.executor.geo_ref = geo_ref
 
     def on_execution_complete(
         self,

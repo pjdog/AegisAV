@@ -56,7 +56,10 @@ simulation:
   airsim_enabled: true
   airsim_host: "127.0.0.1"
   airsim_vehicle_name: "Drone1"
+  airsim_vehicle_type: "ArduCopter"
   sitl_enabled: true
+  sitl_multi_vehicle: true
+  require_fleet_for_multi_drone: true
   ardupilot_path: "~/ardupilot"
   sitl_speedup: 2.0       # Run simulation faster
 

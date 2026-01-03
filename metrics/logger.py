@@ -65,6 +65,9 @@ class DecisionLogEntry:
     slam_confidence: float | None = None
     splat_quality: float | None = None
 
+    # Reasoning context (optional, for UI badges)
+    reasoning_context: dict | None = None
+
     def to_dict(self) -> dict:
         """Convert to dictionary."""
         return asdict(self)
@@ -164,6 +167,25 @@ class DecisionLogger:
         map_context = context.map_context
         map_data = map_context.to_dict() if map_context and hasattr(map_context, "to_dict") else {}
 
+        assets = getattr(world, "assets", []) or []
+        pending_assets = (
+            world.get_pending_assets() if hasattr(world, "get_pending_assets") else []
+        )
+        mission = getattr(world, "mission", None)
+        battery_percent = world.vehicle.battery.remaining_percent
+        wind_speed = getattr(getattr(world, "environment", None), "wind_speed_ms", None)
+
+        reasoning_context = {
+            "available_assets": len(assets),
+            "pending_inspections": len(pending_assets),
+            "fleet_in_progress": 0,
+            "fleet_completed": getattr(mission, "assets_inspected", 0) if mission else 0,
+            "battery_ok": battery_percent > 25,
+            "battery_percent": battery_percent,
+            "weather_ok": wind_speed is not None and wind_speed < 12,
+            "wind_speed": wind_speed,
+        }
+
         # Extract critic concerns if escalation exists
         critic_concerns = []
         if escalation:
@@ -220,6 +242,7 @@ class DecisionLogger:
             map_stale=map_data.get("map_stale"),
             slam_confidence=map_data.get("slam_confidence"),
             splat_quality=map_data.get("splat_quality"),
+            reasoning_context=reasoning_context,
         )
 
         self._entries.append(entry)

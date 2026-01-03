@@ -4817,8 +4817,8 @@
           updateDroneVisualPosition(droneId, lat, lon, alt);
         }
       });
-      // Re-render SLAM data
-      renderMapCube();
+      // Re-render SLAM data (pass state data to functions that need it)
+      renderMapCube(state.mapPreview, state.mapStatus);
       renderSlamObstacles();
       renderSplatPoints();
       renderTarget();

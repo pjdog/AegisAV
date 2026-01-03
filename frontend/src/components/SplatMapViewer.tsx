@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 type Obstacle = {
   id: string;
@@ -32,6 +32,8 @@ type MapPreview = {
       max_y: number;
     };
   } | null;
+  points?: Array<{ x: number; y: number; z: number; r: number; g: number; b: number }>;
+  points_source?: string;
 };
 
 type SplatPoint = {
@@ -116,6 +118,40 @@ const formatAge = (seconds: number): string => {
   return `${(seconds / 3600).toFixed(1)}h`;
 };
 
+const clamp = (value: number, min = 0, max = 1) => Math.min(max, Math.max(min, value));
+const lerp = (start: number, end: number, t: number) => start + (end - start) * t;
+
+type ColorStop = { t: number; color: [number, number, number] };
+
+const colorRamp = (t: number, stops: ColorStop[]) => {
+  const value = clamp(t);
+  for (let i = 0; i < stops.length - 1; i += 1) {
+    const a = stops[i];
+    const b = stops[i + 1];
+    if (value >= a.t && value <= b.t) {
+      const local = (value - a.t) / Math.max(1e-6, b.t - a.t);
+      const r = Math.round(lerp(a.color[0], b.color[0], local));
+      const g = Math.round(lerp(a.color[1], b.color[1], local));
+      const bVal = Math.round(lerp(a.color[2], b.color[2], local));
+      return `rgb(${r}, ${g}, ${bVal})`;
+    }
+  }
+  const last = stops[stops.length - 1];
+  return `rgb(${last.color[0]}, ${last.color[1]}, ${last.color[2]})`;
+};
+
+const densityStops: ColorStop[] = [
+  { t: 0, color: [30, 64, 175] },
+  { t: 0.5, color: [14, 165, 233] },
+  { t: 1, color: [245, 158, 11] },
+];
+
+const heightStops: ColorStop[] = [
+  { t: 0, color: [59, 7, 100] },
+  { t: 0.5, color: [190, 24, 93] },
+  { t: 1, color: [250, 204, 21] },
+];
+
 const SplatMapViewer = () => {
   const [mapStatus, setMapStatus] = useState<MapStatus | null>(null);
   const [mapPreview, setMapPreview] = useState<MapPreview | null>(null);
@@ -126,10 +162,59 @@ const SplatMapViewer = () => {
   const [showSplat, setShowSplat] = useState(true);
   const [showObstacles, setShowObstacles] = useState(true);
   const [showHeatmap, setShowHeatmap] = useState(false);
+  const [splatRenderMode, setSplatRenderMode] = useState<"density" | "height" | "color">("density");
   const [loading, setLoading] = useState(false);
+  const [scenarioActive, setScenarioActive] = useState(false);
+  const wsRef = useRef<WebSocket | null>(null);
 
   const size = 400;
   const padding = 40;
+
+  // Reset all map data to initial state
+  const resetMapData = useCallback(() => {
+    setMapStatus(null);
+    setMapPreview(null);
+    setMapHealth(null);
+    setSplatScenes([]);
+    setSelectedScene(null);
+    setSplatPoints([]);
+    setScenarioActive(false);
+  }, []);
+
+  // Listen for scenario events via WebSocket
+  useEffect(() => {
+    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+    const ws = new WebSocket(`${protocol}//${window.location.host}/ws`);
+    wsRef.current = ws;
+
+    ws.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        const eventType = (data.event_type || data.event || "").toLowerCase();
+
+        // Reset on scenario stop/complete/reset events
+        if (
+          eventType === "scenario_stopped" ||
+          eventType === "scenario_complete" ||
+          eventType === "scenario_reset" ||
+          eventType === "scenario_failed"
+        ) {
+          resetMapData();
+        }
+
+        // Mark scenario as active when started
+        if (eventType === "scenario_started" || eventType === "preflight_status") {
+          setScenarioActive(true);
+        }
+      } catch {
+        // Ignore parse errors
+      }
+    };
+
+    return () => {
+      ws.close();
+    };
+  }, [resetMapData]);
 
   // Fetch map status and preview
   const loadMapData = useCallback(async () => {
@@ -252,20 +337,97 @@ const SplatMapViewer = () => {
   const toViewY = (y: number) => size / 2 - (y - center.y) * scale; // Flip Y for screen coords
 
   const selectedSceneData = splatScenes.find((s) => s.run_id === selectedScene);
+  const previewPoints = mapPreview?.points ?? [];
   const hasPreview = (mapPreview?.obstacles?.length ?? 0) > 0;
-  const hasSplat = splatPoints.length > 0;
+  const hasSplat = splatPoints.length > 0 || previewPoints.length > 0;
   const hasHeatmap = (mapPreview?.heatmap?.values?.length ?? 0) > 0;
   const mapReady = Boolean(mapStatus?.map_available && (hasPreview || hasSplat || hasHeatmap));
   const mapError = mapStatus?.map_update_error;
+  const displayedSplatPoints = splatPoints.length > 0 ? splatPoints : previewPoints;
+  const rawStride = Math.max(1, Math.ceil(displayedSplatPoints.length / 12000));
+  const rawSplatPoints =
+    rawStride > 1
+      ? displayedSplatPoints.filter((_, idx) => idx % rawStride === 0)
+      : displayedSplatPoints;
+
+  const splatCells = useMemo(() => {
+    if (displayedSplatPoints.length === 0) {
+      return { cells: [], maxCount: 0, zMin: 0, zMax: 0, cellSizeM: 1 };
+    }
+    const span = Math.max(transform.rangeX, transform.rangeY) || 1;
+    const targetCells = 80;
+    const cellSizeM = clamp(span / targetCells, 0.5, 5);
+    const cellMap = new Map<
+      string,
+      { col: number; row: number; count: number; zSum: number; rSum: number; gSum: number; bSum: number }
+    >();
+    let zMin = Number.POSITIVE_INFINITY;
+    let zMax = Number.NEGATIVE_INFINITY;
+
+    for (const pt of displayedSplatPoints) {
+      const col = Math.floor((pt.x - transform.minX) / cellSizeM);
+      const row = Math.floor((pt.y - transform.minY) / cellSizeM);
+      const key = `${col}:${row}`;
+      const entry = cellMap.get(key) || {
+        col,
+        row,
+        count: 0,
+        zSum: 0,
+        rSum: 0,
+        gSum: 0,
+        bSum: 0,
+      };
+      entry.count += 1;
+      entry.zSum += pt.z;
+      entry.rSum += pt.r;
+      entry.gSum += pt.g;
+      entry.bSum += pt.b;
+      cellMap.set(key, entry);
+
+      zMin = Math.min(zMin, pt.z);
+      zMax = Math.max(zMax, pt.z);
+    }
+
+    const cells = Array.from(cellMap.values()).map((entry) => ({
+      x: transform.minX + (entry.col + 0.5) * cellSizeM,
+      y: transform.minY + (entry.row + 0.5) * cellSizeM,
+      count: entry.count,
+      zAvg: entry.zSum / entry.count,
+      rAvg: entry.rSum / entry.count,
+      gAvg: entry.gSum / entry.count,
+      bAvg: entry.bSum / entry.count,
+    }));
+
+    const maxCount = Math.max(...cells.map((cell) => cell.count), 1);
+    return { cells, maxCount, zMin, zMax, cellSizeM };
+  }, [displayedSplatPoints, transform]);
+
+  const splatStatLabel = splatRenderMode === "color" ? "Splat Points" : "Splat Cells";
+  const splatStatValue =
+    splatRenderMode === "color"
+      ? rawSplatPoints.length
+      : splatCells.cells.length;
 
   return (
     <div className="splat-map-card">
       <div className="card-header">
-        <h2>3D Map Reconstruction</h2>
-        <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+        <div>
+          <h2>SLAM Environment Map</h2>
+          <p className="splat-description">
+            Real-time obstacle detection and 3D reconstruction from drone sensors
+          </p>
+        </div>
+        <div style={{ display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap" }}>
+          {scenarioActive && (
+            <span className="pill" style={{ background: "var(--accent-security)" }}>
+              <span className="pulse-indicator" style={{ display: "inline-block", width: 6, height: 6, borderRadius: "50%", background: "currentColor", marginRight: 4 }} />
+              Live
+            </span>
+          )}
           {mapStatus?.map_available ? (
             <span
               className="pill"
+              title="Map quality score based on obstacle coverage and data freshness"
               style={{
                 background:
                   mapStatus.map_quality_score > 0.7
@@ -278,24 +440,31 @@ const SplatMapViewer = () => {
               {(mapStatus.map_quality_score * 100).toFixed(0)}% Quality
             </span>
           ) : (
-            <span className="pill">No Map</span>
-          )}
-          {splatScenes.length > 0 && (
-            <span className="pill">{splatScenes.length} Splat{splatScenes.length !== 1 ? "s" : ""}</span>
+            <span className="pill" title="No map data available yet">Awaiting Data</span>
           )}
         </div>
       </div>
 
-      <div className="splat-meta" style={{ display: "flex", gap: "12px", flexWrap: "wrap" }}>
-        <span className="meta-sub">
-          Last update {mapStatus?.last_update ? new Date(mapStatus.last_update).toLocaleTimeString() : "--"}
-        </span>
-        <span className="meta-sub">
-          Obstacles {mapStatus?.obstacle_count ?? 0}
-        </span>
-        <span className="meta-sub">
-          Age {mapStatus ? formatAge(mapStatus.map_age_s) : "--"}
-        </span>
+      {/* Quick stats bar */}
+      <div className="splat-quick-stats">
+        <div className="quick-stat" title="Detected obstacles in the environment">
+          <span className="quick-stat-value">{mapStatus?.obstacle_count ?? 0}</span>
+          <span className="quick-stat-label">Obstacles</span>
+        </div>
+        <div className="quick-stat" title="3D points from Gaussian splatting reconstruction">
+          <span className="quick-stat-value">{displayedSplatPoints.length.toLocaleString()}</span>
+          <span className="quick-stat-label">3D Points</span>
+        </div>
+        <div className="quick-stat" title="Time since last map update">
+          <span className="quick-stat-value">{formatAge(mapStatus?.map_age_s ?? Infinity)}</span>
+          <span className="quick-stat-label">Map Age</span>
+        </div>
+        {mapStatus?.slam_status?.map_point_count != null && (
+          <div className="quick-stat" title="Raw SLAM map points">
+            <span className="quick-stat-value">{mapStatus.slam_status.map_point_count.toLocaleString()}</span>
+            <span className="quick-stat-label">SLAM Pts</span>
+          </div>
+        )}
       </div>
 
       <div className="splat-controls">
@@ -323,9 +492,18 @@ const SplatMapViewer = () => {
           />
           <span>Heatmap</span>
         </label>
+        <select
+          className="splat-select"
+          value={splatRenderMode}
+          onChange={(e) => setSplatRenderMode(e.target.value as "density" | "height" | "color")}
+        >
+          <option value="density">Splat: Density</option>
+          <option value="height">Splat: Height</option>
+          <option value="color">Splat: Color</option>
+        </select>
         {splatScenes.length > 0 && (
           <select
-            className="splat-select"
+            className="splat-select scene-select"
             value={selectedScene || ""}
             onChange={(e) => setSelectedScene(e.target.value)}
           >
@@ -339,27 +517,31 @@ const SplatMapViewer = () => {
       </div>
 
       {!mapReady && (
-        <div className="splat-alert">
-          <strong>Map data incomplete.</strong>
-          <span className="meta-sub">
-            {mapStatus?.map_available ? "No preview/splat geometry yet." : "Map unavailable from SLAM pipeline."}
-          </span>
-          {mapStatus?.slam_status?.backend && (
-            <span className="meta-sub">
-              SLAM {mapStatus.slam_status.backend} · {mapStatus.slam_status.tracking_state ?? "unknown"}
-            </span>
-          )}
-          {mapError && (
-            <span className="meta-sub">
-              Last error {mapError}
-              {mapStatus?.map_update_error_at
-                ? ` · ${new Date(mapStatus.map_update_error_at).toLocaleTimeString()}`
-                : ""}
-            </span>
-          )}
-          {splatScenes.length === 0 && (
-            <span className="meta-sub">No splat scenes available yet.</span>
-          )}
+        <div className="splat-empty-state">
+          <div className="splat-empty-icon">&#128506;</div>
+          <div className="splat-empty-title">
+            {scenarioActive ? "Building Environment Map..." : "No Map Data"}
+          </div>
+          <div className="splat-empty-details">
+            {scenarioActive ? (
+              <>
+                <p>The SLAM system is processing sensor data to build a 3D map.</p>
+                {mapStatus?.slam_status?.backend && (
+                  <p className="splat-slam-info">
+                    <span className="slam-badge">{mapStatus.slam_status.backend}</span>
+                    <span className="slam-state">{mapStatus.slam_status.tracking_state ?? "initializing"}</span>
+                  </p>
+                )}
+              </>
+            ) : (
+              <p>Start a scenario to begin environment mapping. The drone will use cameras and depth sensors to build a 3D map.</p>
+            )}
+            {mapError && (
+              <p className="splat-error">
+                Error: {mapError}
+              </p>
+            )}
+          </div>
         </div>
       )}
 
@@ -507,16 +689,45 @@ const SplatMapViewer = () => {
         )}
 
         {/* Splat points */}
-        {showSplat && splatPoints.length > 0 && (
+        {showSplat && displayedSplatPoints.length > 0 && splatRenderMode !== "color" && (
           <g className="splat-points">
-            {splatPoints.map((pt, i) => (
+            {splatCells.cells.map((cell, idx) => {
+              const density = cell.count / splatCells.maxCount;
+              const heightRange = Math.max(1e-6, splatCells.zMax - splatCells.zMin);
+              const height = (cell.zAvg - splatCells.zMin) / heightRange;
+              const color =
+                splatRenderMode === "height"
+                  ? colorRamp(height, heightStops)
+                  : colorRamp(density, densityStops);
+              const alpha = splatRenderMode === "height" ? 0.25 + height * 0.6 : 0.15 + density * 0.7;
+              const cellSize = splatCells.cellSizeM * scale;
+              return (
+                <rect
+                  key={`${cell.x}-${cell.y}-${idx}`}
+                  x={toViewX(cell.x - splatCells.cellSizeM / 2)}
+                  y={toViewY(cell.y + splatCells.cellSizeM / 2)}
+                  width={cellSize}
+                  height={cellSize}
+                  fill={color}
+                  fillOpacity={alpha}
+                  stroke="rgba(255,255,255,0.08)"
+                  strokeWidth="0.5"
+                />
+              );
+            })}
+          </g>
+        )}
+
+        {showSplat && splatRenderMode === "color" && rawSplatPoints.length > 0 && (
+          <g className="splat-points">
+            {rawSplatPoints.map((pt, i) => (
               <circle
                 key={i}
                 cx={toViewX(pt.x)}
                 cy={toViewY(pt.y)}
-                r="1.5"
+                r="1.2"
                 fill={`rgb(${pt.r}, ${pt.g}, ${pt.b})`}
-                opacity="0.8"
+                opacity="0.65"
               />
             ))}
           </g>
@@ -566,6 +777,23 @@ const SplatMapViewer = () => {
           </text>
         </g>
 
+        {/* Compass / Direction indicators */}
+        <g className="compass" transform={`translate(${size - 35}, 35)`}>
+          <circle r="18" fill="rgba(0,0,0,0.5)" stroke="rgba(255,255,255,0.2)" strokeWidth="1" />
+          <text y="-5" textAnchor="middle" fill="#06b6d4" fontSize="10" fontWeight="bold">N</text>
+          <text y="12" textAnchor="middle" fill="rgba(255,255,255,0.4)" fontSize="8">S</text>
+          <text x="-10" y="3" textAnchor="middle" fill="rgba(255,255,255,0.4)" fontSize="8">W</text>
+          <text x="10" y="3" textAnchor="middle" fill="rgba(255,255,255,0.4)" fontSize="8">E</text>
+        </g>
+
+        {/* Axis labels */}
+        <text x={size / 2} y={size - 5} textAnchor="middle" fill="rgba(255,255,255,0.5)" fontSize="9">
+          East-West (meters)
+        </text>
+        <text x="10" y={size / 2} textAnchor="middle" fill="rgba(255,255,255,0.5)" fontSize="9" transform={`rotate(-90, 10, ${size / 2})`}>
+          North-South (m)
+        </text>
+
         {/* Loading indicator */}
         {loading && (
           <g transform={`translate(${size / 2}, ${size / 2})`}>
@@ -577,36 +805,65 @@ const SplatMapViewer = () => {
         )}
       </svg>
 
-      <div className="splat-stats">
-        <div className="splat-stat">
-          <span className="stat-label">Obstacles</span>
-          <span className="stat-value">{mapPreview?.obstacle_count ?? 0}</span>
-        </div>
-        <div className="splat-stat">
-          <span className="stat-label">Splat Points</span>
-          <span className="stat-value">{splatPoints.length.toLocaleString()}</span>
-        </div>
-        <div className="splat-stat">
-          <span className="stat-label">Map Age</span>
-          <span className="stat-value">{formatAge(mapStatus?.map_age_s ?? Infinity)}</span>
-        </div>
-        {selectedSceneData && (
-          <div className="splat-stat">
-            <span className="stat-label">Gaussians</span>
-            <span className="stat-value">{selectedSceneData.gaussian_count.toLocaleString()}</span>
+      {/* Legend with render mode indicator */}
+      <div className="splat-legend-container">
+        {/* Render mode legend */}
+        {showSplat && displayedSplatPoints.length > 0 && (
+          <div className="render-mode-legend">
+            <span className="legend-title">
+              {splatRenderMode === "density" ? "Point Density" : splatRenderMode === "height" ? "Elevation" : "True Color"}:
+            </span>
+            {splatRenderMode === "density" && (
+              <div className="gradient-legend">
+                <span className="gradient-bar density" />
+                <div className="gradient-labels">
+                  <span>Low</span>
+                  <span>High</span>
+                </div>
+              </div>
+            )}
+            {splatRenderMode === "height" && (
+              <div className="gradient-legend">
+                <span className="gradient-bar height" />
+                <div className="gradient-labels">
+                  <span>Ground</span>
+                  <span>Elevated</span>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Obstacle type legend */}
+        {showObstacles && (mapPreview?.obstacles?.length ?? 0) > 0 && (
+          <div className="obstacle-legend">
+            <span className="legend-title">Obstacles:</span>
+            <div className="legend-items">
+              {Object.entries(obstacleColors).slice(0, 6).map(([type, color]) => (
+                <div key={type} className="legend-item" title={`${type.replace(/_/g, " ")} obstacles`}>
+                  <span className="legend-color" style={{ background: color }} />
+                  <span className="legend-label">{type.replace(/_/g, " ")}</span>
+                </div>
+              ))}
+            </div>
           </div>
         )}
       </div>
 
-      {/* Legend */}
-      <div className="splat-legend">
-        {Object.entries(obstacleColors).slice(0, 6).map(([type, color]) => (
-          <div key={type} className="legend-item">
-            <span className="legend-color" style={{ background: color }} />
-            <span className="legend-label">{type}</span>
-          </div>
-        ))}
-      </div>
+      {/* Scene info footer */}
+      {selectedSceneData && (
+        <div className="splat-scene-footer">
+          <span className="scene-label">Scene:</span>
+          <span className="scene-id">{selectedSceneData.run_id}</span>
+          <span className="scene-meta">v{selectedSceneData.version}</span>
+          <span className="scene-meta">{selectedSceneData.gaussian_count.toLocaleString()} gaussians</span>
+          {selectedSceneData.quality.psnr > 0 && (
+            <span className="scene-meta" title="Peak Signal-to-Noise Ratio - higher is better">
+              PSNR {selectedSceneData.quality.psnr.toFixed(1)}dB
+            </span>
+          )}
+        </div>
+      )}
     </div>
   );
 };

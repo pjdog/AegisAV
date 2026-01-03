@@ -247,21 +247,63 @@ type EdgeComputeConfig = {
   micro_agent: MicroAgentConfig;
 };
 
+// Parse structured log message into key-value pairs for better display
+const parseLogMessage = (message: string): { text: string; fields: Record<string, string> } => {
+  const fieldPattern = /(\w+)=(?:"([^"]+)"|(\S+))/g;
+  const fields: Record<string, string> = {};
+  let match;
+  while ((match = fieldPattern.exec(message)) !== null) {
+    const key = match[1];
+    const value = match[2] || match[3];
+    fields[key] = value;
+  }
+  // Clean up the text portion by removing extracted fields
+  let text = message;
+  if (Object.keys(fields).length > 0) {
+    text = message.replace(fieldPattern, '').replace(/[,\s]+$/, '').trim();
+  }
+  return { text, fields };
+};
+
 const LogViewer = ({ logs }: { logs: LogEntry[] }) => {
   return (
     <div className="log-card">
       <div className="card-header">
         <h2>Live System Logs</h2>
-        <span className="pill">Console</span>
+        <span className="pill">{logs.length} entries</span>
       </div>
       <div className="log-viewer">
-        {logs.map((log, i) => (
-          <div key={i} className="log-entry">
-            <span className="ts">{log.timestamp.split('.')[0]}</span>
-            <span className={`level ${log.level}`}>{log.level}</span>
-            <span className="msg">{log.message}</span>
+        {logs.length === 0 ? (
+          <div className="log-empty">
+            <span className="log-empty-icon">&#128221;</span>
+            <span>Waiting for log events...</span>
           </div>
-        ))}
+        ) : (
+          logs.map((log, i) => {
+            const { text, fields } = parseLogMessage(log.message);
+            const hasFields = Object.keys(fields).length > 0;
+            return (
+              <div key={i} className={`log-entry ${log.level.toLowerCase()}`}>
+                <div className="log-main">
+                  <span className="ts">{log.timestamp.split('.')[0]}</span>
+                  <span className={`level ${log.level}`}>{log.level.substring(0, 4)}</span>
+                  <span className="log-name">{log.name}</span>
+                  <span className="msg">{text || log.message}</span>
+                </div>
+                {hasFields && (
+                  <div className="log-fields">
+                    {Object.entries(fields).slice(0, 6).map(([key, value]) => (
+                      <span key={key} className="log-field">
+                        <span className="field-key">{key}</span>
+                        <span className="field-value">{value}</span>
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })
+        )}
       </div>
     </div>
   );
@@ -354,7 +396,11 @@ const FleetTelemetry = ({ telemetry }: { telemetry: TelemetryEntry[] }) => {
         <span className="pill">{telemetry.length} drones</span>
       </div>
       {telemetry.length === 0 ? (
-        <p className="note">No telemetry received yet.</p>
+        <div className="empty-state">
+          <span className="empty-state-icon">&#128225;</span>
+          <p className="empty-state-title">No Fleet Telemetry</p>
+          <p className="empty-state-desc">Waiting for drone connections. Start a scenario to see live telemetry data.</p>
+        </div>
       ) : (
         <div className="fleet-grid">
           {telemetry.map((entry) => {
@@ -512,7 +558,11 @@ const RecentCapturesSection = ({ captures }: { captures: RecentCapture[] }) => {
           <h2>Recent Captures</h2>
           <span className="pill">0 captures</span>
         </div>
-        <p className="note">No captures yet. Start a scenario to begin inspections.</p>
+        <div className="empty-state">
+          <span className="empty-state-icon">&#128247;</span>
+          <p className="empty-state-title">No Captures Yet</p>
+          <p className="empty-state-desc">Start a scenario to begin asset inspections. Captured images will appear here.</p>
+        </div>
       </section>
     );
   }
@@ -1064,7 +1114,23 @@ const Dashboard = () => {
   const [liveDecisions, setLiveDecisions] = useState<DecisionEntry[]>([]);
   const [runnerDecisions, setRunnerDecisions] = useState<DecisionEntry[]>([]);
   const [wsConnected, setWsConnected] = useState<boolean>(false);
+  const [scenarioActive, setScenarioActive] = useState<boolean>(false);
   const wsRef = useRef<WebSocket | null>(null);
+
+  // Reset all mission-related state when scenario stops/resets
+  const resetMissionState = useCallback(() => {
+    setLiveDecisions([]);
+    setRunnerDecisions([]);
+    setFleetTelemetry([]);
+    setScenarioDrones([]);
+    setSpatialAssets([]);
+    setMissionMetrics(null);
+    setRecentCaptures([]);
+    setLastVision(null);
+    setLiveRunnerStatus(null);
+    setScenarioActive(false);
+    setStatus("Ready");
+  }, []);
 
   const loadRun = useCallback(async () => {
     try {
@@ -1446,6 +1512,25 @@ const Dashboard = () => {
           };
           setLiveDecisions((prev) => [criticEntry, ...prev].slice(0, 20));
         }
+
+        // Handle scenario lifecycle events
+        if (
+          normalizedEvent === "scenario_stopped" ||
+          normalizedEvent === "scenario_complete" ||
+          normalizedEvent === "scenario_reset" ||
+          normalizedEvent === "scenario_failed"
+        ) {
+          resetMissionState();
+        }
+
+        // Mark scenario as active when started
+        if (
+          normalizedEvent === "scenario_started" ||
+          normalizedEvent === "preflight_status"
+        ) {
+          setScenarioActive(true);
+          setStatus("Live Scenario");
+        }
       } catch (e) {
         // Ignore parse errors for non-JSON messages
       }
@@ -1463,7 +1548,7 @@ const Dashboard = () => {
     return () => {
       ws.close();
     };
-  }, []);
+  }, [resetMissionState]);
 
   useEffect(() => {
     loadRun();

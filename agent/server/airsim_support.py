@@ -394,6 +394,30 @@ async def sync_multi_drone_scenario(
     )
 
     try:
+        async def _refresh_fleet_bridge() -> AgentFleetBridge | None:
+            try:
+                from agent.server.fleet_bridge import reset_fleet_bridge  # noqa: PLC0415
+
+                await reset_fleet_bridge()
+            except Exception as exc:
+                logger.warning("fleet_bridge_reset_failed", error=str(exc))
+
+            server_state.fleet_bridge = None
+            server_state.fleet_bridge_enabled = False
+
+            refreshed = get_fleet_bridge(
+                host=config.simulation.airsim_host,
+                vehicle_mapping=config.simulation.airsim_vehicle_mapping,
+            )
+            connected = await refreshed.connect()
+            if not connected:
+                logger.warning("multi_drone_sync_failed", reason="fleet_bridge_reconnect_failed")
+                return None
+
+            server_state.fleet_bridge = refreshed
+            server_state.fleet_bridge_enabled = True
+            return refreshed
+
         # Get or create the fleet bridge
         fleet_bridge = get_fleet_bridge(
             host=config.simulation.airsim_host,
@@ -412,9 +436,32 @@ async def sync_multi_drone_scenario(
 
         # Setup scenario drones
         setup_results = await fleet_bridge.setup_scenario(scenario)
+        for drone in scenario.drones:
+            if drone.drone_id not in setup_results:
+                setup_results[drone.drone_id] = False
+        failed_drones = [drone_id for drone_id, ok in setup_results.items() if not ok]
+        if failed_drones:
+            logger.warning(
+                "multi_drone_sync_refresh",
+                scenario_id=scenario.scenario_id,
+                failed_drones=failed_drones,
+                reason="refresh_fleet_bridge",
+            )
+            refreshed = await _refresh_fleet_bridge()
+            if refreshed:
+                fleet_bridge = refreshed
+                setup_results = await fleet_bridge.setup_scenario(scenario)
+                for drone in scenario.drones:
+                    if drone.drone_id not in setup_results:
+                        setup_results[drone.drone_id] = False
 
         # Update geo reference
         _update_airsim_georef_for_scenario(scenario)
+        if server_state.airsim_geo_ref:
+            fleet_bridge.set_geo_ref(server_state.airsim_geo_ref)
+
+        if server_state.navigation_map:
+            apply_navigation_map_to_executors(server_state.navigation_map)
 
         # Apply environment
         if scenario.environment:
@@ -504,6 +551,30 @@ def _schedule_airsim_environment(env) -> None:
 def _airsim_bridge_connected() -> bool:
     bridge = server_state.airsim_bridge
     return bool(bridge and getattr(bridge, "connected", False))
+
+
+def apply_navigation_map_to_executors(navigation_map: dict[str, object] | None) -> None:
+    """Apply navigation map obstacles to all available action executors."""
+    if not navigation_map:
+        return
+
+    executor = server_state.airsim_action_executor
+    if executor:
+        if hasattr(executor, "set_navigation_map"):
+            executor.set_navigation_map(navigation_map)
+        else:
+            executor.set_avoid_zones(navigation_map.get("obstacles", []))
+
+    if server_state.fleet_bridge_enabled and server_state.fleet_bridge:
+        fleet_bridge = server_state.fleet_bridge
+        for drone_id in fleet_bridge.get_drone_ids():
+            drone_executor = fleet_bridge.get_executor(drone_id)
+            if not drone_executor:
+                continue
+            if hasattr(drone_executor, "set_navigation_map"):
+                drone_executor.set_navigation_map(navigation_map)
+            else:
+                drone_executor.set_avoid_zones(navigation_map.get("obstacles", []))
 
 
 async def broadcast_dock_state(
@@ -782,6 +853,22 @@ def _is_wsl() -> bool:
             return "microsoft" in f.read().lower()
     except Exception:
         return False
+    return False
+
+
+def _resolve_wsl_host_ip() -> str | None:
+    """Resolve Windows host IP from WSL /etc/resolv.conf."""
+    try:
+        with open("/etc/resolv.conf", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if line.startswith("nameserver"):
+                    parts = line.split()
+                    if len(parts) >= 2:
+                        return parts[1]
+    except Exception:
+        return None
+    return None
 
 
 def _wsl_to_windows_path(linux_path: Path) -> str:
@@ -819,6 +906,115 @@ def _airsim_launch_supported() -> bool:
     return platform.system().lower() == "windows" or _is_wsl()
 
 
+def _kill_airsim_processes() -> dict[str, object]:
+    """Attempt to stop running AirSim processes on Windows/WSL."""
+    exe_names = ["Blocks.exe", "AirSimNH.exe"]
+    results: list[dict[str, object]] = []
+
+    is_windows = platform.system().lower() == "windows"
+    is_wsl = _is_wsl()
+
+    if not is_windows and not is_wsl:
+        return {"attempted": False, "reason": "unsupported_platform", "results": results}
+
+    for exe_name in exe_names:
+        try:
+            if is_wsl:
+                completed = subprocess.run(  # noqa: S603, S607
+                    ["cmd.exe", "/c", "taskkill", "/F", "/T", "/IM", exe_name],
+                    capture_output=True,
+                    text=True,
+                    timeout=8,
+                )
+            else:
+                completed = subprocess.run(  # noqa: S603
+                    ["taskkill", "/F", "/T", "/IM", exe_name],
+                    capture_output=True,
+                    text=True,
+                    timeout=8,
+                )
+            results.append(
+                {
+                    "exe": exe_name,
+                    "returncode": completed.returncode,
+                    "stdout": completed.stdout.strip(),
+                    "stderr": completed.stderr.strip(),
+                }
+            )
+        except Exception as exc:
+            results.append({"exe": exe_name, "error": str(exc)})
+
+    return {"attempted": True, "results": results}
+
+
+def schedule_airsim_restart(
+    reason: str | None = None,
+    cooldown_s: float = 60.0,
+) -> dict[str, object]:
+    """Schedule an AirSim restart in the background."""
+    task = server_state.airsim_restart_task
+    if task and not task.done():
+        return {"scheduled": False, "reason": reason or "restart_in_progress"}
+
+    if not server_state.airsim_launch_initiated:
+        return {"scheduled": False, "reason": "external_airsim_instance"}
+
+    last_restart_at = server_state.airsim_last_restart_at
+    now = time.monotonic()
+    if last_restart_at is not None and now - last_restart_at < cooldown_s:
+        return {
+            "scheduled": False,
+            "reason": "cooldown",
+            "cooldown_s": cooldown_s,
+            "elapsed_s": now - last_restart_at,
+        }
+
+    async def _restart_task() -> dict[str, object]:
+        try:
+            return await restart_airsim_process(reason=reason)
+        finally:
+            server_state.airsim_restart_task = None
+
+    server_state.airsim_restart_task = asyncio.create_task(_restart_task())
+    return {"scheduled": True, "reason": reason or "scheduled"}
+
+
+async def restart_airsim_process(reason: str | None = None) -> dict[str, object]:
+    """Restart the AirSim simulator process and reconnect the bridge."""
+    if not _airsim_launch_supported():
+        return {"restarted": False, "reason": "launch_not_supported"}
+
+    server_state.airsim_last_restart_at = time.monotonic()
+
+    await _stop_airsim_bridge()
+
+    if server_state.fleet_bridge_enabled:
+        try:
+            from agent.server.fleet_bridge import reset_fleet_bridge  # noqa: PLC0415
+
+            await reset_fleet_bridge()
+        except Exception as exc:
+            logger.warning("fleet_bridge_reset_failed", error=str(exc))
+        server_state.fleet_bridge = None
+        server_state.fleet_bridge_enabled = False
+
+    kill_result = _kill_airsim_processes()
+    await asyncio.sleep(1.0)
+
+    supported, started, message = _launch_airsim_process()
+    if started:
+        _schedule_airsim_connect()
+
+    return {
+        "restarted": started,
+        "reason": reason or "requested",
+        "launch_supported": supported,
+        "message": message,
+        "kill": kill_result,
+        "note": "AirSim restart triggered. It may take 30-60 seconds to reconnect.",
+    }
+
+
 def _launch_airsim_process() -> tuple[bool, bool, str]:
     """Launch the AirSim process using the start_airsim.bat script.
 
@@ -854,6 +1050,7 @@ def _launch_airsim_process() -> tuple[bool, bool, str]:
                 ["cmd", "/c", "start", "AegisAV AirSim Launcher", "cmd", "/c", str(script_path)],
                 cwd=str(script_path.parent),
             )
+        server_state.airsim_launch_initiated = True
         return True, True, "AirSim launch initiated. Check the console window for status."
     except Exception as exc:
         logger.exception("airsim_launch_failed", error=str(exc))
@@ -941,9 +1138,32 @@ async def _start_airsim_bridge() -> bool:
         bridge_config.output_dir.mkdir(parents=True, exist_ok=True)
     bridge = RealtimeAirSimBridge(bridge_config)
     if not await bridge.connect():
-        logger.warning("airsim_bridge_connect_failed")
-        server_state.airsim_last_error = "Failed to connect to AirSim."
-        return False
+        fallback_host = None
+        if _is_wsl() and bridge_config.host in {"127.0.0.1", "localhost"}:
+            fallback_host = _resolve_wsl_host_ip()
+
+        if fallback_host and fallback_host != bridge_config.host:
+            logger.warning(
+                "airsim_host_fallback_attempt",
+                previous_host=bridge_config.host,
+                fallback_host=fallback_host,
+            )
+            bridge_config.host = fallback_host
+            bridge = RealtimeAirSimBridge(bridge_config)
+            if not await bridge.connect():
+                logger.warning("airsim_bridge_connect_failed")
+                server_state.airsim_last_error = (
+                    f"Failed to connect to AirSim at {bridge_config.host}. "
+                    "Check that the AirSim RPC port is reachable from WSL."
+                )
+                return False
+        else:
+            logger.warning("airsim_bridge_connect_failed")
+            server_state.airsim_last_error = (
+                f"Failed to connect to AirSim at {bridge_config.host}. "
+                "Check that the AirSim RPC port is reachable."
+            )
+            return False
 
     async def broadcast(payload: dict) -> None:
         drone_id = payload.get("drone_id") or bridge_config.vehicle_name
@@ -1102,6 +1322,9 @@ async def _airsim_depth_mapping_loop() -> None:
             )
             nav_map = result.navigation_map
             if nav_map:
+                metadata = nav_map.get("metadata", {})
+                metadata["point_cloud_path"] = str(points_path)
+                nav_map["metadata"] = metadata
                 nav_map["last_updated"] = datetime.now().isoformat()
                 server_state.navigation_map = nav_map
                 if hasattr(server_state, "last_valid_navigation_map"):
@@ -1178,6 +1401,18 @@ async def _flush_pending_airsim() -> None:
 
 
 async def _stop_airsim_bridge() -> None:
+    if server_state.camera_streaming:
+        for drone_id, task in list(server_state.camera_streaming.items()):
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+            except Exception as exc:
+                logger.warning("camera_stream_stop_failed", drone_id=drone_id, error=str(exc))
+        server_state.camera_streaming.clear()
+        server_state.camera_stream_sequence.clear()
+
     if server_state.airsim_depth_mapping_task:
         server_state.airsim_depth_mapping_task.cancel()
         try:
@@ -1216,24 +1451,44 @@ async def _stop_airsim_bridge() -> None:
 
 async def _execute_airsim_action(decision: dict) -> None:
     """Execute a flight action in AirSim."""
-    executor = server_state.airsim_action_executor
-    if not executor:
-        logger.warning(
-            "airsim_action_executor_missing",
-            action=decision.get("action"),
-        )
-        return
-
     action = decision.get("action", "unknown")
+    drone_id = decision.get("drone_id")
     logger.info(
         "airsim_action_executing",
         action=action,
-        drone_id=decision.get("drone_id"),
+        drone_id=drone_id,
         has_target=bool(decision.get("target_asset")),
     )
 
     try:
-        result = await executor.execute(decision)
+        result = None
+        if server_state.fleet_bridge_enabled and server_state.fleet_bridge and drone_id:
+            executor = server_state.fleet_bridge.get_executor(drone_id)
+            if not executor:
+                logger.warning(
+                    "airsim_action_executor_missing",
+                    action=action,
+                    drone_id=drone_id,
+                )
+                return
+            result = await executor.execute(decision)
+        else:
+            executor = server_state.airsim_action_executor
+            if not executor:
+                logger.warning(
+                    "airsim_action_executor_missing",
+                    action=action,
+                )
+                return
+            result = await executor.execute(decision)
+
+        if result is None:
+            logger.warning(
+                "airsim_action_failed",
+                action=action,
+                error="No execution result",
+            )
+            return
         if result.status.value == "failed":
             logger.warning(
                 "airsim_action_failed",

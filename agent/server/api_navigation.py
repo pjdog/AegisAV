@@ -8,6 +8,7 @@ from __future__ import annotations
 import asyncio
 import time
 from datetime import datetime
+import math
 from pathlib import Path
 from typing import Any
 
@@ -214,6 +215,99 @@ def _get_map_age_seconds() -> float:
         return max(0.0, age)
     except Exception:
         return float("inf")
+
+
+def _load_preview_points(path: Path, max_points: int = 2000) -> list[dict[str, float]]:
+    if not path.exists():
+        return []
+    suffix = path.suffix.lower()
+    points = []
+    if suffix in (".npy", ".npz"):
+        try:
+            import numpy as np  # type: ignore
+        except Exception:
+            return []
+        data = None
+        if suffix == ".npy":
+            data = np.load(path)
+        else:
+            archive = np.load(path)
+            if "points" in archive:
+                data = archive["points"]
+        if data is None or data.ndim != 2 or data.shape[1] < 3:
+            return []
+        if data.shape[0] > max_points:
+            step = int(math.ceil(data.shape[0] / max_points))
+            data = data[::step]
+        z_vals = data[:, 2]
+        z_min = float(z_vals.min()) if z_vals.size else 0.0
+        z_max = float(z_vals.max()) if z_vals.size else 0.0
+        span = z_max - z_min
+        for row in data:
+            z = float(row[2])
+            t = (z - z_min) / span if span > 0 else 0.5
+            r = int(120 + 80 * t)
+            g = int(160 + 60 * t)
+            b = int(220 - 80 * t)
+            points.append({"x": float(row[0]), "y": float(row[1]), "z": z, "r": r, "g": g, "b": b})
+        return points
+
+    if suffix == ".ply":
+        try:
+            with open(path, encoding="utf-8") as f:
+                vertex_count = 0
+                format_ascii = False
+                while True:
+                    line = f.readline()
+                    if not line:
+                        return []
+                    if line.startswith("format"):
+                        format_ascii = "ascii" in line
+                    if line.startswith("element vertex"):
+                        parts = line.split()
+                        if len(parts) >= 3:
+                            vertex_count = int(parts[2])
+                    if line.strip() == "end_header":
+                        break
+                if not format_ascii or vertex_count <= 0:
+                    return []
+                step = max(1, int(math.ceil(vertex_count / max_points)))
+                for idx in range(vertex_count):
+                    line = f.readline()
+                    if not line:
+                        break
+                    if idx % step != 0:
+                        continue
+                    parts = line.strip().split()
+                    if len(parts) < 3:
+                        continue
+                    x, y, z = (float(parts[0]), float(parts[1]), float(parts[2]))
+                    points.append({"x": x, "y": y, "z": z, "r": 180, "g": 200, "b": 220})
+        except Exception:
+            return []
+    return points
+
+
+def _resolve_splat_dir() -> Path:
+    config_mgr = get_config_manager()
+    return config_mgr.resolve_path(config_mgr.config.mapping.splat_dir)
+
+
+def _find_scene_dirs(base_dir: Path) -> list[Path]:
+    if not base_dir.exists():
+        return []
+    scene_dirs = [path for path in base_dir.rglob("scene_*") if path.is_dir()]
+    return sorted(scene_dirs, key=lambda path: str(path))
+
+
+def _find_scene_dir(base_dir: Path, run_id: str) -> Path | None:
+    direct = base_dir / f"scene_{run_id}"
+    if direct.exists():
+        return direct
+    for candidate in base_dir.rglob(f"scene_{run_id}"):
+        if candidate.is_dir():
+            return candidate
+    return None
 
 
 # -----------------------------------------------------------------------------
@@ -531,6 +625,14 @@ async def get_map_preview() -> dict:
 
     bounds = _resolve_bounds()
     heatmap = _build_heatmap(bounds)
+    preview_points: list[dict[str, float]] = []
+    point_cloud_path = metadata.get("point_cloud_path")
+    if point_cloud_path:
+        candidate = Path(point_cloud_path)
+        if not candidate.is_absolute():
+            repo_root = Path(__file__).resolve().parents[2]
+            candidate = repo_root / candidate
+        preview_points = _load_preview_points(candidate)
 
     return {
         "status": "ok",
@@ -540,6 +642,8 @@ async def get_map_preview() -> dict:
             "bounds": bounds,
             "resolution_m": metadata.get("resolution_m", 1.0),
             "heatmap": heatmap,
+            "points": preview_points,
+            "points_source": nav_map.get("source", "unknown"),
         },
         "map_age_s": _get_map_age_seconds(),
     }
@@ -665,11 +769,10 @@ async def get_splat_scenes() -> dict:
 
     Returns list of stored Gaussian splat reconstructions.
     """
-    from pathlib import Path
+    splat_dir = _resolve_splat_dir()
+    scene_dirs = _find_scene_dirs(splat_dir)
 
-    splat_dir = Path(__file__).resolve().parents[2] / "data" / "splats"
-
-    if not splat_dir.exists():
+    if not scene_dirs:
         return {
             "status": "no_splats",
             "scenes": [],
@@ -677,77 +780,76 @@ async def get_splat_scenes() -> dict:
         }
 
     scenes = []
-    for scene_path in splat_dir.iterdir():
-        if scene_path.is_dir() and scene_path.name.startswith("scene_"):
-            run_id = scene_path.name[6:]  # Remove "scene_" prefix
+    for scene_path in scene_dirs:
+        run_id = scene_path.name[6:]  # Remove "scene_" prefix
 
-            # Find latest version
-            versions = []
-            for v_path in scene_path.iterdir():
-                if v_path.is_dir() and v_path.name.startswith("v"):
-                    try:
-                        versions.append(int(v_path.name[1:]))
-                    except ValueError:
-                        pass
+        # Find latest version
+        versions = []
+        for v_path in scene_path.iterdir():
+            if v_path.is_dir() and v_path.name.startswith("v"):
+                try:
+                    versions.append(int(v_path.name[1:]))
+                except ValueError:
+                    pass
 
-            if versions:
-                latest_v = max(versions)
-                version_dir = scene_path / f"v{latest_v}"
+        if versions:
+            latest_v = max(versions)
+            version_dir = scene_path / f"v{latest_v}"
 
-                # Load metadata if exists
-                metadata_path = version_dir / "metadata.json"
-                metadata = {}
-                if metadata_path.exists():
-                    import json
-                    with open(metadata_path) as f:
-                        metadata = json.load(f)
+            # Load metadata if exists
+            metadata_path = version_dir / "metadata.json"
+            metadata = {}
+            if metadata_path.exists():
+                import json
+                with open(metadata_path) as f:
+                    metadata = json.load(f)
 
-                # Check for preview file
-                preview_exists = (version_dir / "preview.ply").exists()
-                model_exists = (version_dir / "model.ply").exists()
-                planning_proxy_exists = (version_dir / "planning_proxy.json").exists()
+            # Check for preview file
+            preview_exists = (version_dir / "preview.ply").exists()
+            model_exists = (version_dir / "model.ply").exists()
+            planning_proxy_exists = (version_dir / "planning_proxy.json").exists()
 
+            scenes.append({
+                "run_id": run_id,
+                "version": latest_v,
+                "versions_available": len(versions),
+                "preview_available": preview_exists,
+                "model_available": model_exists,
+                "planning_proxy_available": planning_proxy_exists,
+                "gaussian_count": metadata.get("gaussians", {}).get("count", 0),
+                "quality": {
+                    "psnr": metadata.get("quality", {}).get("psnr", 0),
+                    "ssim": metadata.get("quality", {}).get("ssim", 0),
+                },
+                "created_at": metadata.get("created_at"),
+            })
+        else:
+            # Backward-compatible: look for non-versioned scene.json/preview.ply
+            preview_exists = (scene_path / "preview.ply").exists()
+            model_exists = (scene_path / "model.ply").exists()
+            planning_proxy_exists = (scene_path / "planning_proxy.json").exists()
+            metadata_path = scene_path / "scene.json"
+            metadata = {}
+            if metadata_path.exists():
+                import json
+                with open(metadata_path) as f:
+                    metadata = json.load(f)
+
+            if preview_exists or metadata:
                 scenes.append({
                     "run_id": run_id,
-                    "version": latest_v,
-                    "versions_available": len(versions),
+                    "version": 1,
+                    "versions_available": 1,
                     "preview_available": preview_exists,
                     "model_available": model_exists,
                     "planning_proxy_available": planning_proxy_exists,
-                    "gaussian_count": metadata.get("gaussians", {}).get("count", 0),
+                    "gaussian_count": metadata.get("gaussian_count", 0),
                     "quality": {
-                        "psnr": metadata.get("quality", {}).get("psnr", 0),
-                        "ssim": metadata.get("quality", {}).get("ssim", 0),
+                        "psnr": metadata.get("psnr", 0),
+                        "ssim": metadata.get("ssim", 0),
                     },
                     "created_at": metadata.get("created_at"),
                 })
-            else:
-                # Backward-compatible: look for non-versioned scene.json/preview.ply
-                preview_exists = (scene_path / "preview.ply").exists()
-                model_exists = (scene_path / "model.ply").exists()
-                planning_proxy_exists = (scene_path / "planning_proxy.json").exists()
-                metadata_path = scene_path / "scene.json"
-                metadata = {}
-                if metadata_path.exists():
-                    import json
-                    with open(metadata_path) as f:
-                        metadata = json.load(f)
-
-                if preview_exists or metadata:
-                    scenes.append({
-                        "run_id": run_id,
-                        "version": 1,
-                        "versions_available": 1,
-                        "preview_available": preview_exists,
-                        "model_available": model_exists,
-                        "planning_proxy_available": planning_proxy_exists,
-                        "gaussian_count": metadata.get("gaussian_count", 0),
-                        "quality": {
-                            "psnr": metadata.get("psnr", 0),
-                            "ssim": metadata.get("ssim", 0),
-                        },
-                        "created_at": metadata.get("created_at"),
-                    })
 
     return {
         "status": "ok",
@@ -761,12 +863,10 @@ async def get_splat_preview(run_id: str) -> dict:
 
     Returns point cloud data from the splat preview for visualization.
     """
-    from pathlib import Path
+    splat_dir = _resolve_splat_dir()
+    scene_dir = _find_scene_dir(splat_dir, run_id)
 
-    splat_dir = Path(__file__).resolve().parents[2] / "data" / "splats"
-    scene_dir = splat_dir / f"scene_{run_id}"
-
-    if not scene_dir.exists():
+    if not scene_dir:
         return {
             "status": "not_found",
             "run_id": run_id,
@@ -870,12 +970,10 @@ async def get_splat_preview(run_id: str) -> dict:
 
 async def get_splat_planning_proxy(run_id: str) -> dict:
     """GET /api/navigation/splat/proxy/{run_id} - Get planning proxy map for a splat run."""
-    from pathlib import Path
+    splat_dir = _resolve_splat_dir()
+    scene_dir = _find_scene_dir(splat_dir, run_id)
 
-    splat_dir = Path(__file__).resolve().parents[2] / "data" / "splats"
-    scene_dir = splat_dir / f"scene_{run_id}"
-
-    if not scene_dir.exists():
+    if not scene_dir:
         return {"status": "not_found", "run_id": run_id, "proxy": None}
 
     versions = []

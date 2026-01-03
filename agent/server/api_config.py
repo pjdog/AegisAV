@@ -8,6 +8,7 @@ from fastapi import Depends, FastAPI, HTTPException
 from pydantic import BaseModel, ValidationError
 
 from agent.edge_config import apply_edge_compute_update, available_edge_profiles
+from agent.server.airsim_settings import update_airsim_settings
 from agent.server.config_manager import (
     MissionSuccessThresholds,
     MissionSuccessWeights,
@@ -237,11 +238,19 @@ def register_config_routes(app: FastAPI) -> None:
 
         config_manager.save()
 
-        return {
+        response = {
             "status": "updated",
             "section": section,
             "config": config_manager.get_section(section),
         }
+
+        if section == "simulation":
+            response["airsim_settings"] = update_airsim_settings(
+                config_manager.config,
+                reason="simulation_config_updated",
+            )
+
+        return response
 
     @app.post("/api/llm/test")
     async def test_llm_connection(payload: dict, _auth: dict = Depends(auth_handler)) -> dict:

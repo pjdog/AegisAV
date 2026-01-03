@@ -18,6 +18,7 @@ from mapping.map_storage import MapArtifactStore, MapArtifactStoreConfig
 from mapping.safety_gates import MapUpdateGate, SafetyGateConfig, SafetyGateResult
 from mapping.splat_proxy import build_planning_proxy, write_planning_proxy
 from mapping.splat_change_detection import ChangeDetectionConfig, detect_splat_changes
+from mapping.splat_trainer import SplatTrainingConfig, train_splat
 
 logger = structlog.get_logger(__name__)
 
@@ -57,6 +58,13 @@ class MapUpdateConfig:
     change_detection_min_new_obstacles: int = 1
     proxy_force_regenerate: bool = False
 
+    # Splat auto-training
+    splat_auto_train: bool = False
+    splat_backend: str = "stub"
+    splat_iterations: int = 7000
+    splat_train_interval_s: float = 60.0
+    splat_train_min_age_s: float = 5.0
+
 
 class MapUpdateService:
     """Background service that updates server navigation maps."""
@@ -92,6 +100,8 @@ class MapUpdateService:
         self._last_proxy_regen_time: float = 0.0
         self._proxy_regen_count: int = 0
         self._last_change_emit_time: float = 0.0
+        self._last_splat_train_time: float = 0.0
+        self._last_splat_pose_graph_mtime: float = 0.0
 
     async def start(self) -> None:
         if self._task:
@@ -110,6 +120,16 @@ class MapUpdateService:
                 pass
             self._task = None
         logger.info("map_update_stopped")
+
+    def reset_state(self) -> None:
+        """Reset internal tracking so a new scenario can start clean."""
+        self._last_valid_map = None
+        self._last_proxy_regen_time = 0.0
+        self._proxy_regen_count = 0
+        self._last_change_emit_time = 0.0
+        self._last_splat_train_time = 0.0
+        self._last_splat_pose_graph_mtime = 0.0
+        logger.info("map_update_state_reset")
 
     async def _run_loop(self) -> None:
         while self._running:
@@ -194,6 +214,10 @@ class MapUpdateService:
         )
 
         base_map = result.navigation_map
+        metadata = base_map.get("metadata", {})
+        if point_cloud_path:
+            metadata["point_cloud_path"] = str(point_cloud_path)
+        base_map["metadata"] = metadata
         if selection_info:
             metadata = base_map.get("metadata", {})
             metadata["source_selection"] = selection_info
@@ -239,6 +263,18 @@ class MapUpdateService:
                     executor.set_navigation_map(nav_map)
                 else:
                     executor.set_avoid_zones(nav_map.get("obstacles", []))
+            if getattr(self.server_state, "fleet_bridge_enabled", False) and getattr(
+                self.server_state, "fleet_bridge", None
+            ):
+                fleet_bridge = self.server_state.fleet_bridge
+                for drone_id in fleet_bridge.get_drone_ids():
+                    drone_executor = fleet_bridge.get_executor(drone_id)
+                    if not drone_executor:
+                        continue
+                    if hasattr(drone_executor, "set_navigation_map"):
+                        drone_executor.set_navigation_map(nav_map)
+                    else:
+                        drone_executor.set_avoid_zones(nav_map.get("obstacles", []))
             if getattr(self.server_state, "flight_controller", None):
                 controller = self.server_state.flight_controller
                 if hasattr(controller, "set_navigation_map"):
@@ -320,6 +356,8 @@ class MapUpdateService:
                 )
             self.server_state.splat_artifacts = splat_data
 
+        await self._maybe_train_splat(slam_pose_graph, nav_map.get("scenario_id"))
+
         obstacle_count_delta = 0
         if previous_map:
             previous_count = len(previous_map.get("obstacles", []))
@@ -329,6 +367,73 @@ class MapUpdateService:
             source,
             obstacle_count_delta=obstacle_count_delta,
         )
+
+    async def _maybe_train_splat(
+        self,
+        pose_graph_path: Path | None,
+        scenario_id: str | None,
+    ) -> None:
+        if not self.config.splat_auto_train:
+            return
+        if not pose_graph_path or not pose_graph_path.exists():
+            return
+
+        now = time.time()
+        if now - self._last_splat_train_time < self.config.splat_train_interval_s:
+            return
+
+        try:
+            mtime = pose_graph_path.stat().st_mtime
+        except OSError:
+            return
+
+        if now - mtime < self.config.splat_train_min_age_s:
+            return
+        if (
+            mtime <= self._last_splat_pose_graph_mtime
+            and now - self._last_splat_train_time < self.config.splat_train_interval_s
+        ):
+            return
+
+        config = SplatTrainingConfig(
+            backend=self.config.splat_backend,
+            iterations=self.config.splat_iterations,
+            max_points=self.config.max_points,
+            min_points=self.config.min_points,
+        )
+        run_id = pose_graph_path.parent.name
+        try:
+            result = await asyncio.to_thread(
+                train_splat,
+                pose_graph_path=pose_graph_path,
+                run_id=run_id,
+                scenario_id=scenario_id,
+                config=config,
+            )
+        except Exception as exc:
+            logger.warning("splat_auto_train_failed", error=str(exc))
+            return
+
+        if not result.success or not result.scene_path:
+            logger.warning(
+                "splat_auto_train_failed",
+                error=result.error_message or "unknown_error",
+            )
+            return
+
+        try:
+            splat_data = self._read_json(result.scene_path)
+            splat_data["scene_path"] = str(result.scene_path)
+            self.server_state.splat_artifacts = splat_data
+            self._last_splat_train_time = now
+            self._last_splat_pose_graph_mtime = mtime
+            logger.info(
+                "splat_auto_train_complete",
+                backend=self.config.splat_backend,
+                run_id=run_id,
+            )
+        except Exception as exc:
+            logger.warning("splat_auto_train_scene_parse_failed", error=str(exc))
 
     @staticmethod
     def _find_latest(base_dir: Path, pattern: str) -> Path | None:

@@ -164,6 +164,8 @@ class DroneCoordinator:
         self._on_drone_update: list[Callable[[DroneAssignment], Awaitable[None]]] = []
         self._on_state_change: list[Callable[[CoordinatorState], Awaitable[None]]] = []
 
+        self._pose_warning_emitted = False
+
         logger.info(f"DroneCoordinator initialized (origin: {origin_lat}, {origin_lon})")
 
     async def connect(self) -> bool:
@@ -244,6 +246,9 @@ class DroneCoordinator:
 
         # Get drone IDs from scenario
         drone_ids = [d.drone_id for d in scenario.drones]
+
+        # Clear stale scenario assignments before auto-assigning.
+        self._vehicle_manager.reset_assignments(drone_ids)
 
         # Auto-assign drones to vehicles
         assignments = self._vehicle_manager.auto_assign_scenario_drones(drone_ids)
@@ -351,7 +356,13 @@ class DroneCoordinator:
                 if success:
                     logger.info(f"Positioned {drone_id} at NED({assignment.ned_x:.1f}, {assignment.ned_y:.1f}, {assignment.ned_z:.1f})")
                 else:
-                    logger.warning(f"Failed to position {drone_id}")
+                    pose_supported = getattr(self._vehicle_manager, "pose_supported", None)
+                    if pose_supported is False:
+                        if not self._pose_warning_emitted:
+                            logger.info("AirSim does not support simSetVehiclePose; skipping initial positioning")
+                            self._pose_warning_emitted = True
+                    else:
+                        logger.warning(f"Failed to position {drone_id}")
 
             except Exception as e:
                 logger.error(f"Error positioning {drone_id}: {e}")

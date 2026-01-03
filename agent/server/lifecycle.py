@@ -44,6 +44,7 @@ async def lifespan(_app: FastAPI):
     """
     await asyncio.sleep(0)
     config_manager = get_config_manager()
+    config_mgr = config_manager
     try:
         os.chdir(config_manager.project_root)
         logger.info("cwd_set", path=str(config_manager.project_root))
@@ -183,7 +184,9 @@ async def lifespan(_app: FastAPI):
     server_state.telemetry_logger.start_run(server_state.current_run_id)
     logger.info("server_started")
 
-    await _start_airsim_bridge()
+    if config.simulation.airsim_enabled:
+        _schedule_airsim_connect()
+        logger.info("airsim_connect_scheduled")
 
     if config.mapping.enabled:
         map_config = MapUpdateConfig(
@@ -192,19 +195,22 @@ async def lifespan(_app: FastAPI):
             prefer_splat=config.mapping.prefer_splat,
             max_map_age_s=config.mapping.max_map_age_s,
             min_quality_score=config.mapping.min_quality_score,
-            slam_dir=Path(config.mapping.slam_dir),
-            splat_dir=Path(config.mapping.splat_dir),
+            slam_dir=config_mgr.resolve_path(config.mapping.slam_dir),
+            splat_dir=config_mgr.resolve_path(config.mapping.splat_dir),
             map_resolution_m=config.mapping.map_resolution_m,
             tile_size_cells=getattr(config.mapping, "tile_size_cells", 120),
             voxel_size_m=config.mapping.voxel_size_m,
             max_points=config.mapping.max_points,
             min_points=config.mapping.min_points,
-            fused_map_dir=Path(config.mapping.fused_map_dir),
+            fused_map_dir=config_mgr.resolve_path(config.mapping.fused_map_dir),
             fused_map_max_versions=config.mapping.fused_map_max_versions,
             fused_map_max_age_days=config.mapping.fused_map_max_age_days,
             fused_map_keep_last=config.mapping.fused_map_keep_last,
             proxy_regen_interval_s=config.mapping.proxy_regen_interval_s,
             proxy_max_points=config.mapping.proxy_max_points,
+            splat_auto_train=config.mapping.splat_auto_train,
+            splat_backend=config.mapping.splat_backend,
+            splat_iterations=config.mapping.splat_iterations,
         )
         server_state.map_update_service = MapUpdateService(map_config, server_state)
         await server_state.map_update_service.start()

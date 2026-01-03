@@ -71,6 +71,26 @@ logger = logging.getLogger(__name__)
 _airsim_client: Any = None
 _airsim_client_lock = threading.Lock()
 
+TRACEABLE_AIRSIM_METHODS = {
+    "enableApiControl",
+    "armDisarm",
+    "takeoffAsync",
+    "landAsync",
+    "hoverAsync",
+    "moveToPositionAsync",
+    "moveByVelocityAsync",
+    "simEnableWeather",
+    "simSetWeatherParameter",
+    "simSetTimeOfDay",
+    "simSetWind",
+    "simSetVehiclePose",
+    "simSetVehiclePoseAsync",
+    "simSpawnObject",
+    "simDestroyObject",
+    "simSetWorldLightIntensity",
+    "simSetLightIntensity",
+}
+
 
 def _call_airsim_method(method_name: str, *args: Any, **kwargs: Any) -> Any:
     """Call a method on the global AirSim client from within the dedicated thread.
@@ -227,6 +247,32 @@ class FrameCaptureResult(BaseModel):
 
 
 @dataclass
+class AirSimCallRecord:
+    """Lightweight trace record for AirSim RPC calls."""
+
+    timestamp_ms: float
+    method: str
+    args: list[str]
+    kwargs: dict[str, str]
+    duration_ms: float
+    ok: bool
+    error: str | None
+    vehicle_name: str | None = None
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "timestamp_ms": self.timestamp_ms,
+            "method": self.method,
+            "args": self.args,
+            "kwargs": self.kwargs,
+            "duration_ms": self.duration_ms,
+            "ok": self.ok,
+            "error": self.error,
+            "vehicle_name": self.vehicle_name,
+        }
+
+
+@dataclass
 class RealtimeBridgeConfig:
     """Configuration for real-time AirSim bridge."""
 
@@ -264,11 +310,17 @@ class RealtimeBridgeConfig:
 
     # Timing
     sync_timeout_ms: float = 100.0  # Max time to wait for synchronized data
+    rpc_timeout_s: float = 10.0  # RPC call timeout to avoid hanging on connect
 
     # Landing behavior
     landing_soft_altitude_m: float = 1.5
     landing_soft_velocity_ms: float = 0.8
     landing_soft_timeout_s: float = 15.0
+
+    # AirSim call tracing (low-volume, command-focused)
+    trace_airsim_calls: bool = True
+    trace_call_history_size: int = 200
+    trace_call_max_value_len: int = 140
 
 
 # =============================================================================
@@ -334,6 +386,11 @@ class RealtimeAirSimBridge:
         self._dropped_frames = 0
         self._avg_latency_ms = 0.0
         self._latency_samples: deque[float] = deque(maxlen=100)
+
+        # AirSim call tracing
+        self._call_history: deque[AirSimCallRecord] = deque(
+            maxlen=self.config.trace_call_history_size
+        )
 
         # Battery simulation state
         self._battery_percent = float(self.config.battery_initial_percent)
@@ -511,6 +568,127 @@ class RealtimeAirSimBridge:
             or "connection" in message and "closed" in message
         )
 
+    def _summarize_value(self, value: Any) -> str:
+        if value is None or isinstance(value, (bool, int, float)):
+            return str(value)
+        if isinstance(value, str):
+            return value
+        if isinstance(value, Path):
+            return str(value)
+        if isinstance(value, (list, tuple)):
+            items = [self._summarize_value(v) for v in value[:6]]
+            if len(value) > 6:
+                items.append("...")
+            return f"[{', '.join(items)}]"
+        if hasattr(value, "x_val") and hasattr(value, "y_val") and hasattr(value, "z_val"):
+            try:
+                return f"Vector3({value.x_val:.2f}, {value.y_val:.2f}, {value.z_val:.2f})"
+            except Exception:
+                pass
+        if all(hasattr(value, attr) for attr in ("w_val", "x_val", "y_val", "z_val")):
+            try:
+                return (
+                    f"Quat({value.w_val:.2f}, {value.x_val:.2f}, "
+                    f"{value.y_val:.2f}, {value.z_val:.2f})"
+                )
+            except Exception:
+                pass
+        if hasattr(value, "position") and hasattr(value, "orientation"):
+            pos = getattr(value, "position", None)
+            ori = getattr(value, "orientation", None)
+            return f"Pose(pos={self._summarize_value(pos)}, ori={self._summarize_value(ori)})"
+        if hasattr(value, "is_rate") and hasattr(value, "yaw_or_rate"):
+            try:
+                return f"YawMode(is_rate={bool(value.is_rate)}, yaw_or_rate={float(value.yaw_or_rate):.2f})"
+            except Exception:
+                pass
+        text = repr(value)
+        return text
+
+    def _summarize_args(
+        self,
+        args: tuple[Any, ...],
+        kwargs: dict[str, Any],
+    ) -> tuple[list[str], dict[str, str]]:
+        max_len = int(self.config.trace_call_max_value_len)
+        arg_list = [self._summarize_value(arg) for arg in args]
+        kw_map = {key: self._summarize_value(val) for key, val in kwargs.items()}
+        arg_list = [val[:max_len] if len(val) > max_len else val for val in arg_list]
+        kw_map = {key: (val[:max_len] if len(val) > max_len else val) for key, val in kw_map.items()}
+        return arg_list, kw_map
+
+    def _record_airsim_call(
+        self,
+        method: str,
+        args: tuple[Any, ...],
+        kwargs: dict[str, Any],
+        duration_ms: float,
+        ok: bool,
+        error: str | None,
+    ) -> None:
+        if not self.config.trace_airsim_calls:
+            return
+        if ok and method not in TRACEABLE_AIRSIM_METHODS:
+            return
+
+        args_summary, kwargs_summary = self._summarize_args(args, kwargs)
+        record = AirSimCallRecord(
+            timestamp_ms=time.time() * 1000,
+            method=method,
+            args=args_summary,
+            kwargs=kwargs_summary,
+            duration_ms=duration_ms,
+            ok=ok,
+            error=error,
+            vehicle_name=self.config.vehicle_name,
+        )
+        self._call_history.append(record)
+
+        if not ok:
+            logger.warning(
+                "airsim_call_failed method=%s duration_ms=%.1f error=%s args=%s kwargs=%s",
+                method,
+                duration_ms,
+                error,
+                args_summary,
+                kwargs_summary,
+            )
+
+    async def _call_airsim(
+        self,
+        method: str,
+        *args: Any,
+        timeout: float | None = None,
+        record: bool = True,
+        **kwargs: Any,
+    ) -> Any:
+        start = time.perf_counter()
+        ok = True
+        error = None
+        try:
+            call = _run_in_airsim_thread(method, *args, **kwargs)
+            if timeout is not None:
+                return await asyncio.wait_for(call, timeout=timeout)
+            return await call
+        except asyncio.TimeoutError:
+            ok = False
+            error = "timeout"
+            raise
+        except Exception as exc:
+            ok = False
+            error = str(exc)
+            raise
+        finally:
+            if record:
+                duration_ms = (time.perf_counter() - start) * 1000.0
+                self._record_airsim_call(method, args, kwargs, duration_ms, ok, error)
+
+    def get_call_history(self, limit: int = 200) -> list[dict[str, object]]:
+        if limit <= 0:
+            return []
+        history = list(self._call_history)
+        return [record.to_dict() for record in history[-limit:]]
+
     async def _next_sequence(self) -> int:
         """Get next sequence number (thread-safe)."""
         async with self._sequence_lock:
@@ -536,7 +714,8 @@ class RealtimeAirSimBridge:
             # The cosysairsim library uses msgpackrpc/tornado which has its own event loop
             def _connect_and_setup() -> tuple[airsim.MultirotorClient, str, list[str], str | None, float]:
                 global _airsim_client
-                client = airsim.MultirotorClient(ip=host)
+                timeout_s = max(1.0, float(self.config.rpc_timeout_s))
+                client = airsim.MultirotorClient(ip=host, timeout_value=timeout_s)
                 client.confirmConnection()
                 vehicles: list[str] = []
                 selection_note: str | None = None
@@ -696,17 +875,17 @@ class RealtimeAirSimBridge:
             return False
 
         try:
-            await _run_in_airsim_thread("simEnableWeather", True)
-            await _run_in_airsim_thread(
+            await self._call_airsim("simEnableWeather", True)
+            await self._call_airsim(
                 "simSetWeatherParameter", airsim.WeatherParameter.Rain, rain
             )
-            await _run_in_airsim_thread(
+            await self._call_airsim(
                 "simSetWeatherParameter", airsim.WeatherParameter.Snow, snow
             )
-            await _run_in_airsim_thread(
+            await self._call_airsim(
                 "simSetWeatherParameter", airsim.WeatherParameter.Fog, fog
             )
-            await _run_in_airsim_thread(
+            await self._call_airsim(
                 "simSetWeatherParameter", airsim.WeatherParameter.Dust, dust
             )
             logger.info(
@@ -727,7 +906,7 @@ class RealtimeAirSimBridge:
 
         try:
             start_time = f"2024-06-15 {hour:02d}:00:00"
-            await _run_in_airsim_thread(
+            await self._call_airsim(
                 "simSetTimeOfDay",
                 is_enabled=is_enabled,
                 start_datetime=start_time,
@@ -751,7 +930,7 @@ class RealtimeAirSimBridge:
             north = speed_ms * math.cos(radians)
             east = speed_ms * math.sin(radians)
             wind = airsim.Vector3r(north, east, 0.0)
-            await _run_in_airsim_thread("simSetWind", wind)
+            await self._call_airsim("simSetWind", wind)
             logger.info(
                 "Wind set (realtime bridge)",
                 extra={"speed_ms": speed_ms, "direction_deg": direction_deg},
@@ -793,6 +972,7 @@ class RealtimeAirSimBridge:
         vehicle_name = self.config.vehicle_name
 
         try:
+            start = time.perf_counter()
             # Use sync version if available, otherwise async without .join()
             if hasattr(self.client, "simSetVehiclePose"):
                 def _set_pose() -> None:
@@ -809,12 +989,30 @@ class RealtimeAirSimBridge:
                     _airsim_client.simSetVehiclePoseAsync(pose, ignore_collision, vehicle_name)
                 await _run_in_airsim_thread(_set_pose_async)
                 await asyncio.sleep(0.1)  # Brief pause for pose to be applied
+            duration_ms = (time.perf_counter() - start) * 1000.0
+            self._record_airsim_call(
+                "simSetVehiclePose",
+                (north, east, down, yaw_deg, pitch_deg, roll_deg, ignore_collision),
+                {"vehicle_name": vehicle_name},
+                duration_ms,
+                True,
+                None,
+            )
             logger.info(
                 "Vehicle pose set (realtime bridge)",
                 extra={"north": north, "east": east, "down": down},
             )
             return True
         except Exception as exc:
+            duration_ms = (time.perf_counter() - start) * 1000.0 if "start" in locals() else 0.0
+            self._record_airsim_call(
+                "simSetVehiclePose",
+                (north, east, down, yaw_deg, pitch_deg, roll_deg, ignore_collision),
+                {"vehicle_name": vehicle_name},
+                duration_ms,
+                False,
+                str(exc),
+            )
             logger.error("Failed to set vehicle pose (realtime bridge): %s", exc)
             return False
 
@@ -934,16 +1132,14 @@ class RealtimeAirSimBridge:
 
             # Use simSpawnObject if available
             if hasattr(self.client, 'simSpawnObject'):
-                result = await asyncio.wait_for(
-                    _run_in_airsim_thread(
-                        "simSpawnObject",
-                        object_name,
-                        asset_name,
-                        pose,
-                        scale_vec,
-                        physics_enabled,
-                    ),
-                    timeout=5.0
+                result = await self._call_airsim(
+                    "simSpawnObject",
+                    object_name,
+                    asset_name,
+                    pose,
+                    scale_vec,
+                    physics_enabled,
+                    timeout=5.0,
                 )
                 if result:
                     logger.info(f"Spawned object '{object_name}' at NED({north:.1f}, {east:.1f}, {down:.1f})")
@@ -976,9 +1172,10 @@ class RealtimeAirSimBridge:
 
         try:
             if hasattr(self.client, 'simDestroyObject'):
-                result = await asyncio.wait_for(
-                    _run_in_airsim_thread("simDestroyObject", object_name),
-                    timeout=5.0
+                result = await self._call_airsim(
+                    "simDestroyObject",
+                    object_name,
+                    timeout=5.0,
                 )
                 if result:
                     logger.info(f"Destroyed object '{object_name}'")
@@ -1130,13 +1327,22 @@ class RealtimeAirSimBridge:
                         results["total_success"] += 1
                         # Try to set light intensity
                         try:
-                            await _run_in_airsim_thread(
-                                "simSetLightIntensity",
+                            await self._call_airsim(
+                                "simSetWorldLightIntensity",
                                 f"Dock_Light_{label}",
-                                100.0
+                                100.0,
+                                timeout=5.0,
                             )
                         except Exception:
-                            pass  # Light intensity API may not be available
+                            try:
+                                await self._call_airsim(
+                                    "simSetLightIntensity",
+                                    f"Dock_Light_{label}",
+                                    100.0,
+                                    timeout=5.0,
+                                )
+                            except Exception:
+                                pass  # Light intensity API may not be available
                 except Exception as e:
                     logger.debug(f"Could not spawn light {label}: {e}")
 
@@ -1364,16 +1570,20 @@ class RealtimeAirSimBridge:
 
         try:
             # Enable API control first (with timeout)
-            await asyncio.wait_for(
-                _run_in_airsim_thread("enableApiControl", True, self.config.vehicle_name),
-                timeout=5.0
+            await self._call_airsim(
+                "enableApiControl",
+                True,
+                self.config.vehicle_name,
+                timeout=5.0,
             )
             logger.info("API control enabled")
 
             # Then arm (with timeout)
-            await asyncio.wait_for(
-                _run_in_airsim_thread("armDisarm", True, self.config.vehicle_name),
-                timeout=5.0
+            await self._call_airsim(
+                "armDisarm",
+                True,
+                self.config.vehicle_name,
+                timeout=5.0,
             )
             logger.info("Drone armed")
             return True
@@ -1394,9 +1604,11 @@ class RealtimeAirSimBridge:
             return False
 
         try:
-            await asyncio.wait_for(
-                _run_in_airsim_thread("armDisarm", False, self.config.vehicle_name),
-                timeout=5.0
+            await self._call_airsim(
+                "armDisarm",
+                False,
+                self.config.vehicle_name,
+                timeout=5.0,
             )
             logger.info("Drone disarmed")
             return True
@@ -1432,10 +1644,11 @@ class RealtimeAirSimBridge:
             logger.info(f"Taking off to {altitude}m AGL")
 
             # Start takeoff (non-blocking) - wrap in thread to avoid blocking
-            await _run_in_airsim_thread(
+            await self._call_airsim(
                 "takeoffAsync",
                 timeout_sec=timeout,
-                vehicle_name=self.config.vehicle_name
+                vehicle_name=self.config.vehicle_name,
+                timeout=5.0,
             )
 
             # Wait for takeoff to complete by checking altitude directly (with timeouts)
@@ -1525,10 +1738,11 @@ class RealtimeAirSimBridge:
                 logger.warning("Soft landing pre-descent skipped: %s", exc)
 
             # Start land command (non-blocking) - wrap in thread
-            await _run_in_airsim_thread(
+            await self._call_airsim(
                 "landAsync",
                 timeout_sec=timeout,
-                vehicle_name=self.config.vehicle_name
+                vehicle_name=self.config.vehicle_name,
+                timeout=5.0,
             )
 
             # Wait for landing by polling altitude with timeouts
@@ -1551,7 +1765,18 @@ class RealtimeAirSimBridge:
                     logger.warning(f"Error checking altitude during landing: {e}")
                 await asyncio.sleep(0.3)
 
-            logger.warning("Landing timed out")
+            try:
+                state = await asyncio.wait_for(
+                    _run_in_airsim_thread("getMultirotorState", vehicle_name=self.config.vehicle_name),
+                    timeout=3.0,
+                )
+                current_alt = -state.kinematics_estimated.position.z_val
+                if state.landed_state == airsim.LandedState.Landed or current_alt < 0.5:
+                    logger.info("Landing complete, altitude: %.2fm", current_alt)
+                else:
+                    logger.warning("Landing timed out")
+            except Exception as exc:
+                logger.warning("Landing timed out: %s", exc)
             await self.disarm()
             return True  # Probably landed anyway
 
@@ -1570,8 +1795,10 @@ class RealtimeAirSimBridge:
 
         try:
             # Send hover command (non-blocking) - wrap in thread
-            await _run_in_airsim_thread(
-                "hoverAsync", vehicle_name=self.config.vehicle_name
+            await self._call_airsim(
+                "hoverAsync",
+                vehicle_name=self.config.vehicle_name,
+                timeout=5.0,
             )
             logger.debug("Hover command sent")
             return True
@@ -1630,9 +1857,11 @@ class RealtimeAirSimBridge:
 
         try:
             # Ensure API control is enabled (with timeout)
-            await asyncio.wait_for(
-                _run_in_airsim_thread("enableApiControl", True, self.config.vehicle_name),
-                timeout=5.0
+            await self._call_airsim(
+                "enableApiControl",
+                True,
+                self.config.vehicle_name,
+                timeout=5.0,
             )
 
             # Get current position to calculate yaw toward target (with timeout)
@@ -1681,13 +1910,17 @@ class RealtimeAirSimBridge:
             )
 
             # Start the move command (non-blocking) - wrap in thread
-            await _run_in_airsim_thread(
+            await self._call_airsim(
                 "moveToPositionAsync",
-                x, y, z, velocity,
+                x,
+                y,
+                z,
+                velocity,
                 timeout_sec=timeout,
                 drivetrain=drivetrain_mode,
                 yaw_mode=yaw_mode_obj,
-                vehicle_name=self.config.vehicle_name
+                vehicle_name=self.config.vehicle_name,
+                timeout=5.0,
             )
 
             # Wait for arrival by polling position with timeouts
@@ -1754,12 +1987,16 @@ class RealtimeAirSimBridge:
 
         try:
             # Send velocity command (non-blocking) - wrap in thread
-            await _run_in_airsim_thread(
+            await self._call_airsim(
                 "moveByVelocityAsync",
-                vx, vy, vz, duration,
+                vx,
+                vy,
+                vz,
+                duration,
                 drivetrain=airsim.DrivetrainType.MaxDegreeOfFreedom,
                 yaw_mode=airsim.YawMode(is_rate=False, yaw_or_rate=0.0),
-                vehicle_name=self.config.vehicle_name
+                vehicle_name=self.config.vehicle_name,
+                timeout=5.0,
             )
 
             # Wait for the duration

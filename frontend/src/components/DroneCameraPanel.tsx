@@ -66,6 +66,43 @@ const DroneCameraPanel = ({
   // Refs
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimeoutRef = useRef<number | null>(null);
+  const mainWsRef = useRef<WebSocket | null>(null);
+
+  // Reset camera state
+  const resetCameraState = useCallback(() => {
+    setSelectedDroneId(null);
+    setFrames({});
+    setStreamingDrones(new Set());
+    setError(null);
+  }, []);
+
+  // Listen for scenario reset events on main WebSocket
+  useEffect(() => {
+    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+    const ws = new WebSocket(`${protocol}//${window.location.host}/ws`);
+    mainWsRef.current = ws;
+
+    ws.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        const eventType = (data.event_type || data.event || "").toLowerCase();
+        if (
+          eventType === "scenario_stopped" ||
+          eventType === "scenario_complete" ||
+          eventType === "scenario_reset" ||
+          eventType === "scenario_failed"
+        ) {
+          resetCameraState();
+        }
+      } catch {
+        // Ignore parse errors
+      }
+    };
+
+    return () => {
+      ws.close();
+    };
+  }, [resetCameraState]);
 
   // Auto-select first drone if none selected
   useEffect(() => {
@@ -231,16 +268,20 @@ const DroneCameraPanel = ({
     <div className="drone-camera-panel">
       {/* Header */}
       <div className="camera-panel-header">
-        <h2>Drone Camera Views</h2>
+        <div>
+          <h2>Live Camera Feeds</h2>
+          <p className="camera-description">Real-time POV from active drones in the mission</p>
+        </div>
         <div className="camera-status">
           <span
             className={`status-dot ${wsConnected ? "connected" : "disconnected"}`}
+            title={wsConnected ? "WebSocket connected" : "WebSocket disconnected"}
           />
-          <span>
+          <span title="AirSim simulation bridge status">
             {cameraStatus?.bridge_connected ? "AirSim Connected" : "AirSim Offline"}
           </span>
           {streamingDrones.size > 0 && (
-            <span className="stream-count">
+            <span className="stream-count" title="Number of active video streams">
               {streamingDrones.size} streaming
             </span>
           )}
@@ -318,7 +359,11 @@ const DroneCameraPanel = ({
           </>
         ) : (
           <div className="camera-placeholder main">
-            <span>No drone selected</span>
+            <div className="empty-state">
+              <span className="empty-state-icon">&#128247;</span>
+              <p className="empty-state-title">No Camera Feed</p>
+              <p className="empty-state-desc">Start a scenario to view live drone camera feeds.</p>
+            </div>
           </div>
         )}
       </div>

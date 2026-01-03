@@ -101,6 +101,9 @@ class ServerState:
         self.airsim_bridge = None
         self.airsim_broadcaster = None
         self.airsim_connect_task: asyncio.Task | None = None
+        self.airsim_restart_task: asyncio.Task | None = None
+        self.airsim_last_restart_at: float | None = None
+        self.airsim_launch_initiated = False
         self.airsim_last_error: str | None = None
         self.airsim_env_last: dict[str, object] = {}
 
@@ -140,6 +143,7 @@ class ServerState:
         self.last_depth_capture: dict[str, object] | None = None
         self.last_vision_observation: dict[str, object] | None = None
         self.airsim_depth_mapping_task: asyncio.Task | None = None
+        self.preflight_task: asyncio.Task | None = None
 
         # Map gate history (Agent B Phase 6)
         self.map_gate_history: list[dict] = []  # Recent gate check results

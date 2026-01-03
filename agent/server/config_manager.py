@@ -8,7 +8,7 @@ import logging
 import os
 import secrets
 from datetime import datetime
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 
 import yaml
 from pydantic import BaseModel, Field
@@ -20,6 +20,23 @@ logger = logging.getLogger(__name__)
 # =============================================================================
 DEFAULT_SERVER_PORT = 8090
 DEFAULT_WEBSOCKET_PATH = "/ws/unreal"
+
+
+def _is_wsl() -> bool:
+    return bool(os.environ.get("WSL_DISTRO_NAME") or os.environ.get("WSL_INTEROP"))
+
+
+def _normalize_wsl_unc_path(path_str: str) -> str | None:
+    if not _is_wsl():
+        return None
+    lower = path_str.lower()
+    if not (lower.startswith("\\\\wsl.localhost\\") or lower.startswith("\\\\wsl$\\")):
+        return None
+    win_path = PureWindowsPath(path_str)
+    if len(win_path.parts) < 2:
+        return None
+    linux_path = Path("/").joinpath(*win_path.parts[1:])
+    return str(linux_path)
 
 def get_default_server_url(host: str = "localhost", port: int | None = None) -> str:
     """Get the default server URL."""
@@ -88,6 +105,10 @@ class SimulationSettings(BaseModel):
     airsim_enabled: bool = Field(default=True, description="Enable AirSim integration")
     airsim_host: str = Field(default="127.0.0.1")
     airsim_vehicle_name: str = Field(default="Drone1", description="Primary vehicle (legacy)")
+    airsim_vehicle_type: str = Field(
+        default="SimpleFlight",
+        description="Vehicle type for AirSim settings.json (SimpleFlight, ArduCopter)",
+    )
 
     # Multi-drone vehicle mapping: scenario drone_id -> AirSim vehicle name
     # Example: {"alpha": "Drone1", "bravo": "Drone2", "charlie": "Drone3"}
@@ -100,8 +121,30 @@ class SimulationSettings(BaseModel):
     # Maximum number of drones to support (for auto-spawning if needed)
     max_drones: int = Field(default=4, description="Maximum concurrent drones")
 
+    # AirSim settings.json management
+    airsim_settings_path: str | None = Field(
+        default=None,
+        description="Path to AirSim settings.json (optional)",
+    )
+    airsim_auto_update_settings: bool = Field(
+        default=True,
+        description="Auto-update AirSim settings.json when config or scenarios change",
+    )
+    airsim_auto_restart_on_scenario_change: bool = Field(
+        default=True,
+        description="Auto-restart AirSim when scenario change updates settings.json",
+    )
+    require_fleet_for_multi_drone: bool = Field(
+        default=True,
+        description="Require multi-drone fleet bridge to start multi-drone scenarios",
+    )
+
     # SITL settings
     sitl_enabled: bool = Field(default=False, description="Enable ArduPilot SITL")
+    sitl_multi_vehicle: bool = Field(
+        default=False,
+        description="Enable multi-vehicle SITL (generate multiple ArduCopter entries)",
+    )
     ardupilot_path: str = Field(default="~/ardupilot")
     sitl_speedup: float = Field(default=1.0, description="Simulation speed multiplier")
 
@@ -233,6 +276,10 @@ class MappingSettings(BaseModel):
     splat_backend: str = Field(default="stub", description="Splat training backend: stub, gsplat, nerfstudio")
     splat_iterations: int = Field(default=7000, description="Training iterations for real backends")
     splat_auto_train: bool = Field(default=False, description="Auto-train splat after SLAM capture")
+    reset_on_scenario_start: bool = Field(
+        default=True,
+        description="Clear mapping artifacts and in-memory map state when a scenario starts",
+    )
 
     # Preflight mapping pass
     preflight_enabled: bool = Field(default=True, description="Run preflight map pass before targets")
@@ -380,6 +427,9 @@ class ConfigManager:
         Returns:
             Resolved absolute path
         """
+        normalized = _normalize_wsl_unc_path(path_str)
+        if normalized:
+            return Path(normalized)
         path = Path(path_str)
         if path.is_absolute():
             return path
@@ -576,7 +626,29 @@ class ConfigManager:
             "AEGIS_SIM_ENABLED": ("simulation", "enabled", self._parse_bool),
             "AEGIS_AIRSIM_ENABLED": ("simulation", "airsim_enabled", self._parse_bool),
             "AEGIS_AIRSIM_HOST": ("simulation", "airsim_host"),
+            "AEGIS_AIRSIM_SETTINGS_PATH": ("simulation", "airsim_settings_path"),
+            "AEGIS_AIRSIM_AUTO_UPDATE_SETTINGS": (
+                "simulation",
+                "airsim_auto_update_settings",
+                self._parse_bool,
+            ),
+            "AEGIS_AIRSIM_VEHICLE_TYPE": ("simulation", "airsim_vehicle_type"),
+            "AEGIS_AIRSIM_AUTO_RESTART_ON_SCENARIO_CHANGE": (
+                "simulation",
+                "airsim_auto_restart_on_scenario_change",
+                self._parse_bool,
+            ),
+            "AEGIS_REQUIRE_FLEET_FOR_MULTI_DRONE": (
+                "simulation",
+                "require_fleet_for_multi_drone",
+                self._parse_bool,
+            ),
             "AEGIS_SITL_ENABLED": ("simulation", "sitl_enabled", self._parse_bool),
+            "AEGIS_SITL_MULTI_VEHICLE": (
+                "simulation",
+                "sitl_multi_vehicle",
+                self._parse_bool,
+            ),
             "AEGIS_ARDUPILOT_PATH": ("simulation", "ardupilot_path"),
             # Server
             "AEGIS_HOST": ("server", "host"),

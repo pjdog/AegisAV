@@ -37,11 +37,14 @@ logger = structlog.get_logger(__name__)
 async def _camera_stream_loop(drone_id: str, fps: float = 10.0) -> None:
     """Background task that captures and broadcasts camera frames."""
     interval = 1.0 / fps
-    bridge = server_state.airsim_bridge
 
     while drone_id in server_state.camera_streaming:
         try:
             start = time.perf_counter()
+
+            bridge = server_state.airsim_bridge
+            if server_state.fleet_bridge_enabled and server_state.fleet_bridge:
+                bridge = server_state.fleet_bridge.get_bridge(drone_id) or bridge
 
             if bridge and bridge.connected:
                 frame_result = await bridge.capture_frame_synchronized(include_image=True)
@@ -102,6 +105,32 @@ async def get_airsim_environment() -> dict:
         "current": server_state.airsim_env_last,
         "bridge_connected": _airsim_bridge_connected(),
         "precipitation_types": list(PRECIPITATION_MAP.keys()),
+    }
+
+
+async def get_airsim_trace(
+    drone_id: str | None = None,
+    limit: int = 200,
+    _auth: dict = Depends(auth_handler),
+) -> dict:
+    """Return recent AirSim call traces for debugging."""
+    bridge = server_state.airsim_bridge
+    if server_state.fleet_bridge_enabled and server_state.fleet_bridge and drone_id:
+        bridge = server_state.fleet_bridge.get_bridge(drone_id) or bridge
+
+    if not bridge:
+        return {
+            "trace": [],
+            "reason": "no_bridge",
+            "drone_id": drone_id,
+        }
+
+    safe_limit = max(0, min(int(limit), 1000))
+    return {
+        "trace": bridge.get_call_history(limit=safe_limit),
+        "vehicle_name": bridge.config.vehicle_name,
+        "connected": bridge.connected,
+        "drone_id": drone_id or bridge.config.vehicle_name,
     }
 
 
@@ -440,6 +469,14 @@ async def start_camera_stream(
         }
 
     bridge = server_state.airsim_bridge
+    if server_state.fleet_bridge_enabled and server_state.fleet_bridge:
+        bridge = server_state.fleet_bridge.get_bridge(drone_id)
+        if bridge is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Drone not available for streaming: {drone_id}",
+            )
+
     if not bridge or not bridge.connected:
         raise HTTPException(
             status_code=503,
@@ -538,7 +575,15 @@ async def get_camera_status() -> dict:
     bridge = server_state.airsim_bridge
 
     available_vehicles: list[str] = []
-    if bridge and hasattr(bridge, "vehicle_names"):
+    bridge_connected = bridge is not None and bridge.connected
+    fleet_state: str | None = None
+    if server_state.fleet_bridge_enabled and server_state.fleet_bridge:
+        available_vehicles = server_state.fleet_bridge.get_drone_ids()
+        fleet_state = getattr(server_state.fleet_bridge, "state", None)
+        if fleet_state is not None:
+            fleet_state = getattr(fleet_state, "value", str(fleet_state))
+        bridge_connected = fleet_state == "ready"
+    elif bridge and hasattr(bridge, "vehicle_names"):
         available_vehicles = list(bridge.vehicle_names)
     elif scenario_runner_state.runner and scenario_runner_state.runner.scenario:
         available_vehicles = [
@@ -546,7 +591,8 @@ async def get_camera_status() -> dict:
         ]
 
     return {
-        "bridge_connected": bridge is not None and bridge.connected,
+        "bridge_connected": bridge_connected,
+        "fleet_state": fleet_state,
         "active_streams": list(server_state.camera_streaming.keys()),
         "stream_sequences": dict(server_state.camera_stream_sequence),
         "unreal_clients": unreal_manager.active_connections,
@@ -779,6 +825,7 @@ def register_airsim_routes(app: FastAPI) -> None:
     """Register AirSim, Unreal, and camera routes."""
     app.get("/api/airsim/status")(get_airsim_status)
     app.get("/api/airsim/environment")(get_airsim_environment)
+    app.get("/api/airsim/trace")(get_airsim_trace)
     app.post("/api/airsim/scene/sync")(sync_airsim_scene)
     app.post("/api/unreal/sync-scene")(sync_unreal_scene)
     app.get("/api/unreal/scene-state")(get_unreal_scene_state)

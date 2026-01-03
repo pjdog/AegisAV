@@ -317,6 +317,22 @@ async def _process_state(state: VehicleStateRequest, *, source: str) -> Decision
                 "risk_level": risk.overall_level.value,
                 "risk_score": risk.overall_score,
                 "battery_percent": snapshot.vehicle.battery.remaining_percent,
+                "reasoning_context": {
+                    "available_assets": len(getattr(snapshot, "assets", []) or []),
+                    "pending_inspections": len(
+                        snapshot.get_pending_assets() if hasattr(snapshot, "get_pending_assets") else []
+                    ),
+                    "fleet_in_progress": 0,
+                    "fleet_completed": getattr(snapshot.mission, "assets_inspected", 0)
+                    if getattr(snapshot, "mission", None)
+                    else 0,
+                    "battery_ok": snapshot.vehicle.battery.remaining_percent > 25,
+                    "battery_percent": snapshot.vehicle.battery.remaining_percent,
+                    "weather_ok": (
+                        getattr(getattr(snapshot, "environment", None), "wind_speed_ms", 0.0) < 12
+                    ),
+                    "wind_speed": getattr(getattr(snapshot, "environment", None), "wind_speed_ms", 0.0),
+                },
                 "target_asset": (
                     {
                         "asset_id": goal.target_asset.asset_id,

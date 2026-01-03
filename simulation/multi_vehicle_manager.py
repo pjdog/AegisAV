@@ -148,12 +148,14 @@ class MultiVehicleManager:
         self.host = host
         self.connected = False
         self.auto_assign = auto_assign
+        self.pose_supported: bool | None = None
 
         # Vehicle storage
         self._vehicles: dict[str, ManagedVehicle] = {}  # airsim_name -> ManagedVehicle
 
         # Mapping: scenario_drone_id -> airsim_name
-        self._drone_to_vehicle: dict[str, str] = vehicle_mapping.copy() if vehicle_mapping else {}
+        self._config_mapping: dict[str, str] = vehicle_mapping.copy() if vehicle_mapping else {}
+        self._drone_to_vehicle: dict[str, str] = self._config_mapping.copy()
 
         # Reverse mapping: airsim_name -> scenario_drone_id
         self._vehicle_to_drone: dict[str, str] = {}
@@ -166,6 +168,35 @@ class MultiVehicleManager:
         self._on_vehicle_state_change: list[Callable[[ManagedVehicle], Awaitable[None]]] = []
 
         logger.info(f"MultiVehicleManager initialized (host={host}, auto_assign={auto_assign})")
+
+    def reset_assignments(self, scenario_drone_ids: list[str] | None = None) -> None:
+        """Clear scenario-specific assignments while preserving config mappings."""
+        if scenario_drone_ids:
+            config_mapping = {
+                drone_id: vehicle_name
+                for drone_id, vehicle_name in self._config_mapping.items()
+                if drone_id in scenario_drone_ids and vehicle_name in self._vehicles
+            }
+        else:
+            config_mapping = {
+                drone_id: vehicle_name
+                for drone_id, vehicle_name in self._config_mapping.items()
+                if vehicle_name in self._vehicles
+            }
+
+        self._drone_to_vehicle = config_mapping.copy()
+        self._vehicle_to_drone = {vehicle_name: drone_id for drone_id, vehicle_name in config_mapping.items()}
+
+        for vehicle in self._vehicles.values():
+            mapped_drone = self._vehicle_to_drone.get(vehicle.airsim_name)
+            if mapped_drone:
+                vehicle.scenario_drone_id = mapped_drone
+                vehicle.state = VehicleState.ASSIGNED
+                vehicle.assigned_at = datetime.now()
+            else:
+                vehicle.scenario_drone_id = None
+                vehicle.state = VehicleState.AVAILABLE
+                vehicle.assigned_at = None
 
     async def connect(self) -> bool:
         """Connect to AirSim and discover vehicles.
@@ -263,6 +294,15 @@ class MultiVehicleManager:
                         return []
 
             vehicle_names = await loop.run_in_executor(_multi_vehicle_executor, _list_vehicles)
+
+            current_names = set(vehicle_names)
+            stale_names = [name for name in self._vehicles if name not in current_names]
+            for name in stale_names:
+                removed = self._vehicles.pop(name, None)
+                if removed and removed.scenario_drone_id:
+                    self._drone_to_vehicle.pop(removed.scenario_drone_id, None)
+                self._vehicle_to_drone.pop(name, None)
+                logger.info(f"Removed stale vehicle: {name}")
 
             # Create/update ManagedVehicle for each discovered vehicle
             for name in vehicle_names:
@@ -742,10 +782,20 @@ class MultiVehicleManager:
                             airsim.Vector3r(x, y, z),
                             airsim.to_quaternion(0, 0, math.radians(yaw_deg))
                         )
-                        _airsim_client.simSetVehiclePose(
-                            pose, ignore_collision, vehicle.airsim_name
-                        )
-                        return True
+                        if hasattr(_airsim_client, "simSetVehiclePose"):
+                            _airsim_client.simSetVehiclePose(
+                                pose, ignore_collision, vehicle.airsim_name
+                            )
+                            self.pose_supported = True
+                            return True
+                        if hasattr(_airsim_client, "simSetVehiclePoseAsync"):
+                            _airsim_client.simSetVehiclePoseAsync(
+                                pose, ignore_collision, vehicle.airsim_name
+                            )
+                            self.pose_supported = True
+                            return True
+                        self.pose_supported = False
+                        return False
                     return False
 
             result = await loop.run_in_executor(_multi_vehicle_executor, _set_pose)

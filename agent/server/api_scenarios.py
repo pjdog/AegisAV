@@ -2093,6 +2093,9 @@ def register_scenario_routes(app: FastAPI) -> None:
                             logger.warning(
                                 "scenario_runner_cancel_timeout", scenario_id=scenario_id
                             )
+                        except asyncio.CancelledError:
+                            # Expected when cancelling the task
+                            pass
                         except Exception as exc:
                             logger.warning(
                                 "scenario_runner_cancel_failed",

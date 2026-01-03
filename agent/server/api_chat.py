@@ -234,8 +234,10 @@ Keep responses concise and focused on the mission context. Use technical but acc
             )
 
         result = await agent.run(user_message)
-        logger.info("ai_chat_response_generated", response_length=len(result.data or ""))
-        return result.data
+        # pydantic_ai uses .output for the result, not .data
+        response_text = str(result.output) if result.output else None
+        logger.info("ai_chat_response_generated", response_length=len(response_text or ""))
+        return response_text
     except Exception as exc:
         logger.exception("ai_chat_response_failed", error=str(exc))
         return None
